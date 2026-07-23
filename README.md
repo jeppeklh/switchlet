@@ -3,8 +3,9 @@
 Switchlet is a small terminal application for safely switching named
 configuration profiles.
 
-Version 0.1 supports one concrete workflow:
+The current implementation supports one concrete target workflow:
 
+- create `.switchlet.yaml` with `switchlet init`
 - discover `.switchlet.yaml`
 - inspect configured profiles
 - apply one selected profile to an ASP.NET `appsettings.Development.json`
@@ -34,14 +35,17 @@ This creates a local `./switchlet` binary in the repository root.
 
 ## Quick Start
 
-1. Create `.switchlet.yaml` in your project.
-2. Point `target.file` at the existing
-   `appsettings.Development.json` file.
-3. Configure one or more profiles.
-4. Run `switchlet` from the project root or any nested directory.
+1. Run `switchlet init` from your project root.
+2. Enter the existing `appsettings.Development.json` path.
+3. Choose the existing connection name from `ConnectionStrings`.
+4. Enter one or more profiles.
+5. Run `switchlet` from the project root or any nested directory.
    If you used the local build instead of `go install`, run `./switchlet`
    from the directory where you built it.
-5. Inspect a profile if needed, then apply it.
+6. Inspect a profile if needed, then apply it.
+
+Manual `.switchlet.yaml` authoring is still supported when you prefer to
+manage the file yourself.
 
 ## Configuration Example
 
@@ -114,6 +118,7 @@ From protected confirmation:
 Open a terminal inside Neovim and run:
 
 ```bash
+switchlet init
 switchlet
 ```
 
@@ -147,7 +152,6 @@ Version 0.1 supports only:
 Version 0.1 does not support:
 
 - profile editing
-- profile creation
 - multiple simultaneous target updates
 - additional configuration formats
 - secret-manager integrations

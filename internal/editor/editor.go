@@ -3,6 +3,7 @@ package editor
 import (
 	"fmt"
 	"os"
+	"sort"
 )
 
 // ValidateConnectionStringTarget verifies that the configured target file exists
@@ -33,6 +34,47 @@ func ValidateConnectionStringTarget(targetPath string, connectionName string) er
 	}
 
 	return nil
+}
+
+// ListConnectionStringNames returns the existing string-valued connection names
+// from the target file's ConnectionStrings object.
+func ListConnectionStringNames(targetPath string) ([]string, error) {
+	if targetPath == "" {
+		return nil, fmt.Errorf("target path must be set")
+	}
+
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		return nil, fmt.Errorf("stat target file %q: %w", targetPath, err)
+	}
+	if targetInfo.IsDir() {
+		return nil, fmt.Errorf("target file %q is a directory", targetPath)
+	}
+
+	contents, err := os.ReadFile(targetPath)
+	if err != nil {
+		return nil, fmt.Errorf("read target file %q: %w", targetPath, err)
+	}
+
+	_, connectionStringsObject, err := parseConnectionStringsObject(contents)
+	if err != nil {
+		return nil, fmt.Errorf("inspect target file %q: %w", targetPath, err)
+	}
+
+	connectionNames := make([]string, 0, len(connectionStringsObject))
+	for connectionName, connectionValue := range connectionStringsObject {
+		if _, ok := connectionValue.(string); ok {
+			connectionNames = append(connectionNames, connectionName)
+		}
+	}
+
+	if len(connectionNames) == 0 {
+		return nil, fmt.Errorf("inspect target file %q: ConnectionStrings does not contain any string-valued connection strings", targetPath)
+	}
+
+	sort.Strings(connectionNames)
+
+	return connectionNames, nil
 }
 
 // UpdateConnectionString replaces one configured connection string and writes the updated JSON safely.

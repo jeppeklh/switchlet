@@ -3,9 +3,46 @@ package editor
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
+
+func TestListConnectionStringNames_ReturnsSortedStringValuedConnectionNames(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+{
+  "ConnectionStrings": {
+    "Reporting": "Server=localhost;Database=Reporting;",
+    "DefaultConnection": "Server=localhost;Database=App;",
+    "RetryCount": 3
+  }
+}
+`)+"\n")
+
+	connectionNames, err := ListConnectionStringNames(targetPath)
+	if err != nil {
+		t.Fatalf("ListConnectionStringNames returned error: %v", err)
+	}
+
+	wantConnectionNames := []string{"DefaultConnection", "Reporting"}
+	if !reflect.DeepEqual(connectionNames, wantConnectionNames) {
+		t.Fatalf("connection names = %#v, want %#v", connectionNames, wantConnectionNames)
+	}
+}
+
+func TestListConnectionStringNames_ReturnsErrorWhenNoStringValuedConnectionsExist(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", `{"ConnectionStrings":{"RetryCount":3}}`)
+
+	_, err := ListConnectionStringNames(targetPath)
+	if err == nil {
+		t.Fatal("ListConnectionStringNames returned nil error, want no-string-connections error")
+	}
+	if !strings.Contains(err.Error(), "does not contain any string-valued connection strings") {
+		t.Fatalf("ListConnectionStringNames returned error %q, want no-string-connections error", err)
+	}
+}
 
 func TestUpdateConnectionString_ReplacesConfiguredConnectionAndPreservesOtherValues(t *testing.T) {
 	projectRoot := t.TempDir()

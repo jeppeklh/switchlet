@@ -24,6 +24,23 @@ func replaceConnectionString(contents []byte, connectionName string, replacement
 }
 
 func parseConnectionStringTarget(contents []byte, connectionName string) (map[string]any, map[string]any, error) {
+	rootObject, connectionStringsObject, err := parseConnectionStringsObject(contents)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	connectionValue, ok := connectionStringsObject[connectionName]
+	if !ok {
+		return nil, nil, fmt.Errorf("does not contain connection string %q", connectionName)
+	}
+	if _, ok := connectionValue.(string); !ok {
+		return nil, nil, fmt.Errorf("connection string %q must be a string", connectionName)
+	}
+
+	return rootObject, connectionStringsObject, nil
+}
+
+func parseConnectionStringsObject(contents []byte) (map[string]any, map[string]any, error) {
 	decodedDocument, err := parseJSONDocument(contents)
 	if err != nil {
 		return nil, nil, fmt.Errorf("contains invalid JSON: %w", err)
@@ -42,14 +59,6 @@ func parseConnectionStringTarget(contents []byte, connectionName string) (map[st
 	connectionStringsObject, ok := connectionStringsValue.(map[string]any)
 	if !ok {
 		return nil, nil, fmt.Errorf("ConnectionStrings must be an object")
-	}
-
-	connectionValue, ok := connectionStringsObject[connectionName]
-	if !ok {
-		return nil, nil, fmt.Errorf("does not contain connection string %q", connectionName)
-	}
-	if _, ok := connectionValue.(string); !ok {
-		return nil, nil, fmt.Errorf("connection string %q must be a string", connectionName)
 	}
 
 	return rootObject, connectionStringsObject, nil
