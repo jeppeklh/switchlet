@@ -14,6 +14,14 @@ The current implementation supports one concrete target workflow:
 
 Authoritative project documentation lives under `docs/`.
 
+## Status
+
+- Version `v0.1.0` is complete and ready to tag.
+- Next planned development is Version `0.2`.
+- Version `0.2` is planned to focus on command-line automation on the
+  existing ASP.NET target: non-interactive profile commands and
+  preview/dry-run support.
+
 ## Installation
 
 Install the binary into your Go bin directory:
@@ -169,7 +177,7 @@ go mod verify
 
 ## Release Checklist
 
-Before tagging Version 0.1:
+Before tagging `v0.1.0`:
 
 1. Run all development commands successfully.
 2. Verify the terminal workflow manually: list, inspection, protected
