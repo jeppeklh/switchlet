@@ -2,11 +2,9 @@ package config
 
 // Config is a validated Switchlet configuration loaded from .switchlet.yaml.
 type Config struct {
-	ConfigPath  string
-	ProjectRoot string
-	Version     int
-	Target      Target
-	Profiles    []Profile
+	Version  int
+	Target   Target
+	Profiles []Profile
 }
 
 // Target defines the resolved file and connection string Switchlet operates on.

@@ -16,9 +16,16 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case applyCompletedMsg:
 		return model.handleApplyCompleted(message)
+	case tea.WindowSizeMsg:
+		model.width = message.Width
+		model.height = message.Height
+		return model, nil
 	case tea.KeyMsg:
 		if matchesKey(message, keyCtrlC) {
 			return model, tea.Quit
+		}
+		if model.isTerminalTooSmall() {
+			return model.handleTooSmallTerminalKey(message)
 		}
 
 		switch model.state {
@@ -35,6 +42,30 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		default:
 			return model, nil
 		}
+	default:
+		return model, nil
+	}
+}
+
+func (model Model) handleTooSmallTerminalKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case matchesKey(message, keyQuit):
+		switch model.state {
+		case inspectState, confirmState:
+			model.state = listState
+			return model, nil
+		case errorState, listState, successState:
+			return model, tea.Quit
+		default:
+			return model, nil
+		}
+	case matchesKey(message, keyEscape):
+		switch model.state {
+		case inspectState, confirmState:
+			model.state = listState
+		}
+
+		return model, nil
 	default:
 		return model, nil
 	}

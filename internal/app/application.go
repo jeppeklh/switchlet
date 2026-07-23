@@ -14,19 +14,14 @@ type Application struct {
 	profiles []config.Profile
 }
 
-// New creates an application service.
-func New() Application {
-	return Application{}
-}
-
-// WithConfig returns an application service configured with one target and its profiles.
-func (application Application) WithConfig(target config.Target, profiles []config.Profile) Application {
+// New creates an application service configured with one target and its profiles.
+func New(target config.Target, profiles []config.Profile) Application {
 	configuredProfiles := append([]config.Profile(nil), profiles...)
 
-	application.target = target
-	application.profiles = configuredProfiles
-
-	return application
+	return Application{
+		target:   target,
+		profiles: configuredProfiles,
+	}
 }
 
 // Profiles returns the configured profiles with resolved availability and display status.
@@ -39,7 +34,7 @@ func (application Application) Profiles() []ProfileItem {
 			Name:                    resolvedProfile.Name,
 			Protected:               resolvedProfile.Protected,
 			Available:               resolvedProfile.IsAvailable(),
-			Source:                  resolvedProfile.Source,
+			Source:                  profileSource(resolvedProfile.Source),
 			EnvironmentVariableName: resolvedProfile.EnvironmentVariableName,
 			MaskedValue:             resolvedProfile.MaskedValue,
 		}
@@ -53,6 +48,15 @@ func (application Application) Profiles() []ProfileItem {
 	return items
 }
 
+// ValidateStartup verifies that the configured target is valid before the UI starts.
+func (application Application) ValidateStartup() error {
+	if err := editor.ValidateConnectionStringTarget(application.target.File, application.target.ConnectionName); err != nil {
+		return fmt.Errorf("validate configured target: %w", err)
+	}
+
+	return nil
+}
+
 // ApplyProfileByName resolves and applies one configured profile owned by the application.
 func (application Application) ApplyProfileByName(profileName string) (Result, error) {
 	configuredProfile, err := application.profileByName(profileName)
@@ -60,11 +64,10 @@ func (application Application) ApplyProfileByName(profileName string) (Result, e
 		return Result{}, err
 	}
 
-	return application.ApplyProfile(application.target, configuredProfile)
+	return application.applyConfiguredProfile(application.target, configuredProfile)
 }
 
-// ApplyProfile resolves one configured profile and applies it to the configured target.
-func (application Application) ApplyProfile(target config.Target, configuredProfile config.Profile) (Result, error) {
+func (application Application) applyConfiguredProfile(target config.Target, configuredProfile config.Profile) (Result, error) {
 	resolvedProfile := profile.ResolveProfile(configuredProfile)
 	if !resolvedProfile.IsAvailable() {
 		return Result{}, fmt.Errorf("resolve profile %q: %w", configuredProfile.Name, resolvedProfile.ResolutionError)
@@ -79,9 +82,6 @@ func (application Application) ApplyProfile(target config.Target, configuredProf
 
 	return Result{
 		ProfileName:    resolvedProfile.Name,
-		Protected:      resolvedProfile.Protected,
-		Source:         resolvedProfile.Source,
-		TargetPath:     target.File,
 		ConnectionName: target.ConnectionName,
 	}, nil
 }
@@ -94,4 +94,15 @@ func (application Application) profileByName(profileName string) (config.Profile
 	}
 
 	return config.Profile{}, fmt.Errorf("configured profile %q was not found", profileName)
+}
+
+func profileSource(source profile.ValueSource) ProfileSource {
+	switch source {
+	case profile.ValueSourceEnvironment:
+		return ProfileSourceEnvironment
+	case profile.ValueSourceLiteral:
+		return ProfileSourceLiteral
+	default:
+		return ""
+	}
 }

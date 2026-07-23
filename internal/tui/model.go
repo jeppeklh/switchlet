@@ -21,6 +21,8 @@ type Model struct {
 	application   app.Application
 	profiles      []app.ProfileItem
 	cursor        int
+	width         int
+	height        int
 	state         viewState
 	errorMessage  string
 	successResult *app.Result

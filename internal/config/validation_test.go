@@ -126,54 +126,6 @@ profiles: []
 			targetContent: stringPointer(validTarget),
 			wantError:     `profile "Test" valueFromEnv must be set`,
 		},
-		{
-			name: "missing target file on disk",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			wantError: `target file`,
-		},
-		{
-			name: "invalid target json",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`{`),
-			wantError:     `contains invalid JSON`,
-		},
-		{
-			name: "non-object target root",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`[]`),
-			wantError:     `must contain a JSON object at the root`,
-		},
-		{
-			name: "missing ConnectionStrings object",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`{"Logging":{}}`),
-			wantError:     `must contain a ConnectionStrings object`,
-		},
-		{
-			name: "non-object ConnectionStrings value",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`{"ConnectionStrings":"invalid"}`),
-			wantError:     `ConnectionStrings must be an object`,
-		},
-		{
-			name: "missing configured connection string",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`{"ConnectionStrings":{"AnotherConnection":"Server=localhost;Database=MyApplication;"}}`),
-			wantError:     `does not contain connection string "DefaultConnection"`,
-		},
-		{
-			name: "non-string configured connection value",
-			configContent: baseConfig(1, "appsettings.Development.json", "DefaultConnection", `  - name: Local
-    value: "Server=localhost;Database=MyApplication;"`),
-			targetContent: stringPointer(`{"ConnectionStrings":{"DefaultConnection":42}}`),
-			wantError:     `connection string "DefaultConnection" must be a string`,
-		},
 	}
 
 	for _, testCase := range tests {

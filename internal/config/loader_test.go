@@ -19,12 +19,6 @@ func TestLoad_LoadsAndValidatesConfiguration(t *testing.T) {
 	projectRoot := fixturePath(t, "valid", "basic")
 	wantTargetPath := filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json")
 
-	if loadedConfig.ConfigPath != configPath {
-		t.Fatalf("ConfigPath = %q, want %q", loadedConfig.ConfigPath, configPath)
-	}
-	if loadedConfig.ProjectRoot != projectRoot {
-		t.Fatalf("ProjectRoot = %q, want %q", loadedConfig.ProjectRoot, projectRoot)
-	}
 	if loadedConfig.Version != 1 {
 		t.Fatalf("Version = %d, want 1", loadedConfig.Version)
 	}
@@ -88,9 +82,6 @@ profiles:
 	wantTargetPath := filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json")
 	if loadedConfig.Target.File != wantTargetPath {
 		t.Fatalf("Target.File = %q, want %q", loadedConfig.Target.File, wantTargetPath)
-	}
-	if loadedConfig.ProjectRoot != filepath.Join(projectRoot, "config") {
-		t.Fatalf("ProjectRoot = %q, want %q", loadedConfig.ProjectRoot, filepath.Join(projectRoot, "config"))
 	}
 }
 

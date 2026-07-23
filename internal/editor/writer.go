@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 )
 
-var renameFile = os.Rename
+var replaceFile = replaceExistingFile
 
 func writeFileAtomically(targetPath string, contents []byte, permissions fs.FileMode) (returnErr error) {
 	targetDirectory := filepath.Dir(targetPath)
@@ -45,7 +45,7 @@ func writeFileAtomically(targetPath string, contents []byte, permissions fs.File
 		return fmt.Errorf("apply permissions to temporary file %q: %w", temporaryFilePath, err)
 	}
 
-	if err := renameFile(temporaryFilePath, targetPath); err != nil {
+	if err := replaceFile(temporaryFilePath, targetPath); err != nil {
 		return fmt.Errorf("replace target file with temporary file %q: %w", temporaryFilePath, err)
 	}
 

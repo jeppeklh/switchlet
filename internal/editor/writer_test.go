@@ -53,12 +53,12 @@ func TestUpdateConnectionString_RenameFailureLeavesOriginalFileIntactAndCleansTe
 `)+"\n")
 	originalContents := readFile(t, targetPath)
 
-	originalRenameFile := renameFile
-	renameFile = func(oldPath string, newPath string) error {
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
 		return errors.New("rename failed")
 	}
 	t.Cleanup(func() {
-		renameFile = originalRenameFile
+		replaceFile = originalReplaceFile
 	})
 
 	err := UpdateConnectionString(targetPath, "DefaultConnection", "Server=test;Database=NewDatabase;")

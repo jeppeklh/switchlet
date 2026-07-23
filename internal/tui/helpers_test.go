@@ -1,0 +1,43 @@
+package tui
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+func writeTargetFile(t *testing.T, rootDir string, relativePath string, contents string) string {
+	t.Helper()
+
+	fullPath := filepath.Join(rootDir, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatalf("create parent directories for %q: %v", fullPath, err)
+	}
+
+	if err := os.WriteFile(fullPath, []byte(contents), 0o644); err != nil {
+		t.Fatalf("write target file %q: %v", fullPath, err)
+	}
+
+	return fullPath
+}
+
+func readFile(t *testing.T, path string) []byte {
+	t.Helper()
+
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read file %q: %v", path, err)
+	}
+
+	return contents
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
+func runeKey(value rune) tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
+}

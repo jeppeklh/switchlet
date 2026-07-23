@@ -1,9 +1,7 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -31,15 +29,9 @@ func validateConfig(configPath string, parsed fileConfig) (Config, error) {
 	}
 
 	config := Config{
-		ConfigPath:  configPath,
-		ProjectRoot: projectRoot,
-		Version:     *parsed.Version,
-		Target:      target,
-		Profiles:    profiles,
-	}
-
-	if err := validateTargetFile(config.Target.File, config.Target.ConnectionName); err != nil {
-		return Config{}, err
+		Version:  *parsed.Version,
+		Target:   target,
+		Profiles: profiles,
 	}
 
 	return config, nil
@@ -112,50 +104,4 @@ func validateProfiles(parsedProfiles []fileProfile) ([]Profile, error) {
 	}
 
 	return profiles, nil
-}
-
-func validateTargetFile(targetPath string, connectionName string) error {
-	targetInfo, err := os.Stat(targetPath)
-	if err != nil {
-		return fmt.Errorf("target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return fmt.Errorf("target file %q is a directory", targetPath)
-	}
-
-	contents, err := os.ReadFile(targetPath)
-	if err != nil {
-		return fmt.Errorf("read target file %q: %w", targetPath, err)
-	}
-
-	var decoded any
-	if err := json.Unmarshal(contents, &decoded); err != nil {
-		return fmt.Errorf("target file %q contains invalid JSON: %w", targetPath, err)
-	}
-
-	rootObject, ok := decoded.(map[string]any)
-	if !ok {
-		return fmt.Errorf("target file %q must contain a JSON object at the root", targetPath)
-	}
-
-	connectionStringsValue, ok := rootObject["ConnectionStrings"]
-	if !ok {
-		return fmt.Errorf("target file %q must contain a ConnectionStrings object", targetPath)
-	}
-
-	connectionStringsObject, ok := connectionStringsValue.(map[string]any)
-	if !ok {
-		return fmt.Errorf("target file %q ConnectionStrings must be an object", targetPath)
-	}
-
-	connectionValue, ok := connectionStringsObject[connectionName]
-	if !ok {
-		return fmt.Errorf("target file %q does not contain connection string %q", targetPath, connectionName)
-	}
-
-	if _, ok := connectionValue.(string); !ok {
-		return fmt.Errorf("target file %q connection string %q must be a string", targetPath, connectionName)
-	}
-
-	return nil
 }

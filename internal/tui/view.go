@@ -7,8 +7,17 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
+const (
+	minimumTerminalWidth  = 80
+	minimumTerminalHeight = 24
+)
+
 // View renders the current terminal state.
 func (model Model) View() string {
+	if model.isTerminalTooSmall() {
+		return model.tooSmallTerminalView()
+	}
+
 	switch model.state {
 	case inspectState:
 		return model.inspectionView()
@@ -82,6 +91,24 @@ func (model Model) statusLine() string {
 	return fmt.Sprintf("Status: Ready to apply %q", selectedProfile.Name)
 }
 
+func (model Model) isTerminalTooSmall() bool {
+	if model.width == 0 || model.height == 0 {
+		return false
+	}
+
+	return model.width < minimumTerminalWidth || model.height < minimumTerminalHeight
+}
+
+func (model Model) tooSmallTerminalView() string {
+	return fmt.Sprintf(
+		"Switchlet\n\nTerminal too small.\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nResize the terminal to continue.\nCtrl+C exits immediately.\n",
+		minimumTerminalWidth,
+		minimumTerminalHeight,
+		model.width,
+		model.height,
+	)
+}
+
 func (model Model) inspectionView() string {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
@@ -95,7 +122,7 @@ func (model Model) inspectionView() string {
 	builder.WriteString(selectedProfile.Name)
 	builder.WriteString("\n")
 	builder.WriteString("Source: ")
-	builder.WriteString(sourceLabel(selectedProfile))
+	builder.WriteString(sourceLabel(selectedProfile.Source))
 	builder.WriteString("\n")
 	if selectedProfile.EnvironmentVariableName != "" {
 		builder.WriteString("Environment variable: ")
@@ -158,11 +185,11 @@ func (model Model) successView() string {
 	)
 }
 
-func sourceLabel(profile app.ProfileItem) string {
-	switch string(profile.Source) {
-	case "environment":
+func sourceLabel(source app.ProfileSource) string {
+	switch source {
+	case app.ProfileSourceEnvironment:
 		return "Environment variable"
-	case "literal":
+	case app.ProfileSourceLiteral:
 		return "Literal"
 	default:
 		return "Unknown"

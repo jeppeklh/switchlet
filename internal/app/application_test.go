@@ -25,23 +25,17 @@ func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 }
 `)+"\n")
 
-	application := app.New()
-	result, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
 	)
+	result, err := application.ApplyProfileByName("Local")
 	if err != nil {
-		t.Fatalf("ApplyProfile returned error: %v", err)
+		t.Fatalf("ApplyProfileByName returned error: %v", err)
 	}
 
 	if result.ProfileName != "Local" {
 		t.Fatalf("ProfileName = %q, want %q", result.ProfileName, "Local")
-	}
-	if result.Source != profile.ValueSourceLiteral {
-		t.Fatalf("Source = %q, want %q", result.Source, profile.ValueSourceLiteral)
-	}
-	if result.TargetPath != targetPath {
-		t.Fatalf("TargetPath = %q, want %q", result.TargetPath, targetPath)
 	}
 	if result.ConnectionName != "DefaultConnection" {
 		t.Fatalf("ConnectionName = %q, want %q", result.ConnectionName, "DefaultConnection")
@@ -60,7 +54,7 @@ func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *testing.T) {
 	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=App;Password=super-secret;")
 
-	application := app.New().WithConfig(
+	application := app.New(
 		config.Target{},
 		[]config.Profile{
 			{Name: "Local", Value: stringPointer("Server=localhost;Database=App;Pwd=local-secret;")},
@@ -73,8 +67,8 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 		t.Fatalf("len(Profiles()) = %d, want 2", len(items))
 	}
 
-	if items[0].Source != profile.ValueSourceLiteral {
-		t.Fatalf("Profiles()[0].Source = %q, want %q", items[0].Source, profile.ValueSourceLiteral)
+	if items[0].Source != app.ProfileSourceLiteral {
+		t.Fatalf("Profiles()[0].Source = %q, want %q", items[0].Source, app.ProfileSourceLiteral)
 	}
 	if items[0].MaskedValue != "Server=localhost;Database=App;Pwd=****;" {
 		t.Fatalf("Profiles()[0].MaskedValue = %q, want masked literal value", items[0].MaskedValue)
@@ -85,8 +79,8 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	if !items[1].Protected {
 		t.Fatal("Profiles()[1].Protected = false, want true")
 	}
-	if items[1].Source != profile.ValueSourceEnvironment {
-		t.Fatalf("Profiles()[1].Source = %q, want %q", items[1].Source, profile.ValueSourceEnvironment)
+	if items[1].Source != app.ProfileSourceEnvironment {
+		t.Fatalf("Profiles()[1].Source = %q, want %q", items[1].Source, app.ProfileSourceEnvironment)
 	}
 	if items[1].EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
 		t.Fatalf("Profiles()[1].EnvironmentVariableName = %q, want %q", items[1].EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
@@ -100,7 +94,7 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 }
 
 func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
-	application := app.New().WithConfig(
+	application := app.New(
 		config.Target{},
 		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")}},
 	)
@@ -132,17 +126,16 @@ func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 }
 `)+"\n")
 
-	application := app.New()
-	result, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_TEST_CONNECTION_STRING")},
+		[]config.Profile{{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_TEST_CONNECTION_STRING")}},
 	)
+	result, err := application.ApplyProfileByName("Test")
 	if err != nil {
-		t.Fatalf("ApplyProfile returned error: %v", err)
+		t.Fatalf("ApplyProfileByName returned error: %v", err)
 	}
-
-	if result.Source != profile.ValueSourceEnvironment {
-		t.Fatalf("Source = %q, want %q", result.Source, profile.ValueSourceEnvironment)
+	if result.ProfileName != "Test" {
+		t.Fatalf("ProfileName = %q, want %q", result.ProfileName, "Test")
 	}
 
 	updatedRoot := decodeJSONRoot(t, readFile(t, targetPath))
@@ -163,16 +156,16 @@ func TestApplication_ApplyProfile_ReturnsErrorForMissingEnvironmentVariable(t *t
 `)+"\n")
 	originalContents := readFile(t, targetPath)
 
-	application := app.New()
-	_, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")}},
 	)
+	_, err := application.ApplyProfileByName("Production")
 	if err == nil {
-		t.Fatal("ApplyProfile returned nil error, want missing environment variable error")
+		t.Fatal("ApplyProfileByName returned nil error, want missing environment variable error")
 	}
 	if !errors.Is(err, profile.ErrEnvironmentVariableNotSet) {
-		t.Fatalf("ApplyProfile returned error %v, want ErrEnvironmentVariableNotSet", err)
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrEnvironmentVariableNotSet", err)
 	}
 
 	updatedContents := readFile(t, targetPath)
@@ -194,16 +187,16 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyEnvironmentVariable(t *tes
 `)+"\n")
 	originalContents := readFile(t, targetPath)
 
-	application := app.New()
-	_, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_EMPTY_CONNECTION_STRING")},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_EMPTY_CONNECTION_STRING")}},
 	)
+	_, err := application.ApplyProfileByName("Production")
 	if err == nil {
-		t.Fatal("ApplyProfile returned nil error, want empty environment variable error")
+		t.Fatal("ApplyProfileByName returned nil error, want empty environment variable error")
 	}
 	if !errors.Is(err, profile.ErrEnvironmentVariableEmpty) {
-		t.Fatalf("ApplyProfile returned error %v, want ErrEnvironmentVariableEmpty", err)
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrEnvironmentVariableEmpty", err)
 	}
 
 	updatedContents := readFile(t, targetPath)
@@ -223,16 +216,16 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyResolvedValue(t *testing.T
 `)+"\n")
 	originalContents := readFile(t, targetPath)
 
-	application := app.New()
-	_, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Local", Value: stringPointer("")},
+		[]config.Profile{{Name: "Local", Value: stringPointer("")}},
 	)
+	_, err := application.ApplyProfileByName("Local")
 	if err == nil {
-		t.Fatal("ApplyProfile returned nil error, want empty value error")
+		t.Fatal("ApplyProfileByName returned nil error, want empty value error")
 	}
 	if !strings.Contains(err.Error(), `resolved profile "Local" is empty`) {
-		t.Fatalf("ApplyProfile returned error %q, want empty value error", err)
+		t.Fatalf("ApplyProfileByName returned error %q, want empty value error", err)
 	}
 
 	updatedContents := readFile(t, targetPath)
@@ -248,22 +241,22 @@ func TestApplication_ApplyProfile_PropagatesEditorFailureWithoutLeakingSecrets(t
 	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", `{`)
 	originalContents := readFile(t, targetPath)
 
-	application := app.New()
-	_, err := application.ApplyProfile(
+	application := app.New(
 		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		config.Profile{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING")},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING")}},
 	)
+	_, err := application.ApplyProfileByName("Production")
 	if err == nil {
-		t.Fatal("ApplyProfile returned nil error, want editor failure")
+		t.Fatal("ApplyProfileByName returned nil error, want editor failure")
 	}
 	if !strings.Contains(err.Error(), `apply profile "Production"`) {
-		t.Fatalf("ApplyProfile returned error %q, want contextual profile error", err)
+		t.Fatalf("ApplyProfileByName returned error %q, want contextual profile error", err)
 	}
 	if !strings.Contains(err.Error(), `contains invalid JSON`) {
-		t.Fatalf("ApplyProfile returned error %q, want editor failure", err)
+		t.Fatalf("ApplyProfileByName returned error %q, want editor failure", err)
 	}
 	if strings.Contains(err.Error(), "super-secret") {
-		t.Fatalf("ApplyProfile returned error %q, must not contain secrets", err)
+		t.Fatalf("ApplyProfileByName returned error %q, must not contain secrets", err)
 	}
 
 	updatedContents := readFile(t, targetPath)
