@@ -1,0 +1,11 @@
+version: 1
+
+target:
+  file: src/MyApplication/appsettings.Development.json
+  connectionName: DefaultConnection
+
+profiles:
+  - name: Local
+    value: "Server=localhost;Database=MyApplication;Trusted_Connection=True;"
+  - name: Test
+    valueFromEnv: MYAPPLICATION_TEST_CONNECTION_STRING

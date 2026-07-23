@@ -1,0 +1,11 @@
+version: 1
+
+target:
+  file: appsettings.Development.json
+  connectionName: DefaultConnection
+
+profiles:
+  - name: Local
+    value: "Server=localhost;Database=MyApplication;"
+  - name: Broken
+    valueFromEnv: [not-valid
