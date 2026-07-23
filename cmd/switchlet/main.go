@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"os"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
+	"github.com/jeppeklh/switchlet/internal/tui"
 )
 
 func main() {
@@ -20,7 +24,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	if _, err := config.Load(configPath); err != nil {
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+
+	application := app.New().WithConfig(loadedConfig.Target, loadedConfig.Profiles)
+
+	if _, err := tea.NewProgram(tui.New(application)).Run(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

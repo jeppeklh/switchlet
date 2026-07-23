@@ -9,11 +9,55 @@ import (
 )
 
 // Application coordinates profile resolution and target-file editing.
-type Application struct{}
+type Application struct {
+	target   config.Target
+	profiles []config.Profile
+}
 
 // New creates an application service.
 func New() Application {
 	return Application{}
+}
+
+// WithConfig returns an application service configured with one target and its profiles.
+func (application Application) WithConfig(target config.Target, profiles []config.Profile) Application {
+	configuredProfiles := append([]config.Profile(nil), profiles...)
+
+	application.target = target
+	application.profiles = configuredProfiles
+
+	return application
+}
+
+// Profiles returns the configured profiles with resolved availability and display status.
+func (application Application) Profiles() []ProfileItem {
+	items := make([]ProfileItem, 0, len(application.profiles))
+	for _, configuredProfile := range application.profiles {
+		resolvedProfile := profile.ResolveProfile(configuredProfile)
+
+		item := ProfileItem{
+			Name:      configuredProfile.Name,
+			Protected: configuredProfile.Protected,
+			Available: resolvedProfile.IsAvailable(),
+		}
+		if resolvedProfile.ResolutionError != nil {
+			item.UnavailableReason = resolvedProfile.ResolutionError.Error()
+		}
+
+		items = append(items, item)
+	}
+
+	return items
+}
+
+// ApplyProfileByName resolves and applies one configured profile owned by the application.
+func (application Application) ApplyProfileByName(profileName string) (Result, error) {
+	configuredProfile, err := application.profileByName(profileName)
+	if err != nil {
+		return Result{}, err
+	}
+
+	return application.ApplyProfile(application.target, configuredProfile)
 }
 
 // ApplyProfile resolves one configured profile and applies it to the configured target.
@@ -37,4 +81,14 @@ func (application Application) ApplyProfile(target config.Target, configuredProf
 		TargetPath:     target.File,
 		ConnectionName: target.ConnectionName,
 	}, nil
+}
+
+func (application Application) profileByName(profileName string) (config.Profile, error) {
+	for _, configuredProfile := range application.profiles {
+		if configuredProfile.Name == profileName {
+			return configuredProfile, nil
+		}
+	}
+
+	return config.Profile{}, fmt.Errorf("configured profile %q was not found", profileName)
 }
