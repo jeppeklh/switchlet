@@ -9,12 +9,14 @@ import (
 	"testing"
 )
 
-func TestUpdateConnectionString_PreservesOriginalPermissions(t *testing.T) {
+func TestUpdateStringValue_PreservesOriginalPermissions(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   }
 }
 `)+"\n")
@@ -28,8 +30,8 @@ func TestUpdateConnectionString_PreservesOriginalPermissions(t *testing.T) {
 		t.Fatalf("stat original file: %v", err)
 	}
 
-	if err := UpdateConnectionString(targetPath, "DefaultConnection", "Server=test;Database=NewDatabase;"); err != nil {
-		t.Fatalf("UpdateConnectionString returned error: %v", err)
+	if err := UpdateStringValue(targetPath, "database.primary.url", "postgres://new"); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
 	}
 
 	updatedInfo, err := os.Stat(targetPath)
@@ -42,12 +44,14 @@ func TestUpdateConnectionString_PreservesOriginalPermissions(t *testing.T) {
 	}
 }
 
-func TestUpdateConnectionString_RenameFailureLeavesOriginalFileIntactAndCleansTemporaryFiles(t *testing.T) {
+func TestUpdateStringValue_RenameFailureLeavesOriginalFileIntactAndCleansTemporaryFiles(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   }
 }
 `)+"\n")
@@ -61,12 +65,12 @@ func TestUpdateConnectionString_RenameFailureLeavesOriginalFileIntactAndCleansTe
 		replaceFile = originalReplaceFile
 	})
 
-	err := UpdateConnectionString(targetPath, "DefaultConnection", "Server=test;Database=NewDatabase;")
+	err := UpdateStringValue(targetPath, "database.primary.url", "postgres://new")
 	if err == nil {
-		t.Fatal("UpdateConnectionString returned nil error, want rename failure")
+		t.Fatal("UpdateStringValue returned nil error, want rename failure")
 	}
 	if !strings.Contains(err.Error(), "rename failed") {
-		t.Fatalf("UpdateConnectionString returned error %q, want rename failure", err)
+		t.Fatalf("UpdateStringValue returned error %q, want rename failure", err)
 	}
 
 	updatedContents := readFile(t, targetPath)

@@ -8,7 +8,7 @@ import (
 	"github.com/jeppeklh/switchlet/internal/config"
 )
 
-func TestLoad_LoadsAndValidatesConfiguration(t *testing.T) {
+func TestLoad_LoadsAndValidatesLegacyVersionOneConfiguration(t *testing.T) {
 	configPath := fixturePath(t, "valid", "basic", ".switchlet.yaml")
 
 	loadedConfig, err := config.Load(configPath)
@@ -25,8 +25,8 @@ func TestLoad_LoadsAndValidatesConfiguration(t *testing.T) {
 	if loadedConfig.Target.File != wantTargetPath {
 		t.Fatalf("Target.File = %q, want %q", loadedConfig.Target.File, wantTargetPath)
 	}
-	if loadedConfig.Target.ConnectionName != "DefaultConnection" {
-		t.Fatalf("Target.ConnectionName = %q, want %q", loadedConfig.Target.ConnectionName, "DefaultConnection")
+	if loadedConfig.Target.JSONPath != "ConnectionStrings.DefaultConnection" {
+		t.Fatalf("Target.JSONPath = %q, want %q", loadedConfig.Target.JSONPath, "ConnectionStrings.DefaultConnection")
 	}
 	if len(loadedConfig.Profiles) != 2 {
 		t.Fatalf("len(Profiles) = %d, want 2", len(loadedConfig.Profiles))
@@ -53,14 +53,59 @@ func TestLoad_LoadsAndValidatesConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoad_LoadsAndValidatesVersionTwoConfiguration(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/development.json
+  jsonPath: database.primary.url
+
+profiles:
+  - name: Local
+    value: postgres://localhost:5432/myapp
+
+  - name: Test
+    valueFromEnv: MYAPP_TEST_DATABASE_URL
+`)+"\n")
+	writeFile(t, projectRoot, "config/development.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Version != 2 {
+		t.Fatalf("Version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.File != filepath.Join(projectRoot, "config", "development.json") {
+		t.Fatalf("Target.File = %q, want %q", loadedConfig.Target.File, filepath.Join(projectRoot, "config", "development.json"))
+	}
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("Target.JSONPath = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	}
+	if len(loadedConfig.Profiles) != 2 {
+		t.Fatalf("len(Profiles) = %d, want 2", len(loadedConfig.Profiles))
+	}
+}
+
 func TestLoad_ResolvesTargetPathRelativeToConfiguration(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeFile(t, projectRoot, "config/.switchlet.yaml", strings.TrimSpace(`
-version: 1
+version: 2
 
 target:
   file: ../src/MyApplication/appsettings.Development.json
-  connectionName: DefaultConnection
+  jsonPath: ConnectionStrings.DefaultConnection
 
 profiles:
   - name: Local

@@ -119,7 +119,7 @@ func TestRun_ReturnsTargetValidationErrorWithoutStartingProgram(t *testing.T) {
 		{
 			name:           "missing connection string",
 			targetContents: stringPointer(`{"ConnectionStrings":{"Reporting":"Server=localhost;Database=Reporting;"}}`),
-			wantError:      `does not contain connection string "DefaultConnection"`,
+			wantError:      `does not contain JSON path "ConnectionStrings.DefaultConnection": missing segment "DefaultConnection"`,
 		},
 	}
 

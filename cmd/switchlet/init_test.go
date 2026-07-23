@@ -63,8 +63,8 @@ func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if loadedConfig.Target.ConnectionName != "DefaultConnection" {
-		t.Fatalf("connection name = %q, want %q", loadedConfig.Target.ConnectionName, "DefaultConnection")
+	if loadedConfig.Target.JSONPath != "ConnectionStrings.DefaultConnection" {
+		t.Fatalf("JSON path = %q, want %q", loadedConfig.Target.JSONPath, "ConnectionStrings.DefaultConnection")
 	}
 	if len(loadedConfig.Profiles) != 1 {
 		t.Fatalf("len(profiles) = %d, want 1", len(loadedConfig.Profiles))

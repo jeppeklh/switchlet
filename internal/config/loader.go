@@ -17,6 +17,7 @@ type fileConfig struct {
 
 type fileTarget struct {
 	File           string `yaml:"file"`
+	JSONPath       string `yaml:"jsonPath"`
 	ConnectionName string `yaml:"connectionName"`
 }
 

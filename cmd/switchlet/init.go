@@ -128,8 +128,8 @@ func promptTarget(prompter initPrompter, workingDirectory string, dependencies i
 		}
 
 		return config.Target{
-			File:           resolvedTargetPath,
-			ConnectionName: connectionName,
+			File:     resolvedTargetPath,
+			JSONPath: connectionStringJSONPath(connectionName),
 		}, nil
 	}
 }
@@ -224,7 +224,7 @@ func printInitSummary(output io.Writer, workingDirectory string, target config.T
 	if _, err := fmt.Fprintf(output, "  Target file: %s\n", relativeTargetPath); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "  Connection string: %s\n", target.ConnectionName); err != nil {
+	if _, err := fmt.Fprintf(output, "  Target path: %s\n", target.JSONPath); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(output, "  Profiles:"); err != nil {
@@ -332,4 +332,8 @@ func (prompter initPrompter) promptLine(prompt string) (string, error) {
 
 func stringValuePointer(value string) *string {
 	return &value
+}
+
+func connectionStringJSONPath(connectionName string) string {
+	return "ConnectionStrings." + connectionName
 }

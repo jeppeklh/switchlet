@@ -23,6 +23,6 @@ type ProfileItem struct {
 
 // Result describes a successful profile application.
 type Result struct {
-	ProfileName    string
-	ConnectionName string
+	ProfileName string
+	TargetPath  string
 }

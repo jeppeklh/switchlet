@@ -7,10 +7,10 @@ type Config struct {
 	Profiles []Profile
 }
 
-// Target defines the resolved file and connection string Switchlet operates on.
+// Target defines the resolved file and JSON string value Switchlet operates on.
 type Target struct {
-	File           string
-	ConnectionName string
+	File     string
+	JSONPath string
 }
 
 // Profile defines one available configuration profile.

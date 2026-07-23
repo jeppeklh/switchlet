@@ -5,15 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
-func replaceConnectionString(contents []byte, connectionName string, replacementValue string) ([]byte, error) {
-	rootObject, connectionStringsObject, err := parseConnectionStringTarget(contents, connectionName)
+func replaceStringValue(contents []byte, jsonPath string, replacementValue string) ([]byte, error) {
+	rootObject, targetObject, targetKey, err := parseStringTarget(contents, jsonPath)
 	if err != nil {
 		return nil, err
 	}
 
-	connectionStringsObject[connectionName] = replacementValue
+	targetObject[targetKey] = replacementValue
 
 	updatedContents, err := json.MarshalIndent(rootObject, "", "  ")
 	if err != nil {
@@ -23,32 +26,48 @@ func replaceConnectionString(contents []byte, connectionName string, replacement
 	return append(updatedContents, '\n'), nil
 }
 
-func parseConnectionStringTarget(contents []byte, connectionName string) (map[string]any, map[string]any, error) {
-	rootObject, connectionStringsObject, err := parseConnectionStringsObject(contents)
+func parseStringTarget(contents []byte, jsonPath string) (map[string]any, map[string]any, string, error) {
+	pathSegments, err := config.ParseJSONPath(jsonPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", fmt.Errorf("invalid JSON path %q: %w", jsonPath, err)
 	}
 
-	connectionValue, ok := connectionStringsObject[connectionName]
+	rootObject, err := parseRootObject(contents)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	currentObject := rootObject
+	for index, segment := range pathSegments[:len(pathSegments)-1] {
+		nextValue, ok := currentObject[segment]
+		if !ok {
+			return nil, nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, segment)
+		}
+
+		nextObject, ok := nextValue.(map[string]any)
+		if !ok {
+			return nil, nil, "", fmt.Errorf("JSON path %q cannot continue through %q because it is not an object", jsonPath, strings.Join(pathSegments[:index+1], "."))
+		}
+
+		currentObject = nextObject
+	}
+
+	targetKey := pathSegments[len(pathSegments)-1]
+	targetValue, ok := currentObject[targetKey]
 	if !ok {
-		return nil, nil, fmt.Errorf("does not contain connection string %q", connectionName)
+		return nil, nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, targetKey)
 	}
-	if _, ok := connectionValue.(string); !ok {
-		return nil, nil, fmt.Errorf("connection string %q must be a string", connectionName)
+	if _, ok := targetValue.(string); !ok {
+		return nil, nil, "", fmt.Errorf("JSON path %q must resolve to a string", jsonPath)
 	}
 
-	return rootObject, connectionStringsObject, nil
+	return rootObject, currentObject, targetKey, nil
 }
 
 func parseConnectionStringsObject(contents []byte) (map[string]any, map[string]any, error) {
-	decodedDocument, err := parseJSONDocument(contents)
+	rootObject, err := parseRootObject(contents)
 	if err != nil {
-		return nil, nil, fmt.Errorf("contains invalid JSON: %w", err)
-	}
-
-	rootObject, ok := decodedDocument.(map[string]any)
-	if !ok {
-		return nil, nil, fmt.Errorf("must contain a JSON object at the root")
+		return nil, nil, err
 	}
 
 	connectionStringsValue, ok := rootObject["ConnectionStrings"]
@@ -62,6 +81,20 @@ func parseConnectionStringsObject(contents []byte) (map[string]any, map[string]a
 	}
 
 	return rootObject, connectionStringsObject, nil
+}
+
+func parseRootObject(contents []byte) (map[string]any, error) {
+	decodedDocument, err := parseJSONDocument(contents)
+	if err != nil {
+		return nil, fmt.Errorf("contains invalid JSON: %w", err)
+	}
+
+	rootObject, ok := decodedDocument.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("must contain a JSON object at the root")
+	}
+
+	return rootObject, nil
 }
 
 func parseJSONDocument(contents []byte) (any, error) {

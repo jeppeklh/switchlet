@@ -42,7 +42,7 @@ func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
 	))
 

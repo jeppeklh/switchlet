@@ -107,13 +107,18 @@ func marshalCreatedConfig(projectRoot string, target Target, profiles []Profile)
 	}
 
 	configFile := fileConfig{
-		Version: intPointer(supportedVersion),
+		Version: intPointer(legacyVersion),
 		Target: fileTarget{
-			File:           configTargetPath(projectRoot, target.File),
-			ConnectionName: target.ConnectionName,
+			File: configTargetPath(projectRoot, target.File),
 		},
 		Profiles: configuredProfiles,
 	}
+
+	connectionName, err := legacyConnectionNameFromJSONPath(target.JSONPath)
+	if err != nil {
+		return nil, err
+	}
+	configFile.Target.ConnectionName = connectionName
 
 	contents, err := yaml.Marshal(configFile)
 	if err != nil {
@@ -166,4 +171,16 @@ func writeCreatedConfig(configPath string, contents []byte) (returnErr error) {
 
 func intPointer(value int) *int {
 	return &value
+}
+
+func legacyConnectionNameFromJSONPath(jsonPath string) (string, error) {
+	segments, err := ParseJSONPath(jsonPath)
+	if err != nil {
+		return "", fmt.Errorf("target JSON path %q is invalid: %w", jsonPath, err)
+	}
+	if len(segments) != 2 || segments[0] != "ConnectionStrings" {
+		return "", fmt.Errorf("current init workflow can create only ConnectionStrings targets; got JSON path %q", jsonPath)
+	}
+
+	return segments[1], nil
 }

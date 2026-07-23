@@ -16,18 +16,20 @@ import (
 
 func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   },
   "AllowedHosts": "*"
 }
 `)+"\n")
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://new")}},
 	)
 	result, err := application.ApplyProfileByName("Local")
 	if err != nil {
@@ -37,14 +39,15 @@ func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 	if result.ProfileName != "Local" {
 		t.Fatalf("ProfileName = %q, want %q", result.ProfileName, "Local")
 	}
-	if result.ConnectionName != "DefaultConnection" {
-		t.Fatalf("ConnectionName = %q, want %q", result.ConnectionName, "DefaultConnection")
+	if result.TargetPath != "database.primary.url" {
+		t.Fatalf("TargetPath = %q, want %q", result.TargetPath, "database.primary.url")
 	}
 
 	updatedRoot := decodeJSONRoot(t, readFile(t, targetPath))
-	connectionStrings := updatedRoot["ConnectionStrings"].(map[string]any)
-	if connectionStrings["DefaultConnection"] != "Server=localhost;Database=NewDatabase;" {
-		t.Fatalf("DefaultConnection = %q, want %q", connectionStrings["DefaultConnection"], "Server=localhost;Database=NewDatabase;")
+	database := updatedRoot["database"].(map[string]any)
+	primary := database["primary"].(map[string]any)
+	if primary["url"] != "postgres://new" {
+		t.Fatalf("database.primary.url = %q, want %q", primary["url"], "postgres://new")
 	}
 	if updatedRoot["AllowedHosts"] != "*" {
 		t.Fatalf("AllowedHosts = %q, want %q", updatedRoot["AllowedHosts"], "*")
@@ -115,20 +118,14 @@ func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
 }
 
 func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
-	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=FromEnvironment;Pwd=secret;")
+	t.Setenv("MYAPPLICATION_SERVICE_URL", "https://env.example.test")
 
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
-}
-`)+"\n")
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
-		[]config.Profile{{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_TEST_CONNECTION_STRING")}},
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
+		[]config.Profile{{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_SERVICE_URL")}},
 	)
 	result, err := application.ApplyProfileByName("Test")
 	if err != nil {
@@ -137,27 +134,23 @@ func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 	if result.ProfileName != "Test" {
 		t.Fatalf("ProfileName = %q, want %q", result.ProfileName, "Test")
 	}
+	if result.TargetPath != "serviceUrl" {
+		t.Fatalf("TargetPath = %q, want %q", result.TargetPath, "serviceUrl")
+	}
 
 	updatedRoot := decodeJSONRoot(t, readFile(t, targetPath))
-	connectionStrings := updatedRoot["ConnectionStrings"].(map[string]any)
-	if connectionStrings["DefaultConnection"] != "Server=test;Database=FromEnvironment;Pwd=secret;" {
-		t.Fatalf("DefaultConnection = %q, want resolved environment value", connectionStrings["DefaultConnection"])
+	if updatedRoot["serviceUrl"] != "https://env.example.test" {
+		t.Fatalf("serviceUrl = %q, want resolved environment value", updatedRoot["serviceUrl"])
 	}
 }
 
 func TestApplication_ApplyProfile_ReturnsErrorForMissingEnvironmentVariable(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
-}
-`)+"\n")
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
 	originalContents := readFile(t, targetPath)
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
 		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")}},
 	)
 	_, err := application.ApplyProfileByName("Production")
@@ -178,17 +171,11 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyEnvironmentVariable(t *tes
 	t.Setenv("MYAPPLICATION_EMPTY_CONNECTION_STRING", "")
 
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
-}
-`)+"\n")
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
 	originalContents := readFile(t, targetPath)
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
 		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_EMPTY_CONNECTION_STRING")}},
 	)
 	_, err := application.ApplyProfileByName("Production")
@@ -207,17 +194,11 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyEnvironmentVariable(t *tes
 
 func TestApplication_ApplyProfile_ReturnsErrorForEmptyResolvedValue(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
-{
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
-}
-`)+"\n")
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
 	originalContents := readFile(t, targetPath)
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("")}},
 	)
 	_, err := application.ApplyProfileByName("Local")
@@ -238,11 +219,11 @@ func TestApplication_ApplyProfile_PropagatesEditorFailureWithoutLeakingSecrets(t
 	t.Setenv("MYAPPLICATION_PRODUCTION_CONNECTION_STRING", "Server=prod;Database=App;Password=super-secret;")
 
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", `{`)
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{`)
 	originalContents := readFile(t, targetPath)
 
 	application := app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
 		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING")}},
 	)
 	_, err := application.ApplyProfileByName("Production")
@@ -262,6 +243,42 @@ func TestApplication_ApplyProfile_PropagatesEditorFailureWithoutLeakingSecrets(t
 	updatedContents := readFile(t, targetPath)
 	if !bytes.Equal(updatedContents, originalContents) {
 		t.Fatal("target file changed after editor failure")
+	}
+}
+
+func TestApplication_ValidateStartup_ReturnsErrorForMissingTargetPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{}}`)
+
+	application := app.New(
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		nil,
+	)
+
+	err := application.ValidateStartup()
+	if err == nil {
+		t.Fatal("ValidateStartup returned nil error, want target-path validation error")
+	}
+	if !strings.Contains(err.Error(), `does not contain JSON path "database.primary.url"`) {
+		t.Fatalf("ValidateStartup returned error %q, want missing target path error", err)
+	}
+}
+
+func TestApplication_ValidateStartup_ReturnsErrorForNonStringTargetValue(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"primary":{"port":5432}}}`)
+
+	application := app.New(
+		config.Target{File: targetPath, JSONPath: "database.primary.port"},
+		nil,
+	)
+
+	err := application.ValidateStartup()
+	if err == nil {
+		t.Fatal("ValidateStartup returned nil error, want non-string target error")
+	}
+	if !strings.Contains(err.Error(), `JSON path "database.primary.port" must resolve to a string`) {
+		t.Fatalf("ValidateStartup returned error %q, want non-string target error", err)
 	}
 }
 

@@ -179,9 +179,9 @@ func (model Model) successView() string {
 	}
 
 	return fmt.Sprintf(
-		"Applied profile: %s\n\nUpdated:\nConnectionStrings.%s\n",
+		"Applied profile: %s\n\nUpdated:\n%s\n",
 		model.successResult.ProfileName,
-		model.successResult.ConnectionName,
+		model.successResult.TargetPath,
 	)
 }
 

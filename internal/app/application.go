@@ -50,7 +50,7 @@ func (application Application) Profiles() []ProfileItem {
 
 // ValidateStartup verifies that the configured target is valid before the UI starts.
 func (application Application) ValidateStartup() error {
-	if err := editor.ValidateConnectionStringTarget(application.target.File, application.target.ConnectionName); err != nil {
+	if err := editor.ValidateStringTarget(application.target.File, application.target.JSONPath); err != nil {
 		return fmt.Errorf("validate configured target: %w", err)
 	}
 
@@ -76,13 +76,13 @@ func (application Application) applyConfiguredProfile(target config.Target, conf
 		return Result{}, fmt.Errorf("resolved profile %q is empty", configuredProfile.Name)
 	}
 
-	if err := editor.UpdateConnectionString(target.File, target.ConnectionName, resolvedProfile.Value); err != nil {
+	if err := editor.UpdateStringValue(target.File, target.JSONPath, resolvedProfile.Value); err != nil {
 		return Result{}, fmt.Errorf("apply profile %q to target file %q: %w", configuredProfile.Name, target.File, err)
 	}
 
 	return Result{
-		ProfileName:    resolvedProfile.Name,
-		ConnectionName: target.ConnectionName,
+		ProfileName: resolvedProfile.Name,
+		TargetPath:  target.JSONPath,
 	}, nil
 }
 

@@ -44,27 +44,22 @@ func TestListConnectionStringNames_ReturnsErrorWhenNoStringValuedConnectionsExis
 	}
 }
 
-func TestUpdateConnectionString_ReplacesConfiguredConnectionAndPreservesOtherValues(t *testing.T) {
+func TestUpdateStringValue_ReplacesTopLevelStringAndPreservesOtherValues(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "Logging": {
-    "LogLevel": {
-      "Default": "Information"
-    }
-  },
+  "serviceUrl": "https://old.example.test",
   "MaxItems": 9007199254740993,
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;",
-    "Reporting": "Server=localhost;Database=Reporting;"
-  },
-  "AllowedHosts": "*"
+  "AllowedHosts": "*",
+  "featureFlags": {
+    "beta": true
+  }
 }
 `)+"\n")
 
-	replacementValue := "Server=test;Database=NewDatabase;User Id=test;Password=secret;"
-	if err := UpdateConnectionString(targetPath, "DefaultConnection", replacementValue); err != nil {
-		t.Fatalf("UpdateConnectionString returned error: %v", err)
+	replacementValue := "https://new.example.test"
+	if err := UpdateStringValue(targetPath, "serviceUrl", replacementValue); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
 	}
 
 	updatedContents := readFile(t, targetPath)
@@ -73,22 +68,16 @@ func TestUpdateConnectionString_ReplacesConfiguredConnectionAndPreservesOtherVal
 	}
 
 	rootObject := decodeJSONRoot(t, updatedContents)
-	connectionStrings := rootObject["ConnectionStrings"].(map[string]any)
-	if connectionStrings["DefaultConnection"] != replacementValue {
-		t.Fatalf("DefaultConnection = %q, want %q", connectionStrings["DefaultConnection"], replacementValue)
+	if rootObject["serviceUrl"] != replacementValue {
+		t.Fatalf("serviceUrl = %q, want %q", rootObject["serviceUrl"], replacementValue)
 	}
-	if connectionStrings["Reporting"] != "Server=localhost;Database=Reporting;" {
-		t.Fatalf("Reporting = %q, want %q", connectionStrings["Reporting"], "Server=localhost;Database=Reporting;")
-	}
-
 	if rootObject["AllowedHosts"] != "*" {
 		t.Fatalf("AllowedHosts = %q, want %q", rootObject["AllowedHosts"], "*")
 	}
 
-	logging := rootObject["Logging"].(map[string]any)
-	logLevel := logging["LogLevel"].(map[string]any)
-	if logLevel["Default"] != "Information" {
-		t.Fatalf("LogLevel.Default = %q, want %q", logLevel["Default"], "Information")
+	featureFlags := rootObject["featureFlags"].(map[string]any)
+	if featureFlags["beta"] != true {
+		t.Fatalf("featureFlags.beta = %v, want true", featureFlags["beta"])
 	}
 
 	maxItems, ok := rootObject["MaxItems"].(json.Number)
@@ -100,57 +89,112 @@ func TestUpdateConnectionString_ReplacesConfiguredConnectionAndPreservesOtherVal
 	}
 }
 
-func TestUpdateConnectionString_ReturnsErrorForInvalidTargetJSON(t *testing.T) {
+func TestUpdateStringValue_ReplacesNestedStringAndPreservesOtherValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old",
+      "poolSize": 10
+    },
+    "replica": {
+      "url": "postgres://replica"
+    }
+  },
+  "environment": "development"
+}
+`)+"\n")
+
+	replacementValue := "postgres://new"
+	if err := UpdateStringValue(targetPath, "database.primary.url", replacementValue); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
+	}
+
+	rootObject := decodeJSONRoot(t, readFile(t, targetPath))
+	database := rootObject["database"].(map[string]any)
+	primary := database["primary"].(map[string]any)
+	replica := database["replica"].(map[string]any)
+
+	if primary["url"] != replacementValue {
+		t.Fatalf("database.primary.url = %q, want %q", primary["url"], replacementValue)
+	}
+	if primary["poolSize"] != json.Number("10") {
+		t.Fatalf("database.primary.poolSize = %#v, want %#v", primary["poolSize"], json.Number("10"))
+	}
+	if replica["url"] != "postgres://replica" {
+		t.Fatalf("database.replica.url = %q, want %q", replica["url"], "postgres://replica")
+	}
+	if rootObject["environment"] != "development" {
+		t.Fatalf("environment = %q, want %q", rootObject["environment"], "development")
+	}
+}
+
+func TestUpdateStringValue_ReturnsErrorForInvalidJSONPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
+
+	err := UpdateStringValue(targetPath, "serviceUrl..current", "https://new.example.test")
+	if err == nil {
+		t.Fatal("UpdateStringValue returned nil error, want invalid path error")
+	}
+	if !strings.Contains(err.Error(), `invalid JSON path "serviceUrl..current"`) {
+		t.Fatalf("UpdateStringValue returned error %q, want invalid path error", err)
+	}
+}
+
+func TestUpdateStringValue_ReturnsErrorForInvalidTargetJSON(t *testing.T) {
 	tests := []struct {
 		name           string
 		targetContents string
+		jsonPath       string
 		wantError      string
 	}{
 		{
 			name:           "invalid JSON",
 			targetContents: `{`,
+			jsonPath:       `database.primary.url`,
 			wantError:      `contains invalid JSON`,
 		},
 		{
 			name:           "non-object root",
 			targetContents: `[]`,
+			jsonPath:       `database.primary.url`,
 			wantError:      `must contain a JSON object at the root`,
 		},
 		{
-			name:           "missing ConnectionStrings",
-			targetContents: `{"Logging":{}}`,
-			wantError:      `must contain a ConnectionStrings object`,
+			name:           "missing path segment",
+			targetContents: `{"database":{"replica":{"url":"postgres://replica"}}}`,
+			jsonPath:       `database.primary.url`,
+			wantError:      `does not contain JSON path "database.primary.url": missing segment "primary"`,
 		},
 		{
-			name:           "non-object ConnectionStrings",
-			targetContents: `{"ConnectionStrings":"invalid"}`,
-			wantError:      `ConnectionStrings must be an object`,
+			name:           "non-object intermediate segment",
+			targetContents: `{"database":"postgres://old"}`,
+			jsonPath:       `database.primary.url`,
+			wantError:      `cannot continue through "database" because it is not an object`,
 		},
 		{
-			name:           "missing configured connection string",
-			targetContents: `{"ConnectionStrings":{"Reporting":"Server=localhost;Database=Reporting;"}}`,
-			wantError:      `does not contain connection string "DefaultConnection"`,
-		},
-		{
-			name:           "non-string configured connection value",
-			targetContents: `{"ConnectionStrings":{"DefaultConnection":42}}`,
-			wantError:      `connection string "DefaultConnection" must be a string`,
+			name:           "non-string target value",
+			targetContents: `{"database":{"primary":{"url":42}}}`,
+			jsonPath:       `database.primary.url`,
+			wantError:      `JSON path "database.primary.url" must resolve to a string`,
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
 			projectRoot := t.TempDir()
-			targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", testCase.targetContents)
+			targetPath := writeTargetFile(t, projectRoot, "config.json", testCase.targetContents)
 
 			originalContents := readFile(t, targetPath)
-			err := UpdateConnectionString(targetPath, "DefaultConnection", "Server=test;Database=NewDatabase;")
+			err := UpdateStringValue(targetPath, testCase.jsonPath, "postgres://new")
 			if err == nil {
-				t.Fatal("UpdateConnectionString returned nil error, want validation error")
+				t.Fatal("UpdateStringValue returned nil error, want validation error")
 			}
 
 			if !strings.Contains(err.Error(), testCase.wantError) {
-				t.Fatalf("UpdateConnectionString returned error %q, want substring %q", err, testCase.wantError)
+				t.Fatalf("UpdateStringValue returned error %q, want substring %q", err, testCase.wantError)
 			}
 
 			updatedContents := readFile(t, targetPath)

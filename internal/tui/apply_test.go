@@ -21,7 +21,7 @@ func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T)
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=NewDatabase;"), Protected: true}},
 	))
 
@@ -71,7 +71,7 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
 	))
 
@@ -96,6 +96,9 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.View(), "Applied profile: Local") {
 		t.Fatalf("View() = %q, want success message", model.View())
 	}
+	if !strings.Contains(model.View(), "ConnectionStrings.DefaultConnection") {
+		t.Fatalf("View() = %q, want updated target path", model.View())
+	}
 
 	updatedContents := readFile(t, targetPath)
 	if !strings.Contains(string(updatedContents), "NewDatabase") {
@@ -108,7 +111,7 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", `{`)
 
 	model := New(app.New(
-		config.Target{File: targetPath, ConnectionName: "DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
 	))
 
