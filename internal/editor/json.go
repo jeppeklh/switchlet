@@ -1,0 +1,69 @@
+package editor
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"io"
+)
+
+func replaceConnectionString(contents []byte, connectionName string, replacementValue string) ([]byte, error) {
+	decodedDocument, err := parseJSONDocument(contents)
+	if err != nil {
+		return nil, fmt.Errorf("contains invalid JSON: %w", err)
+	}
+
+	rootObject, ok := decodedDocument.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("must contain a JSON object at the root")
+	}
+
+	connectionStringsValue, ok := rootObject["ConnectionStrings"]
+	if !ok {
+		return nil, fmt.Errorf("must contain a ConnectionStrings object")
+	}
+
+	connectionStringsObject, ok := connectionStringsValue.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("ConnectionStrings must be an object")
+	}
+
+	connectionValue, ok := connectionStringsObject[connectionName]
+	if !ok {
+		return nil, fmt.Errorf("does not contain connection string %q", connectionName)
+	}
+
+	if _, ok := connectionValue.(string); !ok {
+		return nil, fmt.Errorf("connection string %q must be a string", connectionName)
+	}
+
+	connectionStringsObject[connectionName] = replacementValue
+
+	updatedContents, err := json.MarshalIndent(rootObject, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("serialize updated JSON: %w", err)
+	}
+
+	return append(updatedContents, '\n'), nil
+}
+
+func parseJSONDocument(contents []byte) (any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(contents))
+	decoder.UseNumber()
+
+	var decodedDocument any
+	if err := decoder.Decode(&decodedDocument); err != nil {
+		return nil, err
+	}
+
+	var extraValue any
+	if err := decoder.Decode(&extraValue); err != io.EOF {
+		if err == nil {
+			return nil, fmt.Errorf("multiple JSON values are not allowed")
+		}
+
+		return nil, err
+	}
+
+	return decodedDocument, nil
+}
