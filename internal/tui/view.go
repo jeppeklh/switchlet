@@ -3,11 +3,17 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jeppeklh/switchlet/internal/app"
 )
 
 // View renders the current terminal state.
 func (model Model) View() string {
 	switch model.state {
+	case inspectState:
+		return model.inspectionView()
+	case confirmState:
+		return model.confirmationView()
 	case errorState:
 		return model.errorView()
 	case successState:
@@ -56,7 +62,7 @@ func (model Model) listView() string {
 	builder.WriteString(model.statusLine())
 	builder.WriteString("\n\n")
 	builder.WriteString("----------------------------------------\n")
-	builder.WriteString("↑/↓ or j/k Move  Enter Apply  q Quit\n")
+	builder.WriteString("↑/↓ or j/k Move  Enter Apply  i Inspect  q Quit\n")
 
 	return builder.String()
 }
@@ -70,10 +76,67 @@ func (model Model) statusLine() string {
 		return "Status: " + selectedProfile.UnavailableReason
 	}
 	if selectedProfile.Protected {
-		return fmt.Sprintf("Status: %q is protected", selectedProfile.Name)
+		return fmt.Sprintf("Status: %q requires confirmation", selectedProfile.Name)
 	}
 
 	return fmt.Sprintf("Status: Ready to apply %q", selectedProfile.Name)
+}
+
+func (model Model) inspectionView() string {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return model.listView()
+	}
+
+	var builder strings.Builder
+
+	builder.WriteString("Inspect Profile\n\n")
+	builder.WriteString("Profile: ")
+	builder.WriteString(selectedProfile.Name)
+	builder.WriteString("\n")
+	builder.WriteString("Source: ")
+	builder.WriteString(sourceLabel(selectedProfile))
+	builder.WriteString("\n")
+	if selectedProfile.EnvironmentVariableName != "" {
+		builder.WriteString("Environment variable: ")
+		builder.WriteString(selectedProfile.EnvironmentVariableName)
+		builder.WriteString("\n")
+	}
+	builder.WriteString("Protection: ")
+	builder.WriteString(protectionLabel(selectedProfile))
+	builder.WriteString("\n\n")
+	builder.WriteString("Masked connection string:\n")
+	builder.WriteString(maskedValueLabel(selectedProfile))
+	builder.WriteString("\n")
+	if selectedProfile.UnavailableReason != "" {
+		builder.WriteString("\nResolution error:\n")
+		builder.WriteString(selectedProfile.UnavailableReason)
+		builder.WriteString("\n")
+	}
+
+	builder.WriteString("\n----------------------------------------\n")
+	builder.WriteString("Enter Apply  i/Esc/q Return\n")
+
+	return builder.String()
+}
+
+func (model Model) confirmationView() string {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return model.listView()
+	}
+
+	var builder strings.Builder
+
+	builder.WriteString("Apply protected profile?\n\n")
+	builder.WriteString("Profile: ")
+	builder.WriteString(selectedProfile.Name)
+	builder.WriteString("\n\n")
+	builder.WriteString("This will modify the configured connection string.\n\n")
+	builder.WriteString("----------------------------------------\n")
+	builder.WriteString("y Confirm  n/Esc/q Cancel\n")
+
+	return builder.String()
 }
 
 func (model Model) errorView() string {
@@ -93,4 +156,34 @@ func (model Model) successView() string {
 		model.successResult.ProfileName,
 		model.successResult.ConnectionName,
 	)
+}
+
+func sourceLabel(profile app.ProfileItem) string {
+	switch string(profile.Source) {
+	case "environment":
+		return "Environment variable"
+	case "literal":
+		return "Literal"
+	default:
+		return "Unknown"
+	}
+}
+
+func protectionLabel(profile app.ProfileItem) string {
+	if profile.Protected {
+		return "Protected"
+	}
+
+	return "Not protected"
+}
+
+func maskedValueLabel(profile app.ProfileItem) string {
+	if !profile.Available {
+		return "Unavailable"
+	}
+	if profile.MaskedValue == "" {
+		return "<empty>"
+	}
+
+	return profile.MaskedValue
 }

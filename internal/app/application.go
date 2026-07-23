@@ -36,9 +36,12 @@ func (application Application) Profiles() []ProfileItem {
 		resolvedProfile := profile.ResolveProfile(configuredProfile)
 
 		item := ProfileItem{
-			Name:      configuredProfile.Name,
-			Protected: configuredProfile.Protected,
-			Available: resolvedProfile.IsAvailable(),
+			Name:                    resolvedProfile.Name,
+			Protected:               resolvedProfile.Protected,
+			Available:               resolvedProfile.IsAvailable(),
+			Source:                  resolvedProfile.Source,
+			EnvironmentVariableName: resolvedProfile.EnvironmentVariableName,
+			MaskedValue:             resolvedProfile.MaskedValue,
 		}
 		if resolvedProfile.ResolutionError != nil {
 			item.UnavailableReason = resolvedProfile.ResolutionError.Error()

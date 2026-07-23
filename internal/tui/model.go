@@ -10,6 +10,8 @@ type viewState int
 
 const (
 	listState viewState = iota
+	inspectState
+	confirmState
 	errorState
 	successState
 )

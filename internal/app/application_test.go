@@ -57,6 +57,69 @@ func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 	}
 }
 
+func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *testing.T) {
+	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=App;Password=super-secret;")
+
+	application := app.New().WithConfig(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("Server=localhost;Database=App;Pwd=local-secret;")},
+			{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_TEST_CONNECTION_STRING"), Protected: true},
+		},
+	)
+
+	items := application.Profiles()
+	if len(items) != 2 {
+		t.Fatalf("len(Profiles()) = %d, want 2", len(items))
+	}
+
+	if items[0].Source != profile.ValueSourceLiteral {
+		t.Fatalf("Profiles()[0].Source = %q, want %q", items[0].Source, profile.ValueSourceLiteral)
+	}
+	if items[0].MaskedValue != "Server=localhost;Database=App;Pwd=****;" {
+		t.Fatalf("Profiles()[0].MaskedValue = %q, want masked literal value", items[0].MaskedValue)
+	}
+	if !items[1].Available {
+		t.Fatalf("Profiles()[1].Available = false, want true (reason: %q)", items[1].UnavailableReason)
+	}
+	if !items[1].Protected {
+		t.Fatal("Profiles()[1].Protected = false, want true")
+	}
+	if items[1].Source != profile.ValueSourceEnvironment {
+		t.Fatalf("Profiles()[1].Source = %q, want %q", items[1].Source, profile.ValueSourceEnvironment)
+	}
+	if items[1].EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
+		t.Fatalf("Profiles()[1].EnvironmentVariableName = %q, want %q", items[1].EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
+	}
+	if items[1].MaskedValue != "Server=test;Database=App;Password=****;" {
+		t.Fatalf("Profiles()[1].MaskedValue = %q, want masked environment value", items[1].MaskedValue)
+	}
+	if items[1].UnavailableReason != "" {
+		t.Fatalf("Profiles()[1].UnavailableReason = %q, want empty string", items[1].UnavailableReason)
+	}
+}
+
+func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
+	application := app.New().WithConfig(
+		config.Target{},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")}},
+	)
+
+	items := application.Profiles()
+	if len(items) != 1 {
+		t.Fatalf("len(Profiles()) = %d, want 1", len(items))
+	}
+	if items[0].Available {
+		t.Fatal("Profiles()[0].Available = true, want false")
+	}
+	if !strings.Contains(items[0].UnavailableReason, "MYAPPLICATION_MISSING_CONNECTION_STRING") {
+		t.Fatalf("Profiles()[0].UnavailableReason = %q, want environment variable name", items[0].UnavailableReason)
+	}
+	if items[0].MaskedValue != "" {
+		t.Fatalf("Profiles()[0].MaskedValue = %q, want empty string", items[0].MaskedValue)
+	}
+}
+
 func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=FromEnvironment;Pwd=secret;")
 
