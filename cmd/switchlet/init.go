@@ -64,6 +64,9 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	if _, err := fmt.Fprintln(output, "Select the target JSON file first, then choose the existing string value Switchlet should manage."); err != nil {
 		return err
 	}
+	if _, err := fmt.Fprintln(output, "When many JSON files are discovered, narrow the file list by name or path."); err != nil {
+		return err
+	}
 	if _, err := fmt.Fprintln(output, "Manual entry is available for both steps."); err != nil {
 		return err
 	}

@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -81,8 +83,142 @@ func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "discovers candidate JSON files") {
 		t.Fatalf("help output %q does not describe guided file discovery", output.String())
 	}
+	if !strings.Contains(output.String(), "lets you narrow large file") {
+		t.Fatalf("help output %q does not mention large-repository narrowing", output.String())
+	}
 	if !strings.Contains(output.String(), "manual entry") {
 		t.Fatalf("help output %q does not mention manual entry", output.String())
+	}
+}
+
+func TestRunInit_LimitsLargeDiscoveredTargetFileListUntilTheUserNarrowsIt(t *testing.T) {
+	projectRoot := t.TempDir()
+	desiredCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
+		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+	}
+	candidates := make([]editor.TargetFileCandidate, 0, targetFileChoiceWindowSize+4)
+	for index := 0; index < targetFileChoiceWindowSize+3; index++ {
+		candidates = append(candidates, editor.TargetFileCandidate{
+			Path:         filepath.Join(projectRoot, "packages", fmt.Sprintf("package-%02d", index), "config.json"),
+			RelativePath: filepath.Join("packages", fmt.Sprintf("package-%02d", index), "config.json"),
+		})
+	}
+	candidates = append(candidates, desiredCandidate)
+
+	input := strings.NewReader(strings.Join([]string{
+		strconv.Itoa(targetFileChoiceWindowSize + 1),
+		"appsettings",
+		"1",
+		"1",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runInit(projectRoot, input, &output, initDependencies{
+		validateCreateLocation: func(string) error { return nil },
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return candidates, nil
+		},
+		inspectStringTargets: func(string) ([]editor.StringTargetNode, error) {
+			return []editor.StringTargetNode{{
+				Name:       "url",
+				JSONPath:   "database.primary.url",
+				Selectable: true,
+			}}, nil
+		},
+		validateStringTarget: func(string, string) error { return nil },
+		createConfig: func(string, config.Target, []config.Profile) (string, config.Config, error) {
+			t.Fatal("createConfig should not be called after cancellation")
+			return "", config.Config{}, nil
+		},
+		validateCreatedConfig: func(config.Config) error { return nil },
+		removeFile:            func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("runInit returned error: %v", err)
+	}
+
+	outputText := output.String()
+	if !strings.Contains(outputText, fmt.Sprintf("showing %d of %d discovered files", targetFileChoiceWindowSize, len(candidates))) {
+		t.Fatalf("init output %q does not report the truncated candidate window", outputText)
+	}
+	if strings.Contains(outputText, candidates[targetFileChoiceWindowSize+1].RelativePath) {
+		t.Fatalf("init output %q should not print candidates outside the initial result window", outputText)
+	}
+	if !strings.Contains(outputText, desiredCandidate.RelativePath) {
+		t.Fatalf("init output %q does not show the narrowed matching candidate", outputText)
+	}
+	if !strings.Contains(outputText, "Target file: src/MyApplication/appsettings.Development.json") {
+		t.Fatalf("init output %q does not summarize the narrowed target file", outputText)
+	}
+}
+
+func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testing.T) {
+	projectRoot := t.TempDir()
+	desiredCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
+		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+	}
+	candidates := make([]editor.TargetFileCandidate, 0, targetFileChoiceWindowSize+2)
+	for index := 0; index < targetFileChoiceWindowSize+1; index++ {
+		candidates = append(candidates, editor.TargetFileCandidate{
+			Path:         filepath.Join(projectRoot, "packages", fmt.Sprintf("package-%02d", index), "config.json"),
+			RelativePath: filepath.Join("packages", fmt.Sprintf("package-%02d", index), "config.json"),
+		})
+	}
+	candidates = append(candidates, desiredCandidate)
+
+	input := strings.NewReader(strings.Join([]string{
+		strconv.Itoa(targetFileChoiceWindowSize + 1),
+		"missing",
+		"appsettings",
+		"1",
+		"1",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runInit(projectRoot, input, &output, initDependencies{
+		validateCreateLocation: func(string) error { return nil },
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return candidates, nil
+		},
+		inspectStringTargets: func(string) ([]editor.StringTargetNode, error) {
+			return []editor.StringTargetNode{{
+				Name:       "url",
+				JSONPath:   "database.primary.url",
+				Selectable: true,
+			}}, nil
+		},
+		validateStringTarget: func(string, string) error { return nil },
+		createConfig: func(string, config.Target, []config.Profile) (string, config.Config, error) {
+			t.Fatal("createConfig should not be called after cancellation")
+			return "", config.Config{}, nil
+		},
+		validateCreatedConfig: func(config.Config) error { return nil },
+		removeFile:            func(string) error { return nil },
+	})
+	if err != nil {
+		t.Fatalf("runInit returned error: %v", err)
+	}
+
+	outputText := output.String()
+	if !strings.Contains(outputText, `No discovered target JSON files match "missing".`) {
+		t.Fatalf("init output %q does not report the no-match filter state", outputText)
+	}
+	if !strings.Contains(outputText, "Target file: src/MyApplication/appsettings.Development.json") {
+		t.Fatalf("init output %q does not recover to the narrowed target file", outputText)
 	}
 }
 
@@ -372,6 +508,47 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {
 		t.Fatalf("init output %q does not report the invalid manual file path", output.String())
+	}
+
+	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
+	}
+}
+
+func TestRunCommand_InitAllowsManualTargetFileEntryOutsideTheDiscoveredCandidateSet(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	projectRoot := filepath.Join(workspaceRoot, "project")
+	sharedRoot := filepath.Join(workspaceRoot, "shared")
+
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatalf("create project root: %v", err)
+	}
+	writeFile(t, projectRoot, "config.json", `{"serviceUrl":"https://project.example.test"}`)
+	writeFile(t, sharedRoot, "config.json", `{"serviceUrl":"https://shared.example.test"}`)
+
+	input := strings.NewReader(strings.Join([]string{
+		"2",
+		filepath.Join("..", "shared", "config.json"),
+		"1",
+		"Local",
+		"1",
+		"https://new.example.test",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), filepath.Join("..", "shared", "config.json")) {
+		t.Fatalf("init output %q does not summarize the manually entered off-path target file", output.String())
 	}
 
 	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))

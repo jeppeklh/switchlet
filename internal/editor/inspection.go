@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+var skippedDiscoveryDirectoryNames = map[string]struct{}{
+	"node_modules": {},
+	"vendor":       {},
+	"bin":          {},
+	"obj":          {},
+}
+
 // DiscoverTargetFileCandidates returns the JSON files under projectRoot that
 // contain at least one existing string-valued JSON path Switchlet can manage.
 func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, error) {
@@ -123,7 +130,12 @@ func inspectStringTargetsContents(contents []byte) ([]StringTargetNode, error) {
 }
 
 func shouldSkipDiscoveryDirectory(entry fs.DirEntry) bool {
-	return strings.HasPrefix(entry.Name(), ".")
+	if strings.HasPrefix(entry.Name(), ".") {
+		return true
+	}
+
+	_, shouldSkip := skippedDiscoveryDirectoryNames[strings.ToLower(entry.Name())]
+	return shouldSkip
 }
 
 func pathDepth(path string) int {

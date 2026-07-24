@@ -27,10 +27,10 @@ func initHelpText() string {
 
 	Create a new .switchlet.yaml in the current directory.
 
-	The init flow discovers candidate JSON files, lets you browse existing
-	string-valued JSON paths inside the selected file, keeps manual entry
-	available for both steps, and validates each step before writing the
-	configuration.
+	The init flow discovers candidate JSON files, lets you narrow large file
+	lists by name or path, lets you browse existing string-valued JSON
+	paths inside the selected file, keeps manual entry available for both
+	steps, and validates each step before writing the configuration.
 `
 }
 

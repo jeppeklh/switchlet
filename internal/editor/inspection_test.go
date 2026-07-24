@@ -42,6 +42,35 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableJSONFiles(t *testi
 	}
 }
 
+func TestDiscoverTargetFileCandidates_SkipsObviousDependencyAndBuildDirectories(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	writeTargetFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://runtime.example.test"}`)
+	writeTargetFile(t, projectRoot, "src/MyApplication/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=localhost;Database=App;"}}`)
+	writeTargetFile(t, projectRoot, "node_modules/pkg/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "vendor/pkg/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "src/MyApplication/bin/Debug/net8.0/appsettings.json", `{"ConnectionStrings":{"DefaultConnection":"Server=ignored;Database=Bin;"}}`)
+	writeTargetFile(t, projectRoot, "src/MyApplication/obj/Debug/net8.0/appsettings.json", `{"ConnectionStrings":{"DefaultConnection":"Server=ignored;Database=Obj;"}}`)
+
+	candidates, err := DiscoverTargetFileCandidates(projectRoot)
+	if err != nil {
+		t.Fatalf("DiscoverTargetFileCandidates returned error: %v", err)
+	}
+
+	gotRelativePaths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotRelativePaths = append(gotRelativePaths, candidate.RelativePath)
+	}
+
+	wantRelativePaths := []string{
+		filepath.Join("config", "runtime.json"),
+		filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+	}
+	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
+		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
+	}
+}
+
 func TestInspectStringTargets_ReturnsHierarchicalNodes(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`

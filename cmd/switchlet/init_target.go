@@ -3,16 +3,20 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
 )
 
 const (
-	manualTargetFileChoiceLabel = "Enter file path manually"
-	manualJSONPathChoiceLabel   = "Enter JSON path manually"
-	chooseDifferentFileLabel    = "Choose a different file"
-	goBackChoiceLabel           = "Go back"
+	manualTargetFileChoiceLabel  = "Enter file path manually"
+	manualJSONPathChoiceLabel    = "Enter JSON path manually"
+	chooseDifferentFileLabel     = "Choose a different file"
+	goBackChoiceLabel            = "Go back"
+	filterTargetFilesChoiceLabel = "Filter files by name or path"
+	clearTargetFileFilterLabel   = "Clear filter"
+	targetFileChoiceWindowSize   = 12
 )
 
 type targetFileSelection struct {
@@ -49,6 +53,7 @@ func promptTarget(prompter initPrompter, workingDirectory string, dependencies i
 }
 
 func promptTargetFile(prompter initPrompter, workingDirectory string, dependencies initDependencies) (targetFileSelection, error) {
+discoveryLoop:
 	for {
 		candidates, err := dependencies.discoverTargetFileCandidates(workingDirectory)
 		if err != nil {
@@ -63,36 +68,136 @@ func promptTargetFile(prompter initPrompter, workingDirectory string, dependenci
 			return promptManualTargetFile(prompter, workingDirectory, dependencies)
 		}
 
-		choices := make([]string, 0, len(candidates)+1)
-		for _, candidate := range candidates {
-			choices = append(choices, candidate.RelativePath)
-		}
-		choices = append(choices, manualTargetFileChoiceLabel)
+		filterValue := ""
+		for {
+			matchingCandidates := filterTargetFileCandidates(candidates, filterValue)
+			if len(matchingCandidates) == 0 {
+				if _, err := fmt.Fprintf(prompter.writer, "No discovered target JSON files match %q.\n", filterValue); err != nil {
+					return targetFileSelection{}, err
+				}
 
-		choiceIndex, err := prompter.promptChoiceIndex("Select target JSON file:", choices)
-		if err != nil {
-			return targetFileSelection{}, err
-		}
+				filterValue, err = promptTargetFileFilter(prompter)
+				if err != nil {
+					return targetFileSelection{}, err
+				}
+				continue
+			}
 
-		if choiceIndex == len(candidates) {
-			return promptManualTargetFile(prompter, workingDirectory, dependencies)
-		}
+			visibleCandidates := matchingCandidates
+			truncated := false
+			if len(visibleCandidates) > targetFileChoiceWindowSize {
+				visibleCandidates = visibleCandidates[:targetFileChoiceWindowSize]
+				truncated = true
+			}
 
-		candidate := candidates[choiceIndex]
-		nodes, err := dependencies.inspectStringTargets(candidate.Path)
-		if err != nil {
-			if err := writePromptError(prompter, err); err != nil {
+			choices := make([]string, 0, len(visibleCandidates)+3)
+			for _, candidate := range visibleCandidates {
+				choices = append(choices, candidate.RelativePath)
+			}
+
+			showFilterAction := len(candidates) > targetFileChoiceWindowSize || filterValue != ""
+			if showFilterAction {
+				choices = append(choices, filterTargetFilesChoiceLabel)
+			}
+			if filterValue != "" {
+				choices = append(choices, clearTargetFileFilterLabel)
+			}
+			choices = append(choices, manualTargetFileChoiceLabel)
+
+			choiceIndex, err := prompter.promptChoiceIndex(targetFileSelectionPrompt(filterValue, len(visibleCandidates), len(matchingCandidates), len(candidates), truncated), choices)
+			if err != nil {
 				return targetFileSelection{}, err
 			}
-			continue
+
+			if choiceIndex < len(visibleCandidates) {
+				candidate := visibleCandidates[choiceIndex]
+				nodes, err := dependencies.inspectStringTargets(candidate.Path)
+				if err != nil {
+					if err := writePromptError(prompter, err); err != nil {
+						return targetFileSelection{}, err
+					}
+					continue discoveryLoop
+				}
+
+				return targetFileSelection{
+					path:        candidate.Path,
+					displayPath: candidate.RelativePath,
+					nodes:       nodes,
+				}, nil
+			}
+
+			nextActionIndex := len(visibleCandidates)
+			if showFilterAction {
+				if choiceIndex == nextActionIndex {
+					filterValue, err = promptTargetFileFilter(prompter)
+					if err != nil {
+						return targetFileSelection{}, err
+					}
+					continue
+				}
+				nextActionIndex++
+			}
+
+			if filterValue != "" {
+				if choiceIndex == nextActionIndex {
+					filterValue = ""
+					continue
+				}
+				nextActionIndex++
+			}
+
+			if choiceIndex == nextActionIndex {
+				return promptManualTargetFile(prompter, workingDirectory, dependencies)
+			}
+		}
+	}
+}
+
+func promptTargetFileFilter(prompter initPrompter) (string, error) {
+	return prompter.promptLine("Filter files by name or path (blank clears the filter): ")
+}
+
+func filterTargetFileCandidates(candidates []editor.TargetFileCandidate, filterValue string) []editor.TargetFileCandidate {
+	normalizedFilter := normalizeTargetFileFilter(filterValue)
+	if normalizedFilter == "" {
+		return candidates
+	}
+
+	basenameMatches := make([]editor.TargetFileCandidate, 0)
+	pathMatches := make([]editor.TargetFileCandidate, 0)
+	for _, candidate := range candidates {
+		relativePath := strings.ToLower(filepath.ToSlash(candidate.RelativePath))
+		basename := strings.ToLower(filepath.Base(candidate.RelativePath))
+
+		switch {
+		case strings.Contains(basename, normalizedFilter):
+			basenameMatches = append(basenameMatches, candidate)
+		case strings.Contains(relativePath, normalizedFilter):
+			pathMatches = append(pathMatches, candidate)
+		}
+	}
+
+	return append(basenameMatches, pathMatches...)
+}
+
+func normalizeTargetFileFilter(filterValue string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filterValue), "\\", "/"))
+}
+
+func targetFileSelectionPrompt(filterValue string, visibleCount int, matchingCount int, totalCount int, truncated bool) string {
+	if filterValue != "" {
+		if truncated {
+			return fmt.Sprintf("Select target JSON file matching %q (showing %d of %d matches):", filterValue, visibleCount, matchingCount)
 		}
 
-		return targetFileSelection{
-			path:        candidate.Path,
-			displayPath: candidate.RelativePath,
-			nodes:       nodes,
-		}, nil
+		return fmt.Sprintf("Select target JSON file matching %q:", filterValue)
 	}
+
+	if truncated {
+		return fmt.Sprintf("Select target JSON file (showing %d of %d discovered files):", visibleCount, totalCount)
+	}
+
+	return "Select target JSON file:"
 }
 
 func promptManualTargetFile(prompter initPrompter, workingDirectory string, dependencies initDependencies) (targetFileSelection, error) {
