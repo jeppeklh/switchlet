@@ -31,6 +31,8 @@ type initPrompter struct {
 	writer io.Writer
 }
 
+const initStepCount = 4
+
 func defaultInitDependencies() initDependencies {
 	return initDependencies{
 		validateCreateLocation:       config.ValidateCreateLocation,
@@ -58,19 +60,11 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	if _, err := fmt.Fprintln(output, "Switchlet init"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(output, ""); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(output, "Select the target JSON file first, then choose the existing string value Switchlet should manage."); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(output, "When many JSON files are discovered, narrow the file list by name or path."); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(output, "Manual entry is available for both steps."); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(output, ""); err != nil {
+	if err := writeInitStep(output, 1, "Choose target JSON file",
+		"Pick the JSON file Switchlet should update.",
+		"When many JSON files are discovered, narrow the list by name or path.",
+		"You can also enter a file path manually.",
+	); err != nil {
 		return err
 	}
 
@@ -79,8 +73,21 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 		return err
 	}
 
+	if err := writeInitStep(output, 3, "Add profiles",
+		"Add one or more named profiles for the selected target.",
+		"Each profile can use a literal value or an environment variable name.",
+	); err != nil {
+		return err
+	}
+
 	profiles, err := promptProfiles(prompter)
 	if err != nil {
+		return err
+	}
+
+	if err := writeInitStep(output, 4, "Review and create configuration",
+		"Review the target and profiles below before creating .switchlet.yaml.",
+	); err != nil {
 		return err
 	}
 
@@ -88,7 +95,7 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 		return err
 	}
 
-	confirmed, err := prompter.promptYesNo("Create .switchlet.yaml? [y/N]: ", false)
+	confirmed, err := prompter.promptYesNo(formatYesNoPrompt("Create .switchlet.yaml now?", true), true)
 	if err != nil {
 		return err
 	}
@@ -131,20 +138,20 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 			return nil, err
 		}
 
-		sourceChoice, err := prompter.promptChoice("Select profile source:", []string{"Literal value", "Environment variable"})
+		sourceChoice, err := prompter.promptChoice("How should Switchlet resolve this profile?", []string{"Use a literal value", "Use an environment variable"})
 		if err != nil {
 			return nil, err
 		}
 
 		profile := config.Profile{Name: name}
 		switch sourceChoice {
-		case "Literal value":
-			literalValue, err := prompter.promptNonEmptyLine("Value: ")
+		case "Use a literal value":
+			literalValue, err := prompter.promptNonEmptyLine("Literal value: ")
 			if err != nil {
 				return nil, err
 			}
 			profile.Value = stringValuePointer(literalValue)
-		case "Environment variable":
+		case "Use an environment variable":
 			environmentVariableName, err := prompter.promptNonEmptyLine("Environment variable name: ")
 			if err != nil {
 				return nil, err
@@ -154,7 +161,7 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 			return nil, fmt.Errorf("unsupported profile source %q", sourceChoice)
 		}
 
-		protected, err := prompter.promptYesNo("Protected profile? [y/N]: ", false)
+		protected, err := prompter.promptYesNo(formatYesNoPrompt("Require confirmation before applying this profile?", false), false)
 		if err != nil {
 			return nil, err
 		}
@@ -163,7 +170,7 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 		profiles = append(profiles, profile)
 		seenNames[name] = struct{}{}
 
-		addAnother, err := prompter.promptYesNo("Add another profile? [y/N]: ", false)
+		addAnother, err := prompter.promptYesNo(formatYesNoPrompt("Add another profile?", false), false)
 		if err != nil {
 			return nil, err
 		}
@@ -197,7 +204,7 @@ func printInitSummary(output io.Writer, workingDirectory string, target config.T
 		relativeTargetPath = target.File
 	}
 
-	if _, err := fmt.Fprintln(output, "\nSummary"); err != nil {
+	if _, err := fmt.Fprintln(output, "Summary"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(output, "  Configuration file: %s\n", filepath.Join(workingDirectory, ".switchlet.yaml")); err != nil {
@@ -253,6 +260,30 @@ func (prompter initPrompter) promptChoice(prompt string, choices []string) (stri
 	}
 
 	return choices[selectedIndex], nil
+}
+
+func writeInitStep(output io.Writer, stepNumber int, title string, details ...string) error {
+	if _, err := fmt.Fprintf(output, "\nStep %d of %d: %s\n", stepNumber, initStepCount, title); err != nil {
+		return err
+	}
+
+	for _, detail := range details {
+		if _, err := fmt.Fprintln(output, detail); err != nil {
+			return err
+		}
+	}
+
+	_, err := fmt.Fprintln(output, "")
+	return err
+}
+
+func formatYesNoPrompt(label string, defaultValue bool) string {
+	defaultLabel := "[y/N]"
+	if defaultValue {
+		defaultLabel = "[Y/n]"
+	}
+
+	return fmt.Sprintf("%s %s: ", label, defaultLabel)
 }
 
 func (prompter initPrompter) promptChoiceIndex(prompt string, choices []string) (int, error) {

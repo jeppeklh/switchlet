@@ -12,11 +12,16 @@ import (
 const (
 	manualTargetFileChoiceLabel  = "Enter file path manually"
 	manualJSONPathChoiceLabel    = "Enter JSON path manually"
-	chooseDifferentFileLabel     = "Choose a different file"
-	goBackChoiceLabel            = "Go back"
+	chooseDifferentFileLabel     = "Back to file selection"
+	goBackChoiceLabel            = "Back up one level"
 	filterTargetFilesChoiceLabel = "Filter files by name or path"
 	clearTargetFileFilterLabel   = "Clear filter"
 	targetFileChoiceWindowSize   = 12
+	searchJSONPathsChoiceLabel   = "Search selectable JSON paths"
+	refineJSONPathSearchLabel    = "Refine path search"
+	clearJSONPathSearchLabel     = "Clear path search"
+	browseJSONPathsChoiceLabel   = "Browse JSON path hierarchy"
+	jsonPathChoiceWindowSize     = 12
 )
 
 type targetFileSelection struct {
@@ -30,10 +35,24 @@ type targetBrowseLevel struct {
 	nodes []editor.StringTargetNode
 }
 
+type jsonPathSearchResult struct {
+	jsonPath            string
+	returnToHierarchy   bool
+	chooseDifferentFile bool
+}
+
 func promptTarget(prompter initPrompter, workingDirectory string, dependencies initDependencies) (config.Target, error) {
 	for {
 		selectedFile, err := promptTargetFile(prompter, workingDirectory, dependencies)
 		if err != nil {
+			return config.Target{}, err
+		}
+
+		if err := writeInitStep(prompter.writer, 2, "Choose target JSON path",
+			fmt.Sprintf("Selected file: %s", selectedFile.displayPath),
+			"Choose the existing string-valued JSON path Switchlet should manage.",
+			"Browse the hierarchy, search when the file has many selectable paths, or enter a path manually.",
+		); err != nil {
 			return config.Target{}, err
 		}
 
@@ -227,19 +246,24 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelection, dependencies initDependencies) (string, bool, error) {
 	currentNodes := selectedFile.nodes
 	ancestors := make([]targetBrowseLevel, 0)
+	selectablePaths := flattenSelectableJSONPaths(selectedFile.nodes)
+	showSearchAction := len(selectablePaths) > jsonPathChoiceWindowSize
 
 	for {
-		prompt := fmt.Sprintf("Select target JSON path in %s:", selectedFile.displayPath)
+		prompt := fmt.Sprintf("Browse JSON paths in %s:", selectedFile.displayPath)
 		if len(ancestors) > 0 {
-			prompt = fmt.Sprintf("Select target JSON path under %s in %s:", ancestors[len(ancestors)-1].path, selectedFile.displayPath)
+			prompt = fmt.Sprintf("Browse JSON paths under %s in %s:", ancestors[len(ancestors)-1].path, selectedFile.displayPath)
 		}
 
-		choices := make([]string, 0, len(currentNodes)+3)
+		choices := make([]string, 0, len(currentNodes)+4)
 		for _, node := range currentNodes {
 			choices = append(choices, targetNodeChoiceLabel(node))
 		}
 		if len(ancestors) > 0 {
 			choices = append(choices, goBackChoiceLabel)
+		}
+		if showSearchAction {
+			choices = append(choices, searchJSONPathsChoiceLabel)
 		}
 		choices = append(choices, manualJSONPathChoiceLabel, chooseDifferentFileLabel)
 
@@ -273,6 +297,24 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 			nextActionIndex++
 		}
 
+		if showSearchAction {
+			if choiceIndex == nextActionIndex {
+				searchResult, err := promptTargetJSONPathSearch(prompter, selectedFile, selectablePaths, dependencies)
+				if err != nil {
+					return "", false, err
+				}
+				if searchResult.chooseDifferentFile {
+					return "", true, nil
+				}
+				if searchResult.returnToHierarchy {
+					continue
+				}
+
+				return searchResult.jsonPath, false, nil
+			}
+			nextActionIndex++
+		}
+
 		if choiceIndex == nextActionIndex {
 			jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
 			if err != nil {
@@ -291,6 +333,137 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 
 		return "", true, nil
 	}
+}
+
+func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSelection, selectablePaths []string, dependencies initDependencies) (jsonPathSearchResult, error) {
+	filterValue := ""
+
+	for {
+		if filterValue == "" {
+			nextFilterValue, err := prompter.promptLine("Search JSON paths by name or path (blank returns to browsing): ")
+			if err != nil {
+				return jsonPathSearchResult{}, err
+			}
+			if strings.TrimSpace(nextFilterValue) == "" {
+				return jsonPathSearchResult{returnToHierarchy: true}, nil
+			}
+
+			filterValue = nextFilterValue
+		}
+
+		matchingPaths := filterSelectableJSONPaths(selectablePaths, filterValue)
+		if len(matchingPaths) == 0 {
+			if _, err := fmt.Fprintf(prompter.writer, "No selectable JSON paths in %s match %q.\n", selectedFile.displayPath, filterValue); err != nil {
+				return jsonPathSearchResult{}, err
+			}
+			filterValue = ""
+			continue
+		}
+
+		visiblePaths := matchingPaths
+		truncated := false
+		if len(visiblePaths) > jsonPathChoiceWindowSize {
+			visiblePaths = visiblePaths[:jsonPathChoiceWindowSize]
+			truncated = true
+		}
+
+		choices := make([]string, 0, len(visiblePaths)+5)
+		choices = append(choices, visiblePaths...)
+		choices = append(choices, refineJSONPathSearchLabel, clearJSONPathSearchLabel, manualJSONPathChoiceLabel, browseJSONPathsChoiceLabel, chooseDifferentFileLabel)
+
+		choiceIndex, err := prompter.promptChoiceIndex(targetJSONPathSearchPrompt(selectedFile.displayPath, filterValue, len(visiblePaths), len(matchingPaths), truncated), choices)
+		if err != nil {
+			return jsonPathSearchResult{}, err
+		}
+
+		if choiceIndex < len(visiblePaths) {
+			return jsonPathSearchResult{jsonPath: visiblePaths[choiceIndex]}, nil
+		}
+
+		nextActionIndex := len(visiblePaths)
+		if choiceIndex == nextActionIndex {
+			filterValue = ""
+			continue
+		}
+		nextActionIndex++
+
+		if choiceIndex == nextActionIndex {
+			filterValue = ""
+			continue
+		}
+		nextActionIndex++
+
+		if choiceIndex == nextActionIndex {
+			jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
+			if err != nil {
+				return jsonPathSearchResult{}, err
+			}
+
+			if err := dependencies.validateStringTarget(selectedFile.path, jsonPath); err != nil {
+				if err := writePromptError(prompter, err); err != nil {
+					return jsonPathSearchResult{}, err
+				}
+				continue
+			}
+
+			return jsonPathSearchResult{jsonPath: jsonPath}, nil
+		}
+		nextActionIndex++
+
+		if choiceIndex == nextActionIndex {
+			return jsonPathSearchResult{returnToHierarchy: true}, nil
+		}
+
+		return jsonPathSearchResult{chooseDifferentFile: true}, nil
+	}
+}
+
+func flattenSelectableJSONPaths(nodes []editor.StringTargetNode) []string {
+	paths := make([]string, 0)
+	for _, node := range nodes {
+		if node.Selectable {
+			paths = append(paths, node.JSONPath)
+		}
+		if len(node.Children) > 0 {
+			paths = append(paths, flattenSelectableJSONPaths(node.Children)...)
+		}
+	}
+
+	return paths
+}
+
+func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []string {
+	normalizedFilter := normalizeTargetFileFilter(filterValue)
+	if normalizedFilter == "" {
+		return selectablePaths
+	}
+
+	leafMatches := make([]string, 0)
+	pathMatches := make([]string, 0)
+	for _, selectablePath := range selectablePaths {
+		normalizedPath := strings.ToLower(selectablePath)
+		leafName := normalizedPath
+		if lastSeparatorIndex := strings.LastIndex(normalizedPath, "."); lastSeparatorIndex >= 0 {
+			leafName = normalizedPath[lastSeparatorIndex+1:]
+		}
+
+		switch {
+		case strings.Contains(leafName, normalizedFilter):
+			leafMatches = append(leafMatches, selectablePath)
+		case strings.Contains(normalizedPath, normalizedFilter):
+			pathMatches = append(pathMatches, selectablePath)
+		}
+	}
+
+	return append(leafMatches, pathMatches...)
+}
+
+func targetJSONPathSearchPrompt(displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
+	if truncated {
+		return fmt.Sprintf("Select target JSON path matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
+	}
+
+	return fmt.Sprintf("Select target JSON path matching %q in %s:", filterValue, displayPath)
 }
 
 func targetNodeChoiceLabel(node editor.StringTargetNode) string {

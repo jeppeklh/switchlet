@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -80,14 +81,112 @@ func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "discovers candidate JSON files") {
+	if !strings.Contains(output.String(), "guides you through file selection") {
 		t.Fatalf("help output %q does not describe guided file discovery", output.String())
 	}
-	if !strings.Contains(output.String(), "lets you narrow large file") {
+	if !strings.Contains(output.String(), "narrow large file lists") {
 		t.Fatalf("help output %q does not mention large-repository narrowing", output.String())
 	}
-	if !strings.Contains(output.String(), "manual entry") {
-		t.Fatalf("help output %q does not mention manual entry", output.String())
+	if !strings.Contains(output.String(), "search existing string-valued JSON paths") {
+		t.Fatalf("help output %q does not mention JSON-path search", output.String())
+	}
+}
+
+func TestPromptTargetJSONPath_AllowsSearchingLargeSelectablePathSets(t *testing.T) {
+	selectedFile := targetFileSelection{
+		path:        "/tmp/config.json",
+		displayPath: "config.json",
+		nodes: []editor.StringTargetNode{
+			{
+				Name:     "database",
+				JSONPath: "database",
+				Children: []editor.StringTargetNode{
+					{Name: "primary", JSONPath: "database.primary", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.primary.url", Selectable: true}}},
+					{Name: "replicaA", JSONPath: "database.replicaA", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaA.url", Selectable: true}}},
+					{Name: "replicaB", JSONPath: "database.replicaB", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaB.url", Selectable: true}}},
+					{Name: "replicaC", JSONPath: "database.replicaC", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaC.url", Selectable: true}}},
+					{Name: "replicaD", JSONPath: "database.replicaD", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaD.url", Selectable: true}}},
+					{Name: "replicaE", JSONPath: "database.replicaE", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaE.url", Selectable: true}}},
+					{Name: "replicaF", JSONPath: "database.replicaF", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaF.url", Selectable: true}}},
+					{Name: "replicaG", JSONPath: "database.replicaG", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaG.url", Selectable: true}}},
+					{Name: "replicaH", JSONPath: "database.replicaH", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaH.url", Selectable: true}}},
+					{Name: "replicaI", JSONPath: "database.replicaI", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaI.url", Selectable: true}}},
+					{Name: "replicaJ", JSONPath: "database.replicaJ", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaJ.url", Selectable: true}}},
+					{Name: "replicaK", JSONPath: "database.replicaK", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaK.url", Selectable: true}}},
+					{Name: "replicaL", JSONPath: "database.replicaL", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaL.url", Selectable: true}}},
+				},
+			},
+		},
+	}
+	dependencies := initDependencies{
+		validateStringTarget: func(string, string) error { return nil },
+	}
+	var output bytes.Buffer
+	prompter := initPrompter{
+		reader: bufio.NewReader(strings.NewReader(strings.Join([]string{"2", "replicaL", "1"}, "\n") + "\n")),
+		writer: &output,
+	}
+
+	jsonPath, chooseDifferentFile, err := promptTargetJSONPath(prompter, selectedFile, dependencies)
+	if err != nil {
+		t.Fatalf("promptTargetJSONPath returned error: %v", err)
+	}
+	if chooseDifferentFile {
+		t.Fatal("promptTargetJSONPath chose a different file, want selected JSON path")
+	}
+	if jsonPath != "database.replicaL.url" {
+		t.Fatalf("jsonPath = %q, want %q", jsonPath, "database.replicaL.url")
+	}
+	if !strings.Contains(output.String(), `Select target JSON path matching "replicaL" in config.json:`) {
+		t.Fatalf("prompt output %q does not report the filtered JSON-path selection", output.String())
+	}
+}
+
+func TestPromptTargetJSONPath_SearchKeepsPathSelectionRecoverableWhenNothingMatches(t *testing.T) {
+	selectedFile := targetFileSelection{
+		path:        "/tmp/config.json",
+		displayPath: "config.json",
+		nodes: []editor.StringTargetNode{{
+			Name:     "database",
+			JSONPath: "database",
+			Children: []editor.StringTargetNode{
+				{Name: "primary", JSONPath: "database.primary", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.primary.url", Selectable: true}}},
+				{Name: "replicaA", JSONPath: "database.replicaA", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaA.url", Selectable: true}}},
+				{Name: "replicaB", JSONPath: "database.replicaB", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaB.url", Selectable: true}}},
+				{Name: "replicaC", JSONPath: "database.replicaC", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaC.url", Selectable: true}}},
+				{Name: "replicaD", JSONPath: "database.replicaD", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaD.url", Selectable: true}}},
+				{Name: "replicaE", JSONPath: "database.replicaE", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaE.url", Selectable: true}}},
+				{Name: "replicaF", JSONPath: "database.replicaF", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaF.url", Selectable: true}}},
+				{Name: "replicaG", JSONPath: "database.replicaG", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaG.url", Selectable: true}}},
+				{Name: "replicaH", JSONPath: "database.replicaH", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaH.url", Selectable: true}}},
+				{Name: "replicaI", JSONPath: "database.replicaI", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaI.url", Selectable: true}}},
+				{Name: "replicaJ", JSONPath: "database.replicaJ", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaJ.url", Selectable: true}}},
+				{Name: "replicaK", JSONPath: "database.replicaK", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaK.url", Selectable: true}}},
+				{Name: "replicaL", JSONPath: "database.replicaL", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaL.url", Selectable: true}}},
+			},
+		}},
+	}
+	dependencies := initDependencies{
+		validateStringTarget: func(string, string) error { return nil },
+	}
+	var output bytes.Buffer
+	prompter := initPrompter{
+		reader: bufio.NewReader(strings.NewReader(strings.Join([]string{"2", "missing", "replicaA", "1"}, "\n") + "\n")),
+		writer: &output,
+	}
+
+	jsonPath, chooseDifferentFile, err := promptTargetJSONPath(prompter, selectedFile, dependencies)
+	if err != nil {
+		t.Fatalf("promptTargetJSONPath returned error: %v", err)
+	}
+	if chooseDifferentFile {
+		t.Fatal("promptTargetJSONPath chose a different file, want selected JSON path")
+	}
+	if jsonPath != "database.replicaA.url" {
+		t.Fatalf("jsonPath = %q, want %q", jsonPath, "database.replicaA.url")
+	}
+	if !strings.Contains(output.String(), `No selectable JSON paths in config.json match "missing".`) {
+		t.Fatalf("prompt output %q does not report the recoverable no-match search state", output.String())
 	}
 }
 
@@ -244,7 +343,7 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 		"postgres://localhost:5432/myapp",
 		"n",
 		"n",
-		"y",
+		"",
 	}, "\n") + "\n")
 	var output bytes.Buffer
 
@@ -291,6 +390,12 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "postgres://old") {
 		t.Fatalf("init output %q must not include the existing target value", output.String())
+	}
+	if !strings.Contains(output.String(), "Step 4 of 4: Review and create configuration") {
+		t.Fatalf("init output %q does not include the final review step", output.String())
+	}
+	if !strings.Contains(output.String(), "Create .switchlet.yaml now? [Y/n]: ") {
+		t.Fatalf("init output %q does not show the Enter-as-yes confirmation prompt", output.String())
 	}
 }
 

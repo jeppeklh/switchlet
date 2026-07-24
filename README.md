@@ -56,10 +56,12 @@ go build -o switchlet ./cmd/switchlet
 1. Run `switchlet init` from your project root.
 2. Choose one of the discovered JSON files, narrow large file lists by
    name or path when needed, or enter a file path manually.
-3. Browse to an existing string-valued JSON path or enter a JSON path
-   manually.
+3. Browse or search for an existing string-valued JSON path, or enter a
+   JSON path manually.
 4. Add one or more profiles.
-5. Run `switchlet` for the interactive workflow, or use a non-interactive
+5. Review the generated configuration summary and press Enter to create
+   `.switchlet.yaml`, or type `n` to cancel.
+6. Run `switchlet` for the interactive workflow, or use a non-interactive
    command.
 
 `switchlet init` validates the file-selection step and the JSON-path step
