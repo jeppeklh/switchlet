@@ -36,7 +36,7 @@ profiles:
 	workingDirectory := filepath.Join(projectRoot, "src", "MyApplication")
 	programStarted := false
 
-	err := run(workingDirectory, func(model tea.Model) error {
+	err := runInteractiveCommand(workingDirectory, func(model tea.Model) error {
 		programStarted = true
 		if model == nil {
 			t.Fatal("runProgram received nil model")
@@ -77,7 +77,7 @@ profiles:
 
 	programStarted := false
 
-	err := run(projectRoot, func(model tea.Model) error {
+	err := runInteractiveCommand(projectRoot, func(model tea.Model) error {
 		programStarted = true
 		if model == nil {
 			t.Fatal("runProgram received nil model")
@@ -97,7 +97,7 @@ func TestRun_ReturnsDiscoveryErrorWithoutStartingProgram(t *testing.T) {
 	workingDirectory := t.TempDir()
 	programStarted := false
 
-	err := run(workingDirectory, func(model tea.Model) error {
+	err := runInteractiveCommand(workingDirectory, func(model tea.Model) error {
 		programStarted = true
 		return nil
 	})
@@ -126,7 +126,7 @@ profiles:
 `)+"\n")
 
 	programStarted := false
-	err := run(projectRoot, func(model tea.Model) error {
+	err := runInteractiveCommand(projectRoot, func(model tea.Model) error {
 		programStarted = true
 		return nil
 	})
@@ -189,7 +189,7 @@ profiles:
 			}
 
 			programStarted := false
-			err := run(projectRoot, func(model tea.Model) error {
+			err := runInteractiveCommand(projectRoot, func(model tea.Model) error {
 				programStarted = true
 				return nil
 			})
@@ -227,7 +227,7 @@ profiles:
 }
 `)+"\n")
 
-	err := run(projectRoot, func(model tea.Model) error {
+	err := runInteractiveCommand(projectRoot, func(model tea.Model) error {
 		return errors.New("program failed")
 	})
 	if err == nil {

@@ -36,6 +36,9 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "switchlet apply <profile-name>") {
 		t.Fatalf("help output %q does not mention apply", output.String())
 	}
+	if !strings.Contains(output.String(), "switchlet help [command]") {
+		t.Fatalf("help output %q does not mention help topic usage", output.String())
+	}
 	if !strings.Contains(output.String(), "--dry-run") {
 		t.Fatalf("help output %q does not mention --dry-run", output.String())
 	}
@@ -44,6 +47,24 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "--json") {
 		t.Fatalf("help output %q does not mention --json", output.String())
+	}
+}
+
+func TestRunCommand_HelpTopicWritesSubcommandUsage(t *testing.T) {
+	var output bytes.Buffer
+
+	err := runCommand([]string{"help", "apply"}, t.TempDir(), func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for help topic")
+		return nil
+	}, strings.NewReader(""), &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "switchlet apply <profile-name>") {
+		t.Fatalf("help output %q does not mention apply usage", output.String())
+	}
+	if !strings.Contains(output.String(), "--allow-protected") {
+		t.Fatalf("help output %q does not mention apply flags", output.String())
 	}
 }
 

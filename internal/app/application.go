@@ -25,6 +25,16 @@ func New(target config.Target, profiles []config.Profile) Application {
 	}
 }
 
+// TargetFile returns the configured target file path.
+func (application Application) TargetFile() string {
+	return application.target.File
+}
+
+// TargetPath returns the configured target JSON path.
+func (application Application) TargetPath() string {
+	return application.target.JSONPath
+}
+
 // Profiles returns the configured profiles with resolved availability and display status.
 func (application Application) Profiles() []ProfileItem {
 	items := make([]ProfileItem, 0, len(application.profiles))
@@ -78,9 +88,6 @@ func (application Application) applyConfiguredProfile(target config.Target, conf
 	resolvedProfile := profile.ResolveProfile(configuredProfile)
 	if !resolvedProfile.IsAvailable() {
 		return Result{}, fmt.Errorf("resolve profile %q: %w", configuredProfile.Name, errors.Join(ErrProfileUnavailable, resolvedProfile.ResolutionError))
-	}
-	if resolvedProfile.Value == "" {
-		return Result{}, fmt.Errorf("resolved profile %q is empty", configuredProfile.Name)
 	}
 
 	if options.DryRun {

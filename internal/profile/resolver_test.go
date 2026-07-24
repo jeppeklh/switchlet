@@ -74,6 +74,28 @@ func TestResolveProfile_ResolvesEnvironmentVariable(t *testing.T) {
 	}
 }
 
+func TestResolveProfile_ReturnsUnavailableForEmptyLiteralValue(t *testing.T) {
+	configuredProfile := config.Profile{
+		Name:  "Local",
+		Value: stringPointer(""),
+	}
+
+	resolvedProfile := profile.ResolveProfile(configuredProfile)
+
+	if resolvedProfile.IsAvailable() {
+		t.Fatal("IsAvailable() = true, want false")
+	}
+	if !errors.Is(resolvedProfile.ResolutionError, profile.ErrProfileValueEmpty) {
+		t.Fatalf("ResolutionError = %v, want ErrProfileValueEmpty", resolvedProfile.ResolutionError)
+	}
+	if !strings.Contains(resolvedProfile.ResolutionError.Error(), `profile "Local" value is empty`) {
+		t.Fatalf("ResolutionError = %q, want empty-value guidance", resolvedProfile.ResolutionError)
+	}
+	if resolvedProfile.MaskedValue != "" {
+		t.Fatalf("MaskedValue = %q, want empty string", resolvedProfile.MaskedValue)
+	}
+}
+
 func TestResolveProfile_ReturnsUnavailableForMissingEnvironmentVariable(t *testing.T) {
 	configuredProfile := config.Profile{
 		Name:         "Production",

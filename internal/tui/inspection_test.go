@@ -97,8 +97,9 @@ func TestUpdate_InspectionShowsResolutionErrorForUnavailableProfile(t *testing.T
 }
 
 func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
+	target := config.Target{File: "/tmp/config.json", JSONPath: "service.baseUrl"}
 	model := New(app.New(
-		config.Target{},
+		target,
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}},
 	))
 
@@ -118,6 +119,12 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	}
 	if !strings.Contains(view, "Profile: Production") {
 		t.Fatalf("View() = %q, want protected profile name", view)
+	}
+	if !strings.Contains(view, "Target file: /tmp/config.json") {
+		t.Fatalf("View() = %q, want target file", view)
+	}
+	if !strings.Contains(view, "Target JSON path: service.baseUrl") {
+		t.Fatalf("View() = %q, want target JSON path", view)
 	}
 	if !strings.Contains(view, "configured target value") {
 		t.Fatalf("View() = %q, want generic confirmation text", view)

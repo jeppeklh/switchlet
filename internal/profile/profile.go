@@ -17,6 +17,8 @@ var (
 	ErrEnvironmentVariableNotSet = errors.New("environment variable is not set")
 	// ErrEnvironmentVariableEmpty indicates that a configured environment variable exists but has no value.
 	ErrEnvironmentVariableEmpty = errors.New("environment variable is empty")
+	// ErrProfileValueEmpty indicates that a configured profile resolved to an empty value.
+	ErrProfileValueEmpty = errors.New("profile value is empty")
 )
 
 // ResolvedProfile contains the display-safe and application-safe result of resolving one configured profile.

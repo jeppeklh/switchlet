@@ -18,6 +18,10 @@ func ResolveProfile(configuredProfile config.Profile) ResolvedProfile {
 	case configuredProfile.Value != nil:
 		resolvedProfile.Source = ValueSourceLiteral
 		resolvedProfile.Value = *configuredProfile.Value
+		if resolvedProfile.Value == "" {
+			resolvedProfile.ResolutionError = fmt.Errorf("profile %q value is empty: %w", configuredProfile.Name, ErrProfileValueEmpty)
+			break
+		}
 		resolvedProfile.MaskedValue = MaskConnectionString(resolvedProfile.Value)
 	case configuredProfile.ValueFromEnv != nil:
 		resolvedProfile.Source = ValueSourceEnvironment

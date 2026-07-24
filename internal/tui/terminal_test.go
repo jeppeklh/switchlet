@@ -29,6 +29,9 @@ func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 	if !strings.Contains(view, "Current size: 79x23") {
 		t.Fatalf("View() = %q, want current size guidance", view)
 	}
+	if !strings.Contains(view, "q Quit") {
+		t.Fatalf("View() = %q, want quit guidance", view)
+	}
 }
 
 func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {

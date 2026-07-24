@@ -117,6 +117,24 @@ func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
 	}
 }
 
+func TestApplication_Profiles_ReturnsUnavailableForEmptyLiteralValue(t *testing.T) {
+	application := app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("")}},
+	)
+
+	items := application.Profiles()
+	if len(items) != 1 {
+		t.Fatalf("len(Profiles()) = %d, want 1", len(items))
+	}
+	if items[0].Available {
+		t.Fatal("Profiles()[0].Available = true, want false")
+	}
+	if !strings.Contains(items[0].UnavailableReason, "value is empty") {
+		t.Fatalf("Profiles()[0].UnavailableReason = %q, want empty-value guidance", items[0].UnavailableReason)
+	}
+}
+
 func TestApplication_InspectProfileByName_ReturnsResolvedDisplayData(t *testing.T) {
 	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=App;Password=super-secret;")
 
@@ -276,8 +294,14 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyResolvedValue(t *testing.T
 	if err == nil {
 		t.Fatal("ApplyProfileByName returned nil error, want empty value error")
 	}
-	if !strings.Contains(err.Error(), `resolved profile "Local" is empty`) {
-		t.Fatalf("ApplyProfileByName returned error %q, want empty value error", err)
+	if !errors.Is(err, app.ErrProfileUnavailable) {
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrProfileUnavailable", err)
+	}
+	if !errors.Is(err, profile.ErrProfileValueEmpty) {
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrProfileValueEmpty", err)
+	}
+	if !strings.Contains(err.Error(), `profile "Local" value is empty`) {
+		t.Fatalf("ApplyProfileByName returned error %q, want empty value guidance", err)
 	}
 
 	updatedContents := readFile(t, targetPath)

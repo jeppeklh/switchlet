@@ -101,7 +101,7 @@ func (model Model) isTerminalTooSmall() bool {
 
 func (model Model) tooSmallTerminalView() string {
 	return fmt.Sprintf(
-		"Switchlet\n\nTerminal too small.\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nResize the terminal to continue.\nCtrl+C exits immediately.\n",
+		"Switchlet\n\nTerminal too small.\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nResize the terminal to continue.\nq Quit\nCtrl+C exits immediately.\n",
 		minimumTerminalWidth,
 		minimumTerminalHeight,
 		model.width,
@@ -159,6 +159,16 @@ func (model Model) confirmationView() string {
 	builder.WriteString("Profile: ")
 	builder.WriteString(selectedProfile.Name)
 	builder.WriteString("\n\n")
+	if model.application.TargetFile() != "" {
+		builder.WriteString("Target file: ")
+		builder.WriteString(model.application.TargetFile())
+		builder.WriteString("\n")
+	}
+	if model.application.TargetPath() != "" {
+		builder.WriteString("Target JSON path: ")
+		builder.WriteString(model.application.TargetPath())
+		builder.WriteString("\n\n")
+	}
 	builder.WriteString("This will modify the configured target value.\n\n")
 	builder.WriteString("----------------------------------------\n")
 	builder.WriteString("y Confirm  n/Esc/q Cancel\n")

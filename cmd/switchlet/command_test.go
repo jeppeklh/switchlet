@@ -131,6 +131,19 @@ profiles:
 	}
 }
 
+func TestRunCommand_ListHelpWritesSubcommandUsageWithoutLoadingConfiguration(t *testing.T) {
+	result := runCommandForTest(t, []string{"list", "--help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.programStarted {
+		t.Fatal("runProgram was called for list help")
+	}
+	if !strings.Contains(result.stdout, "switchlet list [--json]") {
+		t.Fatalf("stdout %q does not contain list usage", result.stdout)
+	}
+}
+
 func TestRunCommand_InspectDoesNotStartProgramAndShowsMaskedValue(t *testing.T) {
 	t.Setenv("MYAPPLICATION_PRODUCTION_URL", "Server=prod;Database=App;Password=super-secret;")
 
@@ -221,6 +234,39 @@ profiles:
 	}
 }
 
+func TestRunCommand_InspectJSONReturnsStructuredProfileNotFoundError(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+
+	result := runCommandForTest(t, []string{"inspect", "Missing", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+
+	var payload struct {
+		Error struct {
+			Kind string `json:"kind"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal inspect JSON error: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Error.Kind != "profile_not_found" {
+		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "profile_not_found")
+	}
+}
+
 func TestRunCommand_ApplyUpdatesTargetFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
@@ -242,6 +288,12 @@ profiles:
 	}
 	if !strings.Contains(result.stdout, "Applied profile: Local") {
 		t.Fatalf("stdout %q does not include apply success", result.stdout)
+	}
+	if !strings.Contains(result.stdout, targetPath) {
+		t.Fatalf("stdout %q does not include target file path", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "services.backend.baseUrl") {
+		t.Fatalf("stdout %q does not include target JSON path", result.stdout)
 	}
 	if !strings.Contains(string(readFileBytes(t, targetPath)), "http://localhost:8080") {
 		t.Fatalf("target file %q was not updated", string(readFileBytes(t, targetPath)))
@@ -382,6 +434,12 @@ profiles:
 	if !strings.Contains(allowed.stdout, "Dry run successful: Production") {
 		t.Fatalf("stdout %q does not include dry-run success", allowed.stdout)
 	}
+	if !strings.Contains(allowed.stdout, targetPath) {
+		t.Fatalf("stdout %q does not include target file path", allowed.stdout)
+	}
+	if !strings.Contains(allowed.stdout, "services.backend.baseUrl") {
+		t.Fatalf("stdout %q does not include target JSON path", allowed.stdout)
+	}
 	if !strings.Contains(allowed.stdout, "No changes were written.") {
 		t.Fatalf("stdout %q does not state that no changes were written", allowed.stdout)
 	}
@@ -501,6 +559,25 @@ func TestRunCommand_UsageErrorsReturnExitCodeTwoAndStructuredJSON(t *testing.T) 
 	}
 	if !strings.Contains(payload.Error.Message, "apply requires exactly one profile name") {
 		t.Fatalf("error.message = %q, want usage guidance", payload.Error.Message)
+	}
+}
+
+func TestRunCommand_ListJSONReturnsStructuredConfigNotFoundError(t *testing.T) {
+	result := runCommandForTest(t, []string{"list", "--json"}, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+
+	var payload struct {
+		Error struct {
+			Kind string `json:"kind"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal config-not-found JSON error: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Error.Kind != "config_not_found" {
+		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "config_not_found")
 	}
 }
 

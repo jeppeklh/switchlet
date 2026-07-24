@@ -49,16 +49,19 @@ func main() {
 
 func runCommand(args []string, workingDirectory string, runProgram func(tea.Model) error, input io.Reader, output io.Writer) error {
 	if len(args) == 0 {
-		return run(workingDirectory, runProgram)
+		return runInteractiveCommand(workingDirectory, runProgram)
 	}
 
 	switch args[0] {
 	case "help", "-h", "--help":
-		_, err := io.WriteString(output, usageText())
-		return err
+		return writeHelp(output, args[1:])
 	case "init":
+		if wantsHelpFlag(args[1:]) {
+			_, err := io.WriteString(output, initHelpText())
+			return err
+		}
 		if len(args) != 1 {
-			return usageCommandError(false, "init does not accept additional arguments\n\n%s", usageText())
+			return usageCommandError(false, "init does not accept additional arguments\n\n%s", initHelpText())
 		}
 
 		return runInit(workingDirectory, input, output, defaultInitDependencies())
@@ -73,7 +76,40 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 	}
 }
 
-func run(workingDirectory string, runProgram func(tea.Model) error) error {
+func writeHelp(output io.Writer, args []string) error {
+	if len(args) == 0 {
+		_, err := io.WriteString(output, usageText())
+		return err
+	}
+	if len(args) != 1 {
+		return usageCommandError(false, "help accepts at most one command name\n\n%s", usageText())
+	}
+
+	helpText, err := helpTextForTopic(args[0])
+	if err != nil {
+		return err
+	}
+
+	_, err = io.WriteString(output, helpText)
+	return err
+}
+
+func helpTextForTopic(topic string) (string, error) {
+	switch topic {
+	case "init":
+		return initHelpText(), nil
+	case "list":
+		return listHelpText(), nil
+	case "inspect":
+		return inspectHelpText(), nil
+	case "apply":
+		return applyHelpText(), nil
+	default:
+		return "", usageCommandError(false, "unknown help topic %q\n\n%s", topic, usageText())
+	}
+}
+
+func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) error) error {
 	application, err := loadApplication(workingDirectory)
 	if err != nil {
 		return err
@@ -111,14 +147,19 @@ func startProgram(model tea.Model) error {
 }
 
 func runListCommand(workingDirectory string, args []string, output io.Writer) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, listHelpText())
+		return err
+	}
+
 	jsonOutput := containsJSONFlag(args)
 
 	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput})
 	if err != nil {
-		return usageCommandError(jsonOutput, "list: %v\n\n%s", err, usageText())
+		return usageCommandError(jsonOutput, "list: %v\n\n%s", err, listHelpText())
 	}
 	if len(positionals) != 0 {
-		return usageCommandError(jsonOutput, "list does not accept a profile name\n\n%s", usageText())
+		return usageCommandError(jsonOutput, "list does not accept a profile name\n\n%s", listHelpText())
 	}
 
 	application, err := loadApplication(workingDirectory)
@@ -135,14 +176,19 @@ func runListCommand(workingDirectory string, args []string, output io.Writer) er
 }
 
 func runInspectCommand(workingDirectory string, args []string, output io.Writer) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, inspectHelpText())
+		return err
+	}
+
 	jsonOutput := containsJSONFlag(args)
 
 	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput})
 	if err != nil {
-		return usageCommandError(jsonOutput, "inspect: %v\n\n%s", err, usageText())
+		return usageCommandError(jsonOutput, "inspect: %v\n\n%s", err, inspectHelpText())
 	}
 	if len(positionals) != 1 {
-		return usageCommandError(jsonOutput, "inspect requires exactly one profile name\n\n%s", usageText())
+		return usageCommandError(jsonOutput, "inspect requires exactly one profile name\n\n%s", inspectHelpText())
 	}
 
 	application, err := loadApplication(workingDirectory)
@@ -163,6 +209,11 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer)
 }
 
 func runApplyCommand(workingDirectory string, args []string, output io.Writer) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, applyHelpText())
+		return err
+	}
+
 	jsonOutput := containsJSONFlag(args)
 	allowProtected := false
 	dryRun := false
@@ -173,10 +224,10 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer) e
 		"--allow-protected": &allowProtected,
 	})
 	if err != nil {
-		return usageCommandError(jsonOutput, "apply: %v\n\n%s", err, usageText())
+		return usageCommandError(jsonOutput, "apply: %v\n\n%s", err, applyHelpText())
 	}
 	if len(positionals) != 1 {
-		return usageCommandError(jsonOutput, "apply requires exactly one profile name\n\n%s", usageText())
+		return usageCommandError(jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
 	}
 
 	application, err := loadApplication(workingDirectory)
@@ -228,113 +279,14 @@ func containsJSONFlag(args []string) bool {
 	return false
 }
 
-func writeListText(output io.Writer, profiles []app.ProfileItem) error {
-	for _, profileItem := range profiles {
-		indicators := make([]string, 0, 2)
-		if profileItem.Protected {
-			indicators = append(indicators, "protected")
-		}
-		if !profileItem.Available {
-			indicators = append(indicators, "unavailable")
-		}
-
-		line := profileItem.Name
-		if len(indicators) > 0 {
-			line += " [" + strings.Join(indicators, ", ") + "]"
-		}
-
-		if _, err := fmt.Fprintln(output, line); err != nil {
-			return err
-		}
-		if profileItem.UnavailableReason != "" {
-			if _, err := fmt.Fprintf(output, "  reason: %s\n", profileItem.UnavailableReason); err != nil {
-				return err
-			}
+func wantsHelpFlag(args []string) bool {
+	for _, arg := range args {
+		if arg == "-h" || arg == "--help" {
+			return true
 		}
 	}
 
-	return nil
-}
-
-func writeInspectText(output io.Writer, profileItem app.ProfileItem) error {
-	if _, err := fmt.Fprintf(output, "Profile: %s\n", profileItem.Name); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(output, "Availability: %s\n", availabilityLabel(profileItem)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(output, "Source: %s\n", sourceLabel(profileItem.Source)); err != nil {
-		return err
-	}
-	if profileItem.EnvironmentVariableName != "" {
-		if _, err := fmt.Fprintf(output, "Environment variable: %s\n", profileItem.EnvironmentVariableName); err != nil {
-			return err
-		}
-	}
-	if _, err := fmt.Fprintf(output, "Protection: %s\n\n", protectionLabel(profileItem)); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintf(output, "Masked value:\n%s\n", maskedValueLabel(profileItem)); err != nil {
-		return err
-	}
-	if profileItem.UnavailableReason != "" {
-		if _, err := fmt.Fprintf(output, "\nResolution error:\n%s\n", profileItem.UnavailableReason); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func writeApplyText(output io.Writer, result app.Result) error {
-	if result.DryRun {
-		if _, err := fmt.Fprintf(output, "Dry run successful: %s\n\nValidated target:\n%s\n\nNo changes were written.\n", result.ProfileName, result.TargetPath); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	if _, err := fmt.Fprintf(output, "Applied profile: %s\n\nUpdated target:\n%s\n", result.ProfileName, result.TargetPath); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
-	encodedProfiles := make([]profileJSON, 0, len(profiles))
-	for _, profileItem := range profiles {
-		encodedProfiles = append(encodedProfiles, profileJSONFromItem(profileItem))
-	}
-
-	return writeJSON(output, struct {
-		Profiles []profileJSON `json:"profiles"`
-	}{Profiles: encodedProfiles})
-}
-
-func writeInspectJSON(output io.Writer, profileItem app.ProfileItem) error {
-	return writeJSON(output, struct {
-		Profile profileJSON `json:"profile"`
-	}{Profile: profileJSONFromItem(profileItem)})
-}
-
-func writeApplyJSON(output io.Writer, result app.Result) error {
-	return writeJSON(output, struct {
-		Result applyResultJSON `json:"result"`
-	}{Result: applyResultJSON{
-		ProfileName: result.ProfileName,
-		TargetPath:  result.TargetPath,
-		TargetFile:  result.TargetFile,
-		Protected:   result.Protected,
-		DryRun:      result.DryRun,
-	}})
-}
-
-func writeJSON(output io.Writer, value any) error {
-	encoder := json.NewEncoder(output)
-	encoder.SetEscapeHTML(false)
-	return encoder.Encode(value)
+	return false
 }
 
 func writeCommandError(err error, output io.Writer, errorOutput io.Writer) error {
@@ -400,91 +352,7 @@ func runtimeErrorKind(err error) string {
 	}
 }
 
-func availabilityLabel(profileItem app.ProfileItem) string {
-	if profileItem.Available {
-		return "Available"
-	}
-
-	return "Unavailable"
-}
-
-func sourceLabel(source app.ProfileSource) string {
-	switch source {
-	case app.ProfileSourceEnvironment:
-		return "Environment variable"
-	case app.ProfileSourceLiteral:
-		return "Literal"
-	default:
-		return "Unknown"
-	}
-}
-
-func protectionLabel(profileItem app.ProfileItem) string {
-	if profileItem.Protected {
-		return "Protected"
-	}
-
-	return "Not protected"
-}
-
-func maskedValueLabel(profileItem app.ProfileItem) string {
-	if !profileItem.Available {
-		return "Unavailable"
-	}
-	if profileItem.MaskedValue == "" {
-		return "<empty>"
-	}
-
-	return profileItem.MaskedValue
-}
-
-type profileJSON struct {
-	Name                    string            `json:"name"`
-	Protected               bool              `json:"protected"`
-	Available               bool              `json:"available"`
-	Source                  app.ProfileSource `json:"source"`
-	EnvironmentVariableName string            `json:"environmentVariableName"`
-	MaskedValue             string            `json:"maskedValue"`
-	UnavailableReason       string            `json:"unavailableReason"`
-}
-
-type applyResultJSON struct {
-	ProfileName string `json:"profileName"`
-	TargetPath  string `json:"targetPath"`
-	TargetFile  string `json:"targetFile"`
-	Protected   bool   `json:"protected"`
-	DryRun      bool   `json:"dryRun"`
-}
-
 type commandErrorJSON struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message"`
-}
-
-func profileJSONFromItem(profileItem app.ProfileItem) profileJSON {
-	return profileJSON{
-		Name:                    profileItem.Name,
-		Protected:               profileItem.Protected,
-		Available:               profileItem.Available,
-		Source:                  profileItem.Source,
-		EnvironmentVariableName: profileItem.EnvironmentVariableName,
-		MaskedValue:             profileItem.MaskedValue,
-		UnavailableReason:       profileItem.UnavailableReason,
-	}
-}
-
-func usageText() string {
-	return `Usage:
-	  switchlet                                      Launch the profile switcher
-	  switchlet init                                 Create a new .switchlet.yaml in the current directory
-	  switchlet list [--json]                        List configured profiles without launching the TUI
-	  switchlet inspect <profile-name> [--json]      Inspect one configured profile by name
-	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
-	  switchlet help                                 Show this help text
-
-	Apply flags:
-	  --dry-run            Validate the apply operation without writing the target file
-	  --allow-protected    Explicitly allow non-interactive use of a protected profile
-	  --json               Write machine-readable JSON for non-interactive commands
-`
 }
