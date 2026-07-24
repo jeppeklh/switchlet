@@ -37,6 +37,24 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	}
 }
 
+func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
+	))
+
+	view := model.View()
+	if !strings.Contains(view, `Status: Selected "Production"`) {
+		t.Fatalf("View() = %q, want neutral protected status copy", view)
+	}
+	if strings.Contains(view, `requires confirmation`) {
+		t.Fatalf("View() = %q, must not show premature confirmation status copy", view)
+	}
+	if !strings.Contains(view, "Enter Continue") {
+		t.Fatalf("View() = %q, want Enter help text that matches the protected flow", view)
+	}
+}
+
 func TestUpdate_MovesCursorDownUpAndWraps(t *testing.T) {
 	model := New(app.New(
 		config.Target{},

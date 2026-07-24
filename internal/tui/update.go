@@ -142,7 +142,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case matchesKey(message, keyQuit, keyCancel, keyEscape):
 		model.state = listState
 		return model, nil
-	case matchesKey(message, keyConfirm):
+	case matchesKey(message, keyConfirm, keyEnter):
 		model.refreshProfiles()
 
 		selectedProfile, ok := model.selectedProfile()

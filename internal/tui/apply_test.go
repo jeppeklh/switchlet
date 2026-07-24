@@ -10,7 +10,7 @@ import (
 	"github.com/jeppeklh/switchlet/internal/config"
 )
 
-func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T) {
+func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfileWithEnter(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
@@ -37,7 +37,7 @@ func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T)
 		t.Fatalf("state = %d, want confirmState", model.state)
 	}
 
-	updatedModel, command = model.Update(runeKey('y'))
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if command == nil {
 		t.Fatal("command is nil, want apply command after confirmation")
 	}
@@ -59,6 +59,39 @@ func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T)
 	updatedContents := readFile(t, targetPath)
 	if !strings.Contains(string(updatedContents), "postgres://new") {
 		t.Fatalf("updated target = %q, want applied protected profile", string(updatedContents))
+	}
+}
+
+func TestUpdate_ProtectedProfileConfirmationStillAcceptsY(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Production", Value: stringPointer("postgres://new"), Protected: true}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+
+	updatedModel, command = model.Update(runeKey('y'))
+	if command == nil {
+		t.Fatal("command is nil, want apply command after y confirmation")
 	}
 }
 

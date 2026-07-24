@@ -71,7 +71,8 @@ func (model Model) listView() string {
 	builder.WriteString(model.statusLine())
 	builder.WriteString("\n\n")
 	builder.WriteString("----------------------------------------\n")
-	builder.WriteString("↑/↓ or j/k Move  Enter Apply  i Inspect  q Quit\n")
+	builder.WriteString(model.listHelpLine())
+	builder.WriteString("\n")
 
 	return builder.String()
 }
@@ -84,11 +85,17 @@ func (model Model) statusLine() string {
 	if !selectedProfile.Available {
 		return "Status: " + selectedProfile.UnavailableReason
 	}
-	if selectedProfile.Protected {
-		return fmt.Sprintf("Status: %q requires confirmation", selectedProfile.Name)
+
+	return fmt.Sprintf("Status: Selected %q", selectedProfile.Name)
+}
+
+func (model Model) listHelpLine() string {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return "q Quit"
 	}
 
-	return fmt.Sprintf("Status: Ready to apply %q", selectedProfile.Name)
+	return fmt.Sprintf("↑/↓ or j/k Move  Enter %s  i Inspect  q Quit", enterActionLabel(selectedProfile))
 }
 
 func (model Model) isTerminalTooSmall() bool {
@@ -142,7 +149,7 @@ func (model Model) inspectionView() string {
 	}
 
 	builder.WriteString("\n----------------------------------------\n")
-	builder.WriteString("Enter Apply  i/Esc/q Return\n")
+	builder.WriteString(fmt.Sprintf("Enter %s  i/Esc/q Return\n", enterActionLabel(selectedProfile)))
 
 	return builder.String()
 }
@@ -169,11 +176,23 @@ func (model Model) confirmationView() string {
 		builder.WriteString(model.application.TargetPath())
 		builder.WriteString("\n\n")
 	}
-	builder.WriteString("This will modify the configured target value.\n\n")
+	builder.WriteString("This will modify the configured target value.\n")
+	builder.WriteString("Press Enter or y to confirm.\n\n")
 	builder.WriteString("----------------------------------------\n")
-	builder.WriteString("y Confirm  n/Esc/q Cancel\n")
+	builder.WriteString("Enter/y Confirm  n/Esc/q Cancel\n")
 
 	return builder.String()
+}
+
+func enterActionLabel(profile app.ProfileItem) string {
+	switch {
+	case !profile.Available:
+		return "Show Error"
+	case profile.Protected:
+		return "Continue"
+	default:
+		return "Apply"
+	}
 }
 
 func (model Model) errorView() string {

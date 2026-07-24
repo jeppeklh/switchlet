@@ -129,6 +129,12 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	if !strings.Contains(view, "configured target value") {
 		t.Fatalf("View() = %q, want generic confirmation text", view)
 	}
+	if !strings.Contains(view, "Press Enter or y to confirm.") {
+		t.Fatalf("View() = %q, want explicit Enter confirmation guidance", view)
+	}
+	if !strings.Contains(view, "Enter/y Confirm  n/Esc/q Cancel") {
+		t.Fatalf("View() = %q, want confirmation help that documents Enter", view)
+	}
 	if strings.Contains(view, "configured connection string") {
 		t.Fatalf("View() = %q, must not contain ASP.NET-specific confirmation text", view)
 	}
@@ -167,5 +173,25 @@ func TestUpdate_ProtectedUnavailableProfileShowsRecoverableError(t *testing.T) {
 	}
 	if !strings.Contains(model.errorMessage, "MISSING_CONNECTION_STRING") {
 		t.Fatalf("errorMessage = %q, want unavailable reason", model.errorMessage)
+	}
+}
+
+func TestView_InspectionUsesContinueHelpForProtectedProfiles(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
+	))
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	if model.state != inspectState {
+		t.Fatalf("state = %d, want inspectState", model.state)
+	}
+	if !strings.Contains(model.View(), "Enter Continue  i/Esc/q Return") {
+		t.Fatalf("View() = %q, want protected inspection help text that matches Enter behavior", model.View())
 	}
 }
