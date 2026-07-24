@@ -44,19 +44,21 @@ profiles:
 
 func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeFile(t, projectRoot, "src/MyApplication/appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeFile(t, projectRoot, "config/development.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "database": {
+	    "primary": {
+	      "url": "postgres://old"
+	    }
+	  }
 }
 `)+"\n")
 
 	configPath, loadedConfig, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
 		[]config.Profile{
-			{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")},
+			{Name: "Local", Value: stringPointer("postgres://localhost:5432/myapp")},
 			{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING"), Protected: true},
 		},
 	)
@@ -68,14 +70,14 @@ func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 	if configPath != wantConfigPath {
 		t.Fatalf("Create returned config path %q, want %q", configPath, wantConfigPath)
 	}
-	if loadedConfig.Version != 1 {
-		t.Fatalf("loaded version = %d, want 1", loadedConfig.Version)
+	if loadedConfig.Version != 2 {
+		t.Fatalf("loaded version = %d, want 2", loadedConfig.Version)
 	}
 	if loadedConfig.Target.File != targetPath {
 		t.Fatalf("loaded target file = %q, want %q", loadedConfig.Target.File, targetPath)
 	}
-	if loadedConfig.Target.JSONPath != "ConnectionStrings.DefaultConnection" {
-		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Target.JSONPath, "ConnectionStrings.DefaultConnection")
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
 	}
 	if len(loadedConfig.Profiles) != 2 {
 		t.Fatalf("len(loaded profiles) = %d, want 2", len(loadedConfig.Profiles))
@@ -85,11 +87,14 @@ func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read configuration file: %v", err)
 	}
-	if !strings.Contains(string(contents), "file: src/MyApplication/appsettings.Development.json") {
+	if !strings.Contains(string(contents), "file: config/development.json") {
 		t.Fatalf("configuration file contents %q do not contain relative target path", string(contents))
 	}
-	if !strings.Contains(string(contents), "connectionName: DefaultConnection") {
-		t.Fatalf("configuration file contents %q do not contain legacy connection name", string(contents))
+	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
+		t.Fatalf("configuration file contents %q do not contain version 2 JSON path", string(contents))
+	}
+	if strings.Contains(string(contents), "connectionName:") {
+		t.Fatalf("configuration file contents %q must not contain legacy connection name", string(contents))
 	}
 	if !strings.Contains(string(contents), "valueFromEnv: MYAPPLICATION_PRODUCTION_CONNECTION_STRING") {
 		t.Fatalf("configuration file contents %q do not contain environment-backed profile", string(contents))
@@ -110,18 +115,18 @@ func TestCreate_WritesRelativePathOutsideProjectRootWhenPossible(t *testing.T) {
 	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
 		t.Fatalf("create project root: %v", err)
 	}
-	targetPath := writeFile(t, sharedRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeFile(t, sharedRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "service": {
+	    "baseUrl": "https://old.example.test"
+	  }
 }
 `)+"\n")
 
 	configPath, _, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
 	)
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -131,27 +136,29 @@ func TestCreate_WritesRelativePathOutsideProjectRootWhenPossible(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read configuration file: %v", err)
 	}
-	if !strings.Contains(string(contents), "file: ../shared/appsettings.Development.json") {
+	if !strings.Contains(string(contents), "file: ../shared/config.json") {
 		t.Fatalf("configuration file contents %q do not contain relative parent path", string(contents))
 	}
 }
 
 func TestCreate_RemovesConfigurationFileWhenGeneratedConfigurationIsInvalid(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "database": {
+	    "primary": {
+	      "url": "postgres://old"
+	    }
+	  }
 }
 `)+"\n")
 
 	configPath, _, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
 		[]config.Profile{{
 			Name:         "Broken",
-			Value:        stringPointer("Server=localhost;Database=App;"),
+			Value:        stringPointer("postgres://localhost:5432/myapp"),
 			ValueFromEnv: stringPointer("MYAPPLICATION_CONNECTION_STRING"),
 		}},
 	)
@@ -168,11 +175,11 @@ func TestCreate_RemovesConfigurationFileWhenGeneratedConfigurationIsInvalid(t *t
 	}
 }
 
-func TestCreate_ReturnsErrorForNonConnectionStringsTargetPath(t *testing.T) {
+func TestCreate_WritesConfigurationForGenericJSONTarget(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "database": {
+	  "database": {
     "primary": {
       "url": "postgres://old"
     }
@@ -180,15 +187,26 @@ func TestCreate_ReturnsErrorForNonConnectionStringsTargetPath(t *testing.T) {
 }
 `)+"\n")
 
-	_, _, err := config.Create(
+	configPath, loadedConfig, err := config.Create(
 		projectRoot,
 		config.Target{File: targetPath, JSONPath: "database.primary.url"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://localhost:5432/myapp")}},
 	)
-	if err == nil {
-		t.Fatal("Create returned nil error, want unsupported init target error")
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
 	}
-	if !strings.Contains(err.Error(), "current init workflow can create only ConnectionStrings targets") {
-		t.Fatalf("Create returned error %q, want unsupported init target error", err)
+	if loadedConfig.Version != 2 {
+		t.Fatalf("loaded version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
+		t.Fatalf("configuration file contents %q do not contain generic JSON path", string(contents))
 	}
 }

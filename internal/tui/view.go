@@ -132,7 +132,7 @@ func (model Model) inspectionView() string {
 	builder.WriteString("Protection: ")
 	builder.WriteString(protectionLabel(selectedProfile))
 	builder.WriteString("\n\n")
-	builder.WriteString("Masked connection string:\n")
+	builder.WriteString("Masked value:\n")
 	builder.WriteString(maskedValueLabel(selectedProfile))
 	builder.WriteString("\n")
 	if selectedProfile.UnavailableReason != "" {
@@ -159,7 +159,7 @@ func (model Model) confirmationView() string {
 	builder.WriteString("Profile: ")
 	builder.WriteString(selectedProfile.Name)
 	builder.WriteString("\n\n")
-	builder.WriteString("This will modify the configured connection string.\n\n")
+	builder.WriteString("This will modify the configured target value.\n\n")
 	builder.WriteString("----------------------------------------\n")
 	builder.WriteString("y Confirm  n/Esc/q Cancel\n")
 
@@ -179,7 +179,7 @@ func (model Model) successView() string {
 	}
 
 	return fmt.Sprintf(
-		"Applied profile: %s\n\nUpdated:\n%s\n",
+		"Applied profile: %s\n\nUpdated target:\n%s\n",
 		model.successResult.ProfileName,
 		model.successResult.TargetPath,
 	)

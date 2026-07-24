@@ -12,17 +12,19 @@ import (
 
 func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "database": {
+	    "primary": {
+	      "url": "postgres://old"
+	    }
+	  }
 }
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
-		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=NewDatabase;"), Protected: true}},
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Production", Value: stringPointer("postgres://new"), Protected: true}},
 	))
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -55,24 +57,24 @@ func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfile(t *testing.T)
 	}
 
 	updatedContents := readFile(t, targetPath)
-	if !strings.Contains(string(updatedContents), "NewDatabase") {
+	if !strings.Contains(string(updatedContents), "postgres://new") {
 		t.Fatalf("updated target = %q, want applied protected profile", string(updatedContents))
 	}
 }
 
 func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "service": {
+	    "baseUrl": "https://old.example.test"
+	  }
 }
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
 	))
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -96,23 +98,23 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.View(), "Applied profile: Local") {
 		t.Fatalf("View() = %q, want success message", model.View())
 	}
-	if !strings.Contains(model.View(), "ConnectionStrings.DefaultConnection") {
+	if !strings.Contains(model.View(), "Updated target:\nservice.baseUrl") {
 		t.Fatalf("View() = %q, want updated target path", model.View())
 	}
 
 	updatedContents := readFile(t, targetPath)
-	if !strings.Contains(string(updatedContents), "NewDatabase") {
-		t.Fatalf("updated target = %q, want applied connection string", string(updatedContents))
+	if !strings.Contains(string(updatedContents), "https://new.example.test") {
+		t.Fatalf("updated target = %q, want applied profile value", string(updatedContents))
 	}
 }
 
 func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", `{`)
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{`)
 
 	model := New(app.New(
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
 	))
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})

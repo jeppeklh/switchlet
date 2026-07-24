@@ -31,20 +31,22 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 
 func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   }
 }
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"appsettings.Development.json",
-		"1",
+		"config.json",
+		"database.primary.url",
 		"Local",
 		"1",
-		"Server=localhost;Database=MyApplication;",
+		"postgres://localhost:5432/myapp",
 		"n",
 		"n",
 		"y",
@@ -63,8 +65,11 @@ func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if loadedConfig.Target.JSONPath != "ConnectionStrings.DefaultConnection" {
-		t.Fatalf("JSON path = %q, want %q", loadedConfig.Target.JSONPath, "ConnectionStrings.DefaultConnection")
+	if loadedConfig.Version != 2 {
+		t.Fatalf("Version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
 	}
 	if len(loadedConfig.Profiles) != 1 {
 		t.Fatalf("len(profiles) = %d, want 1", len(loadedConfig.Profiles))
@@ -72,8 +77,19 @@ func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 	if loadedConfig.Profiles[0].Name != "Local" {
 		t.Fatalf("profile name = %q, want %q", loadedConfig.Profiles[0].Name, "Local")
 	}
-	if loadedConfig.Profiles[0].Value == nil || *loadedConfig.Profiles[0].Value != "Server=localhost;Database=MyApplication;" {
+	if loadedConfig.Profiles[0].Value == nil || *loadedConfig.Profiles[0].Value != "postgres://localhost:5432/myapp" {
 		t.Fatalf("literal profile value = %#v, want configured literal value", loadedConfig.Profiles[0].Value)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
+		t.Fatalf("configuration file contents %q do not contain version 2 JSON path", string(contents))
+	}
+	if strings.Contains(string(contents), "connectionName:") {
+		t.Fatalf("configuration file contents %q must not contain legacy connectionName", string(contents))
 	}
 	if !strings.Contains(output.String(), "Created configuration:") {
 		t.Fatalf("init output %q does not report created configuration", output.String())
@@ -115,20 +131,20 @@ profiles:
 
 func TestRunCommand_InitCancellationDoesNotWriteConfiguration(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "service": {
+    "baseUrl": "https://old.example.test"
   }
 }
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"appsettings.Development.json",
-		"1",
+		"config.json",
+		"service.baseUrl",
 		"Local",
 		"1",
-		"Server=localhost;Database=MyApplication;",
+		"https://new.example.test",
 		"n",
 		"n",
 		"n",
@@ -154,20 +170,22 @@ func TestRunCommand_InitCancellationDoesNotWriteConfiguration(t *testing.T) {
 
 func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   }
 }
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"appsettings.Development.json",
-		"1",
+		"config.json",
+		"database.primary.url",
 		"Local",
 		"1",
-		"Server=localhost;Database=MyApplication;",
+		"postgres://localhost:5432/myapp",
 		"n",
 		"n",
 		"y",
@@ -176,7 +194,7 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 
 	err := runInit(projectRoot, input, &output, initDependencies{
 		validateCreateLocation: config.ValidateCreateLocation,
-		listConnectionNames:    editor.ListConnectionStringNames,
+		validateStringTarget:   editor.ValidateStringTarget,
 		createConfig:           config.Create,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return errors.New("target validation failed")
@@ -198,21 +216,24 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 
 func TestRunInit_RePromptsAfterInvalidTargetPath(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
   }
 }
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
 		"missing.json",
-		"appsettings.Development.json",
-		"1",
+		"database.primary.url",
+		"config.json",
+		"database.primary.url",
 		"Local",
 		"2",
-		"MYAPPLICATION_CONNECTION_STRING",
+		"MYAPP_DATABASE_URL",
 		"y",
 		"n",
 		"n",
@@ -228,6 +249,93 @@ func TestRunInit_RePromptsAfterInvalidTargetPath(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {
 		t.Fatalf("init output %q does not report invalid target path", output.String())
+	}
+
+	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
+	}
+}
+
+func TestRunInit_RePromptsAfterMissingTargetJSONPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "replica": {
+      "url": "postgres://replica"
+    }
+  }
+}
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"config.json",
+		"database.primary.url",
+		"config.json",
+		"database.replica.url",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), `does not contain JSON path "database.primary.url"`) {
+		t.Fatalf("init output %q does not report missing JSON path", output.String())
+	}
+
+	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
+	}
+}
+
+func TestRunInit_RePromptsAfterNonStringTargetValue(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "port": 5432,
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"config.json",
+		"database.primary.port",
+		"config.json",
+		"database.primary.url",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), `JSON path "database.primary.port" must resolve to a string`) {
+		t.Fatalf("init output %q does not report non-string target value", output.String())
 	}
 
 	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))

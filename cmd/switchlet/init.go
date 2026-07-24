@@ -18,7 +18,7 @@ import (
 
 type initDependencies struct {
 	validateCreateLocation func(string) error
-	listConnectionNames    func(string) ([]string, error)
+	validateStringTarget   func(string, string) error
 	createConfig           func(string, config.Target, []config.Profile) (string, config.Config, error)
 	validateCreatedConfig  func(config.Config) error
 	removeFile             func(string) error
@@ -32,7 +32,7 @@ type initPrompter struct {
 func defaultInitDependencies() initDependencies {
 	return initDependencies{
 		validateCreateLocation: config.ValidateCreateLocation,
-		listConnectionNames:    editor.ListConnectionStringNames,
+		validateStringTarget:   editor.ValidateStringTarget,
 		createConfig:           config.Create,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return app.New(loadedConfig.Target, loadedConfig.Profiles).ValidateStartup()
@@ -103,7 +103,7 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 
 func promptTarget(prompter initPrompter, workingDirectory string, dependencies initDependencies) (config.Target, error) {
 	for {
-		targetPath, err := prompter.promptNonEmptyLine("Target file path: ")
+		targetPath, err := prompter.promptNonEmptyLine("Target JSON file path: ")
 		if err != nil {
 			return config.Target{}, err
 		}
@@ -114,22 +114,21 @@ func promptTarget(prompter initPrompter, workingDirectory string, dependencies i
 		}
 		resolvedTargetPath = filepath.Clean(resolvedTargetPath)
 
-		connectionNames, err := dependencies.listConnectionNames(resolvedTargetPath)
+		jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
 		if err != nil {
+			return config.Target{}, err
+		}
+
+		if err := dependencies.validateStringTarget(resolvedTargetPath, jsonPath); err != nil {
 			if _, writeErr := fmt.Fprintf(prompter.writer, "Error: %v\n\n", err); writeErr != nil {
 				return config.Target{}, writeErr
 			}
 			continue
 		}
 
-		connectionName, err := prompter.promptChoice("Select connection string:", connectionNames)
-		if err != nil {
-			return config.Target{}, err
-		}
-
 		return config.Target{
 			File:     resolvedTargetPath,
-			JSONPath: connectionStringJSONPath(connectionName),
+			JSONPath: jsonPath,
 		}, nil
 	}
 }
@@ -149,15 +148,15 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 			return nil, err
 		}
 
-		sourceChoice, err := prompter.promptChoice("Select profile source:", []string{"Literal connection string", "Environment variable"})
+		sourceChoice, err := prompter.promptChoice("Select profile source:", []string{"Literal value", "Environment variable"})
 		if err != nil {
 			return nil, err
 		}
 
 		profile := config.Profile{Name: name}
 		switch sourceChoice {
-		case "Literal connection string":
-			literalValue, err := prompter.promptNonEmptyLine("Connection string value: ")
+		case "Literal value":
+			literalValue, err := prompter.promptNonEmptyLine("Value: ")
 			if err != nil {
 				return nil, err
 			}
@@ -224,7 +223,7 @@ func printInitSummary(output io.Writer, workingDirectory string, target config.T
 	if _, err := fmt.Fprintf(output, "  Target file: %s\n", relativeTargetPath); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "  Target path: %s\n", target.JSONPath); err != nil {
+	if _, err := fmt.Fprintf(output, "  Target JSON path: %s\n", target.JSONPath); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(output, "  Profiles:"); err != nil {
@@ -332,8 +331,4 @@ func (prompter initPrompter) promptLine(prompt string) (string, error) {
 
 func stringValuePointer(value string) *string {
 	return &value
-}
-
-func connectionStringJSONPath(connectionName string) string {
-	return "ConnectionStrings." + connectionName
 }

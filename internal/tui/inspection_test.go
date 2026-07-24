@@ -41,6 +41,12 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if !strings.Contains(view, "Environment variable: MYAPPLICATION_TEST_CONNECTION_STRING") {
 		t.Fatalf("View() = %q, want environment variable name", view)
 	}
+	if !strings.Contains(view, "Masked value:") {
+		t.Fatalf("View() = %q, want generic masked-value label", view)
+	}
+	if strings.Contains(view, "Masked connection string") {
+		t.Fatalf("View() = %q, must not contain ASP.NET-specific masked-value label", view)
+	}
 	if !strings.Contains(view, "Password=****") {
 		t.Fatalf("View() = %q, want masked connection string", view)
 	}
@@ -79,7 +85,7 @@ func TestUpdate_InspectionShowsResolutionErrorForUnavailableProfile(t *testing.T
 	}
 
 	view := model.View()
-	if !strings.Contains(view, "Masked connection string:\nUnavailable") {
+	if !strings.Contains(view, "Masked value:\nUnavailable") {
 		t.Fatalf("View() = %q, want unavailable masked value message", view)
 	}
 	if !strings.Contains(view, "Resolution error:") {
@@ -112,6 +118,12 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	}
 	if !strings.Contains(view, "Profile: Production") {
 		t.Fatalf("View() = %q, want protected profile name", view)
+	}
+	if !strings.Contains(view, "configured target value") {
+		t.Fatalf("View() = %q, want generic confirmation text", view)
+	}
+	if strings.Contains(view, "configured connection string") {
+		t.Fatalf("View() = %q, must not contain ASP.NET-specific confirmation text", view)
 	}
 	if strings.Contains(view, "super-secret") {
 		t.Fatalf("View() = %q, must not contain unmasked secret", view)

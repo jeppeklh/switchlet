@@ -33,17 +33,17 @@ func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 
 func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 	projectRoot := t.TempDir()
-	targetPath := writeTargetFile(t, projectRoot, "appsettings.Development.json", strings.TrimSpace(`
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
-  "ConnectionStrings": {
-    "DefaultConnection": "Server=localhost;Database=OldDatabase;"
-  }
+	  "service": {
+	    "baseUrl": "https://old.example.test"
+	  }
 }
 `)+"\n")
 
 	model := New(app.New(
-		config.Target{File: targetPath, JSONPath: "ConnectionStrings.DefaultConnection"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=NewDatabase;")}},
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
 	))
 
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
@@ -60,7 +60,7 @@ func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 	}
 
 	updatedContents := readFile(t, targetPath)
-	if strings.Contains(string(updatedContents), "NewDatabase") {
+	if strings.Contains(string(updatedContents), "https://new.example.test") {
 		t.Fatalf("updated target = %q, want no file modification while terminal is too small", string(updatedContents))
 	}
 }

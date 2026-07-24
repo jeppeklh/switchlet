@@ -17,15 +17,15 @@ type fileConfig struct {
 
 type fileTarget struct {
 	File           string `yaml:"file"`
-	JSONPath       string `yaml:"jsonPath"`
-	ConnectionName string `yaml:"connectionName"`
+	JSONPath       string `yaml:"jsonPath,omitempty"`
+	ConnectionName string `yaml:"connectionName,omitempty"`
 }
 
 type fileProfile struct {
 	Name         string  `yaml:"name"`
-	Value        *string `yaml:"value"`
-	ValueFromEnv *string `yaml:"valueFromEnv"`
-	Protected    bool    `yaml:"protected"`
+	Value        *string `yaml:"value,omitempty"`
+	ValueFromEnv *string `yaml:"valueFromEnv,omitempty"`
+	Protected    bool    `yaml:"protected,omitempty"`
 }
 
 // Load reads, validates, and resolves a Switchlet configuration file.

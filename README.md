@@ -8,19 +8,18 @@ The current implementation supports one concrete target workflow:
 - create `.switchlet.yaml` with `switchlet init`
 - discover `.switchlet.yaml`
 - inspect configured profiles
-- apply one selected profile to an ASP.NET `appsettings.Development.json`
-  connection string
+- apply one selected profile to one configured existing JSON string value
 - exit immediately so development can continue
 
 Authoritative project documentation lives under `docs/`.
 
 ## Status
 
-- Version `v0.1.0` is complete and ready to tag.
-- Next planned development is Version `0.2`.
-- Version `0.2` is planned to focus on command-line automation on the
-  existing ASP.NET target: non-interactive profile commands and
-  preview/dry-run support.
+- Version `v0.1.0` remains supported through backward-compatible
+  configuration loading.
+- Version `0.2` development is in progress.
+- Version `0.2` focuses on generic JSON target support while preserving
+  the existing launch, select, apply, and exit workflow.
 
 ## Installation
 
@@ -44,8 +43,9 @@ This creates a local `./switchlet` binary in the repository root.
 ## Quick Start
 
 1. Run `switchlet init` from your project root.
-2. Enter the existing `appsettings.Development.json` path.
-3. Choose the existing connection name from `ConnectionStrings`.
+2. Enter the existing JSON file path.
+3. Enter the JSON path to the existing string value you want Switchlet to
+   update.
 4. Enter one or more profiles.
 5. Run `switchlet` from the project root or any nested directory.
    If you used the local build instead of `go install`, run `./switchlet`
@@ -58,21 +58,21 @@ manage the file yourself.
 ## Configuration Example
 
 ```yaml
-version: 1
+version: 2
 
 target:
-  file: src/MyApplication/appsettings.Development.json
-  connectionName: DefaultConnection
+  file: config/development.json
+  jsonPath: database.primary.url
 
 profiles:
   - name: Local
-    value: "Server=localhost;Database=MyApplication;Trusted_Connection=True;"
+    value: postgres://localhost:5432/myapp
 
   - name: Test
-    valueFromEnv: MYAPPLICATION_TEST_CONNECTION_STRING
+    valueFromEnv: MYAPP_TEST_DATABASE_URL
 
   - name: Production
-    valueFromEnv: MYAPPLICATION_PRODUCTION_CONNECTION_STRING
+    valueFromEnv: MYAPP_PRODUCTION_DATABASE_URL
     protected: true
 ```
 
@@ -135,29 +135,33 @@ Switchlet does not require a dedicated Neovim plugin.
 ## Security Guidance
 
 - Prefer environment variables for sensitive connection strings.
-- Inspection masks `Password` and `Pwd` values case-insensitively.
+- Inspection masks `Password` and `Pwd` values case-insensitively inside
+  connection-string-like values.
 - Masking is best-effort and intended for display safety, not provider-
   specific parsing.
 - Switchlet never intentionally writes secrets to errors.
 
 ## JSON Formatting Behavior
 
-- Switchlet updates only `ConnectionStrings.<connectionName>`.
+- Switchlet updates only the configured JSON path.
 - Unrelated JSON values remain semantically unchanged.
-- Version 0.1 may normalize indentation and whitespace when writing.
+- Version 0.2 may normalize indentation and whitespace when writing.
 - Target files are written through a same-directory temporary file and a
   safe replacement step.
 
 ## Current Limitations
 
-Version 0.1 supports only:
+Version 0.2 currently supports only:
 
+- one existing JSON file
+- one configured JSON path
+- one existing string value
 - one target file
-- one configured connection string
-- ASP.NET `appsettings.Development.json`
 - literal and environment-backed values
+- backward-compatible loading of Version `1` `connectionName`
+  configurations when they can be mapped to a JSON path
 
-Version 0.1 does not support:
+Version 0.2 does not support:
 
 - profile editing
 - multiple simultaneous target updates
