@@ -30,7 +30,7 @@ func (model initWizardModel) View() string {
 		return model.textInputView(1, "Enter target JSON file path", []string{
 			"Enter a path relative to the project root or an absolute path.",
 			"Switchlet will inspect the file and keep only existing string-valued JSON targets.",
-		}, "Target file", "Enter Validate file  Esc Back  Ctrl+C Cancel")
+		}, "Target file", textInputHelpLine("Validate file"))
 	case initWizardStepPathBrowse:
 		return model.pathBrowseView()
 	case initWizardStepPathSearch:
@@ -39,13 +39,13 @@ func (model initWizardModel) View() string {
 		return model.textInputView(2, "Enter target JSON path", []string{
 			fmt.Sprintf("Selected file: %s", model.selectedFile.displayPath),
 			"Enter the existing string-valued JSON path Switchlet should manage.",
-		}, "Target JSON path", "Enter Validate path  Esc Back  Ctrl+C Cancel")
+		}, "Target JSON path", textInputHelpLine("Validate path"))
 	case initWizardStepProfileName:
 		return model.textInputView(3, "Add profiles", []string{
 			fmt.Sprintf("Target file: %s", model.selectedFile.displayPath),
 			fmt.Sprintf("Target JSON path: %s", model.selectedJSONPath),
 			fmt.Sprintf("Profiles added: %d", len(model.profiles)),
-		}, "Profile name", "Enter Continue  Esc Back  Ctrl+C Cancel")
+		}, "Profile name", textInputHelpLine("Continue"))
 	case initWizardStepProfileSource:
 		return model.profileChoiceView(
 			3,
@@ -66,7 +66,7 @@ func (model initWizardModel) View() string {
 		return model.textInputView(3, "Enter profile value", []string{
 			fmt.Sprintf("Profile: %s", model.draftProfile.Name),
 			fmt.Sprintf("Source: %s", profileSourceSummary(model.draftProfile.UseEnvironment)),
-		}, label, "Enter Continue  Esc Back  Ctrl+C Cancel")
+		}, label, textInputHelpLine("Continue"))
 	case initWizardStepProfileProtected:
 		return model.profileChoiceView(
 			3,
@@ -140,7 +140,7 @@ func (model initWizardModel) fileFilterView() string {
 		builder.WriteString(fmt.Sprintf("Showing %d matching file(s) out of %d discovered.\n", len(matchingCandidates), len(model.fileCandidates)))
 	}
 
-	model.writeErrorAndHelp(&builder, "Enter Select  ↑/↓ Move  Backspace Delete  Esc Back  Ctrl+C Cancel")
+	model.writeErrorAndHelp(&builder, searchableTextInputHelpLine("Select"))
 
 	return builder.String()
 }
@@ -190,7 +190,7 @@ func (model initWizardModel) pathSearchView() string {
 	builder.WriteString("\n")
 	builder.WriteString(fmt.Sprintf("Showing %d matching path(s).\n", len(matchingPaths)))
 
-	model.writeErrorAndHelp(&builder, "Enter Select  ↑/↓ Move  Backspace Delete  Esc Browse  Ctrl+C Cancel")
+	model.writeErrorAndHelp(&builder, searchableTextInputHelpLine("Select"))
 
 	return builder.String()
 }
@@ -353,11 +353,29 @@ func (model initWizardModel) writeErrorAndHelp(builder *strings.Builder, helpLin
 }
 
 func (model initWizardModel) writeInputLine(builder *strings.Builder, label string, value string) {
+	runes := []rune(value)
+	cursor := model.inputCursor
+	if cursor < 0 {
+		cursor = 0
+	}
+	if cursor > len(runes) {
+		cursor = len(runes)
+	}
+
 	builder.WriteString(label)
 	builder.WriteString(": ")
-	builder.WriteString(value)
+	builder.WriteString(string(runes[:cursor]))
 	builder.WriteString("_")
+	builder.WriteString(string(runes[cursor:]))
 	builder.WriteString("\n")
+}
+
+func textInputHelpLine(enterAction string) string {
+	return fmt.Sprintf("Enter %s  ←/→ Move  Home/End Jump  Backspace/Delete Edit  Esc Back  Ctrl+C Cancel", enterAction)
+}
+
+func searchableTextInputHelpLine(enterAction string) string {
+	return fmt.Sprintf("Enter %s  ↑/↓ Move  ←/→ Edit  Home/End Jump  Backspace/Delete Edit  Esc Back  Ctrl+C Cancel", enterAction)
 }
 
 func profileSourceSummary(useEnvironment bool) string {

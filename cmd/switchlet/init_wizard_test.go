@@ -281,6 +281,99 @@ func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t 
 	}
 }
 
+func TestInitWizardModel_FileFilterSupportsEditingInsideTheInput(t *testing.T) {
+	projectRoot := t.TempDir()
+	desiredCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
+		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+	}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{
+				{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"},
+				desiredCandidate,
+			}, nil
+		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != desiredCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = updateWizardModel(t, model, runeKey('f'))
+	pasteWizardText(t, &model, "appsettngs")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	model = updateWizardModel(t, model, runeKey('i'))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command != nil {
+		t.Fatal("command is not nil, want no quit command while selecting a file")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.step != initWizardStepPathBrowse {
+		t.Fatalf("step = %d, want path browse step", model.step)
+	}
+	if model.selectedFile.path != desiredCandidate.Path {
+		t.Fatalf("selectedFile.path = %q, want %q", model.selectedFile.path, desiredCandidate.Path)
+	}
+}
+
+func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	typeWizardText(t, &model, "Local")
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	pasteWizardText(t, &model, "[value]")
+
+	for range 7 {
+		model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyLeft})
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyDelete})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnd})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyBackspace})
+
+	if !strings.Contains(model.View(), "Literal value: value_") {
+		t.Fatalf("View() = %q, want editable pasted value without surrounding brackets", model.View())
+	}
+
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileProtected {
+		t.Fatalf("step = %d, want protected-profile step after submitting the edited value", model.step)
+	}
+	if model.draftProfile.Value != "value" {
+		t.Fatalf("draftProfile.Value = %q, want %q", model.draftProfile.Value, "value")
+	}
+}
+
 func TestInitWizardModel_CanRemoveLastProfileBeforeReview(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
@@ -332,6 +425,11 @@ func typeWizardText(t *testing.T, model *initWizardModel, value string) {
 	for _, character := range value {
 		*model = updateWizardModel(t, *model, runeKey(character))
 	}
+}
+
+func pasteWizardText(t *testing.T, model *initWizardModel, value string) {
+	t.Helper()
+	*model = updateWizardModel(t, *model, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(value)})
 }
 
 func updateWizardModel(t *testing.T, model initWizardModel, message tea.KeyMsg) initWizardModel {

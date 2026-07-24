@@ -87,12 +87,12 @@ func (model initWizardModel) handleFileSelectKey(message tea.KeyMsg) (tea.Model,
 		model.step = initWizardStepFileFilter
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = model.fileFilter
+		model.setInputValue(model.fileFilter)
 	case isRuneKey(message, 'm'):
 		model.step = initWizardStepManualFile
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 	case message.Type == tea.KeyEnter:
 		if len(matchingCandidates) == 0 {
 			return model, nil
@@ -125,7 +125,7 @@ func (model initWizardModel) handleFileFilterKey(message tea.KeyMsg) (tea.Model,
 		model.fileFilter = strings.TrimSpace(model.inputValue)
 		model.step = initWizardStepFileSelect
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 		model.clampCursor(len(model.filteredFileCandidates(model.fileFilter)))
 		return model, nil
 	case tea.KeyEnter:
@@ -165,17 +165,12 @@ func (model initWizardModel) handleFileFilterKey(message tea.KeyMsg) (tea.Model,
 			}
 		}
 		return model, nil
-	case tea.KeyBackspace, tea.KeyDelete:
-		model.inputValue = trimLastRune(model.inputValue)
-		model.errorMessage = ""
-		model.clampCursor(len(model.filteredFileCandidates(model.inputValue)))
-		return model, nil
-	case tea.KeySpace, tea.KeyRunes:
-		model.inputValue += message.String()
-		model.errorMessage = ""
-		model.clampCursor(len(model.filteredFileCandidates(model.inputValue)))
-		return model, nil
 	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
+		model.clampCursor(len(model.filteredFileCandidates(model.inputValue)))
 		return model, nil
 	}
 }
@@ -221,12 +216,12 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 		model.step = initWizardStepPathSearch
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 	case isRuneKey(message, 'm'):
 		model.step = initWizardStepManualPath
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 	case message.Type == tea.KeyEsc:
 		if len(model.browseAncestors) > 0 {
 			previousLevel := model.browseAncestors[len(model.browseAncestors)-1]
@@ -297,7 +292,7 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 		model.step = initWizardStepPathBrowse
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 		return model, nil
 	case tea.KeyEnter:
 		if len(matchingPaths) == 0 {
@@ -324,17 +319,12 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 			}
 		}
 		return model, nil
-	case tea.KeyBackspace, tea.KeyDelete:
-		model.inputValue = trimLastRune(model.inputValue)
-		model.errorMessage = ""
-		model.clampCursor(len(model.filteredSelectableJSONPaths(model.inputValue)))
-		return model, nil
-	case tea.KeySpace, tea.KeyRunes:
-		model.inputValue += message.String()
-		model.errorMessage = ""
-		model.clampCursor(len(model.filteredSelectableJSONPaths(model.inputValue)))
-		return model, nil
 	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
+		model.clampCursor(len(model.filteredSelectableJSONPaths(model.inputValue)))
 		return model, nil
 	}
 }
@@ -379,13 +369,13 @@ func (model initWizardModel) handleProfileSourceKey(message tea.KeyMsg) (tea.Mod
 		model.step = initWizardStepProfileName
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = model.draftProfile.Name
+		model.setInputValue(model.draftProfile.Name)
 	case message.Type == tea.KeyEnter:
 		model.draftProfile.UseEnvironment = model.cursor == 1
 		model.step = initWizardStepProfileValue
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 	}
 
 	return model, nil
@@ -410,7 +400,7 @@ func (model initWizardModel) handleProfileProtectedKey(message tea.KeyMsg) (tea.
 		model.step = initWizardStepProfileValue
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = model.draftProfile.Value
+		model.setInputValue(model.draftProfile.Value)
 	case message.Type == tea.KeyEnter:
 		model.draftProfile.Protected = model.cursor == 1
 		model.appendDraftProfile()
@@ -501,13 +491,43 @@ func (model initWizardModel) handleReviewKey(message tea.KeyMsg) (tea.Model, tea
 	return model, nil
 }
 
+func (model *initWizardModel) handleInputEditKey(message tea.KeyMsg) bool {
+	switch message.Type {
+	case tea.KeyLeft, tea.KeyCtrlB:
+		model.moveInputCursorLeft()
+	case tea.KeyRight, tea.KeyCtrlF:
+		model.moveInputCursorRight()
+	case tea.KeyHome, tea.KeyCtrlA:
+		model.moveInputCursorToStart()
+	case tea.KeyEnd, tea.KeyCtrlE:
+		model.moveInputCursorToEnd()
+	case tea.KeyBackspace:
+		model.deleteInputRuneBeforeCursor()
+	case tea.KeyDelete:
+		model.deleteInputRuneAtCursor()
+	case tea.KeyCtrlU:
+		model.clearInputValue()
+	case tea.KeyCtrlK:
+		model.clampInputCursor()
+		model.inputValue = string([]rune(model.inputValue)[:model.inputCursor])
+	case tea.KeySpace:
+		model.insertInputValue(" ")
+	case tea.KeyRunes:
+		model.insertInputValue(string(message.Runes))
+	default:
+		return false
+	}
+
+	return true
+}
+
 func (model initWizardModel) handleTextInputKey(message tea.KeyMsg, previousStep initWizardStep, submit func(string) (initWizardModel, error)) (tea.Model, tea.Cmd) {
 	switch message.Type {
 	case tea.KeyEsc:
 		model.step = previousStep
 		model.cursor = 0
 		model.errorMessage = ""
-		model.inputValue = ""
+		model.clearInputValue()
 		return model, nil
 	case tea.KeyEnter:
 		enteredValue := strings.TrimSpace(model.inputValue)
@@ -523,15 +543,11 @@ func (model initWizardModel) handleTextInputKey(message tea.KeyMsg, previousStep
 		}
 
 		return nextModel, nil
-	case tea.KeyBackspace, tea.KeyDelete:
-		model.inputValue = trimLastRune(model.inputValue)
-		model.errorMessage = ""
-		return model, nil
-	case tea.KeySpace, tea.KeyRunes:
-		model.inputValue += message.String()
-		model.errorMessage = ""
-		return model, nil
 	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
 		return model, nil
 	}
 }
@@ -550,13 +566,4 @@ func isQuitKey(message tea.KeyMsg) bool {
 
 func isRuneKey(message tea.KeyMsg, key rune) bool {
 	return message.Type == tea.KeyRunes && message.String() == string(key)
-}
-
-func trimLastRune(value string) string {
-	runes := []rune(value)
-	if len(runes) == 0 {
-		return value
-	}
-
-	return string(runes[:len(runes)-1])
 }

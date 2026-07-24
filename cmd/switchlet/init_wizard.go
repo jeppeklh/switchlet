@@ -56,6 +56,7 @@ type initWizardModel struct {
 	cursor                int
 	errorMessage          string
 	inputValue            string
+	inputCursor           int
 	fileFilter            string
 	fileCandidates        []editor.TargetFileCandidate
 	selectedFile          targetFileSelection
@@ -162,7 +163,7 @@ func (model *initWizardModel) beginPathBrowse() {
 	model.step = initWizardStepPathBrowse
 	model.cursor = 0
 	model.errorMessage = ""
-	model.inputValue = ""
+	model.clearInputValue()
 	model.browseNodes = model.selectedFile.nodes
 	model.browseAncestors = nil
 	model.selectedJSONPath = ""
@@ -172,7 +173,7 @@ func (model *initWizardModel) beginProfileEntry() {
 	model.step = initWizardStepProfileName
 	model.cursor = 0
 	model.errorMessage = ""
-	model.inputValue = ""
+	model.clearInputValue()
 	model.draftProfile = initWizardProfileDraft{}
 	if len(model.profiles) > 0 {
 		model.draftProfile.Protected = false
@@ -184,7 +185,7 @@ func (model *initWizardModel) beginReview() {
 	model.step = initWizardStepReview
 	model.cursor = 0
 	model.errorMessage = ""
-	model.inputValue = ""
+	model.clearInputValue()
 }
 
 func (model *initWizardModel) syncIgnorePreference() {
@@ -216,7 +217,7 @@ func (model *initWizardModel) appendDraftProfile() {
 	model.step = initWizardStepProfileSummary
 	model.cursor = 0
 	model.errorMessage = ""
-	model.inputValue = ""
+	model.clearInputValue()
 	model.syncIgnorePreference()
 }
 
@@ -302,4 +303,89 @@ func isTextEntryStep(step initWizardStep) bool {
 	default:
 		return false
 	}
+}
+
+func (model *initWizardModel) setInputValue(value string) {
+	model.inputValue = value
+	model.inputCursor = len([]rune(value))
+}
+
+func (model *initWizardModel) clearInputValue() {
+	model.inputValue = ""
+	model.inputCursor = 0
+}
+
+func (model *initWizardModel) clampInputCursor() {
+	inputLength := len([]rune(model.inputValue))
+	if model.inputCursor < 0 {
+		model.inputCursor = 0
+	}
+	if model.inputCursor > inputLength {
+		model.inputCursor = inputLength
+	}
+}
+
+func (model *initWizardModel) moveInputCursorLeft() {
+	model.clampInputCursor()
+	if model.inputCursor > 0 {
+		model.inputCursor--
+	}
+}
+
+func (model *initWizardModel) moveInputCursorRight() {
+	model.clampInputCursor()
+	if model.inputCursor < len([]rune(model.inputValue)) {
+		model.inputCursor++
+	}
+}
+
+func (model *initWizardModel) moveInputCursorToStart() {
+	model.inputCursor = 0
+}
+
+func (model *initWizardModel) moveInputCursorToEnd() {
+	model.inputCursor = len([]rune(model.inputValue))
+}
+
+func (model *initWizardModel) insertInputValue(value string) {
+	model.clampInputCursor()
+	currentRunes := []rune(model.inputValue)
+	insertedRunes := []rune(value)
+
+	updatedRunes := make([]rune, 0, len(currentRunes)+len(insertedRunes))
+	updatedRunes = append(updatedRunes, currentRunes[:model.inputCursor]...)
+	updatedRunes = append(updatedRunes, insertedRunes...)
+	updatedRunes = append(updatedRunes, currentRunes[model.inputCursor:]...)
+
+	model.inputValue = string(updatedRunes)
+	model.inputCursor += len(insertedRunes)
+}
+
+func (model *initWizardModel) deleteInputRuneBeforeCursor() {
+	model.clampInputCursor()
+	if model.inputCursor == 0 {
+		return
+	}
+
+	currentRunes := []rune(model.inputValue)
+	updatedRunes := make([]rune, 0, len(currentRunes)-1)
+	updatedRunes = append(updatedRunes, currentRunes[:model.inputCursor-1]...)
+	updatedRunes = append(updatedRunes, currentRunes[model.inputCursor:]...)
+
+	model.inputValue = string(updatedRunes)
+	model.inputCursor--
+}
+
+func (model *initWizardModel) deleteInputRuneAtCursor() {
+	model.clampInputCursor()
+	currentRunes := []rune(model.inputValue)
+	if model.inputCursor >= len(currentRunes) {
+		return
+	}
+
+	updatedRunes := make([]rune, 0, len(currentRunes)-1)
+	updatedRunes = append(updatedRunes, currentRunes[:model.inputCursor]...)
+	updatedRunes = append(updatedRunes, currentRunes[model.inputCursor+1:]...)
+
+	model.inputValue = string(updatedRunes)
 }
