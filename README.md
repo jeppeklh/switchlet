@@ -74,6 +74,9 @@ go build -o switchlet ./cmd/switchlet
 separately, so correcting a bad JSON path does not force you to re-enter
 the file choice.
 
+The interactive init wizard and the main profile picker are designed to
+work the same in a normal terminal and a Neovim terminal buffer.
+
 ## Commands
 
 Interactive workflow:
@@ -94,8 +97,14 @@ switchlet apply Production --dry-run --allow-protected
 Use `--json` on `list`, `inspect`, and `apply` for machine-readable
 output.
 
+Protected profiles in the interactive TUI are confirmed in place. When a
+protected profile is selected, Enter changes from `Apply` to `Continue`,
+opens a confirmation screen, Enter or `y` confirms, and `n`, `Esc`, or
+`q` cancels.
+
 Protected profiles are never applied silently in non-interactive mode.
-Use `--allow-protected` to opt in explicitly.
+Use `--allow-protected` to opt in explicitly for non-interactive
+`switchlet apply`.
 
 Dry-run validates the full apply path without writing the target file.
 Successful dry-run output ends with `No changes were written.`
@@ -105,6 +114,26 @@ Exit behavior for non-interactive commands:
 - `0` success
 - `1` runtime or validation failure
 - `2` command-usage failure
+
+## Key Bindings
+
+- `↑/↓` or `j/k` move between profiles
+- `Enter` applies the selected profile or continues into protected confirmation
+- `i` inspects the selected profile
+- `q` quits from the list or closes a secondary view
+- `Ctrl+C` exits immediately from every view
+
+## Neovim Terminal
+
+Switchlet stays editor-independent. You can launch the same terminal UI
+from a Neovim terminal buffer without a separate plugin:
+
+```vim
+:terminal switchlet
+```
+
+The same inspection, protected confirmation, and key bindings apply in a
+shell terminal and a Neovim terminal buffer.
 
 ## Example Configuration
 

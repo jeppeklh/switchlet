@@ -220,6 +220,67 @@ func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testi
 	}
 }
 
+func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	typeWizardText(t, &model, "Local")
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	typeWizardText(t, &model, "https://new.example.test")
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+
+	if model.step != initWizardStepReview {
+		t.Fatalf("step = %d, want review step", model.step)
+	}
+	if !strings.Contains(model.View(), ".gitignore protection: Enabled") {
+		t.Fatalf("View() = %q, want enabled gitignore protection by default", model.View())
+	}
+
+	model = updateWizardModel(t, model, runeKey('j'))
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command != nil {
+		t.Fatal("command is not nil, want no quit command when toggling gitignore protection")
+	}
+	model = updatedModel.(initWizardModel)
+	if !strings.Contains(model.View(), ".gitignore protection: Disabled") {
+		t.Fatalf("View() = %q, want disabled gitignore protection after toggling", model.View())
+	}
+
+	model = updateWizardModel(t, model, runeKey('k'))
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want quit command when completing the wizard")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.result == nil {
+		t.Fatal("result is nil, want completed result")
+	}
+	if model.result.ShouldIgnoreConfig {
+		t.Fatal("ShouldIgnoreConfig = true, want false after disabling gitignore protection")
+	}
+}
+
 func TestInitWizardModel_CanRemoveLastProfileBeforeReview(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}

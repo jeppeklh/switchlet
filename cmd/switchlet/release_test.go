@@ -9,29 +9,12 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
-	repoRoot := repositoryRoot(t)
-	installRoot := t.TempDir()
-	gobinPath := filepath.Join(installRoot, "bin")
-	if err := os.MkdirAll(gobinPath, 0o755); err != nil {
-		t.Fatalf("create GOBIN %q: %v", gobinPath, err)
-	}
-
-	installResult := runExternalCommand(t, repoRoot, append(os.Environ(), "GOBIN="+gobinPath), "go", "install", "./cmd/switchlet")
-	if installResult.exitCode != 0 {
-		t.Fatalf("go install exitCode = %d, want 0\nstdout: %q\nstderr: %q", installResult.exitCode, installResult.stdout, installResult.stderr)
-	}
-
-	binaryName := "switchlet"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
-	binaryPath := filepath.Join(gobinPath, binaryName)
-	if _, err := os.Stat(binaryPath); err != nil {
-		t.Fatalf("stat installed binary %q: %v", binaryPath, err)
-	}
+	repoRoot, binaryPath := installBinaryForReleaseTest(t)
 
 	helpResult := runExternalCommand(t, repoRoot, nil, binaryPath, "help")
 	if helpResult.exitCode != 0 {
@@ -39,6 +22,12 @@ func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
 	}
 	if !strings.Contains(helpResult.stdout, "switchlet list [--json]") {
 		t.Fatalf("help stdout %q does not mention list usage", helpResult.stdout)
+	}
+	if !strings.Contains(helpResult.stdout, "Neovim terminal buffer") {
+		t.Fatalf("help stdout %q does not mention terminal-buffer support", helpResult.stdout)
+	}
+	if !strings.Contains(helpResult.stdout, "Enter/y to confirm") {
+		t.Fatalf("help stdout %q does not mention the protected confirmation keys", helpResult.stdout)
 	}
 
 	projectRoot := t.TempDir()
@@ -117,6 +106,101 @@ profiles:
 	}
 }
 
+func TestInstalledBinary_InitFallbackCreatesConfigurationAndGitignore(t *testing.T) {
+	_, binaryPath := installBinaryForReleaseTest(t)
+
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	input := strings.Join([]string{
+		"1",
+		"1",
+		"1",
+		"1",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"",
+		"",
+	}, "\n") + "\n"
+
+	initResult := runExternalCommandWithInput(t, projectRoot, nil, input, binaryPath, "init")
+	if initResult.exitCode != 0 {
+		t.Fatalf("switchlet init exitCode = %d, want 0\nstdout: %q\nstderr: %q", initResult.exitCode, initResult.stdout, initResult.stderr)
+	}
+	if !strings.Contains(initResult.stdout, "Created configuration:") {
+		t.Fatalf("init stdout %q does not report configuration creation", initResult.stdout)
+	}
+	if !strings.Contains(initResult.stdout, "Updated project .gitignore to ignore .switchlet.yaml.") {
+		t.Fatalf("init stdout %q does not report gitignore protection", initResult.stdout)
+	}
+	if strings.Contains(initResult.stdout, "postgres://old") {
+		t.Fatalf("init stdout %q must not expose the existing target value", initResult.stdout)
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("load created configuration: %v", err)
+	}
+	if loadedConfig.Version != 2 {
+		t.Fatalf("version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("json path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	}
+	if len(loadedConfig.Profiles) != 1 {
+		t.Fatalf("len(profiles) = %d, want 1", len(loadedConfig.Profiles))
+	}
+	if loadedConfig.Profiles[0].Value == nil || *loadedConfig.Profiles[0].Value != "postgres://localhost:5432/myapp" {
+		t.Fatalf("literal profile value = %#v, want configured literal value", loadedConfig.Profiles[0].Value)
+	}
+
+	gitignoreContents, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(gitignoreContents) != ".switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want %q", string(gitignoreContents), ".switchlet.yaml\n")
+	}
+}
+
+func installBinaryForReleaseTest(t *testing.T) (string, string) {
+	t.Helper()
+
+	repoRoot := repositoryRoot(t)
+	installRoot := t.TempDir()
+	gobinPath := filepath.Join(installRoot, "bin")
+	if err := os.MkdirAll(gobinPath, 0o755); err != nil {
+		t.Fatalf("create GOBIN %q: %v", gobinPath, err)
+	}
+
+	installResult := runExternalCommand(t, repoRoot, append(os.Environ(), "GOBIN="+gobinPath), "go", "install", "./cmd/switchlet")
+	if installResult.exitCode != 0 {
+		t.Fatalf("go install exitCode = %d, want 0\nstdout: %q\nstderr: %q", installResult.exitCode, installResult.stdout, installResult.stderr)
+	}
+
+	binaryName := "switchlet"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(gobinPath, binaryName)
+	if _, err := os.Stat(binaryPath); err != nil {
+		t.Fatalf("stat installed binary %q: %v", binaryPath, err)
+	}
+
+	return repoRoot, binaryPath
+}
+
 func repositoryRoot(t *testing.T) string {
 	t.Helper()
 
@@ -136,11 +220,19 @@ type externalCommandResult struct {
 
 func runExternalCommand(t *testing.T, workingDirectory string, environment []string, name string, arguments ...string) externalCommandResult {
 	t.Helper()
+	return runExternalCommandWithInput(t, workingDirectory, environment, "", name, arguments...)
+}
+
+func runExternalCommandWithInput(t *testing.T, workingDirectory string, environment []string, input string, name string, arguments ...string) externalCommandResult {
+	t.Helper()
 
 	command := exec.Command(name, arguments...)
 	command.Dir = workingDirectory
 	if environment != nil {
 		command.Env = environment
+	}
+	if input != "" {
+		command.Stdin = strings.NewReader(input)
 	}
 
 	var stdout bytes.Buffer
