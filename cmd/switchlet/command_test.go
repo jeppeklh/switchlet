@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -336,6 +338,58 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyProtectedDryRunRequiresOptInAndDoesNotWrite(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+	originalContents := readFileBytes(t, targetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Production
+    value: https://prod.example.test
+    protected: true
+`)+"\n")
+
+	refused := runCommandForTest(t, []string{"apply", "Production", "--dry-run", "--json"}, projectRoot)
+	if refused.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", refused.exitCode, runtimeExitCode)
+	}
+
+	var refusedPayload struct {
+		Error struct {
+			Kind string `json:"kind"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(refused.stdout), &refusedPayload); err != nil {
+		t.Fatalf("unmarshal protected dry-run JSON error: %v\noutput: %q", err, refused.stdout)
+	}
+	if refusedPayload.Error.Kind != "protected_profile" {
+		t.Fatalf("error.kind = %q, want %q", refusedPayload.Error.Kind, "protected_profile")
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed after protected dry-run refusal")
+	}
+
+	allowed := runCommandForTest(t, []string{"apply", "Production", "--dry-run", "--allow-protected"}, projectRoot)
+	if allowed.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stderr: %q)", allowed.exitCode, allowed.stderr)
+	}
+	if !strings.Contains(allowed.stdout, "Dry run successful: Production") {
+		t.Fatalf("stdout %q does not include dry-run success", allowed.stdout)
+	}
+	if !strings.Contains(allowed.stdout, "No changes were written.") {
+		t.Fatalf("stdout %q does not state that no changes were written", allowed.stdout)
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed during protected dry run")
+	}
+}
+
 func TestRunCommand_ApplyDryRunJSONDoesNotWriteTargetFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
@@ -385,6 +439,43 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyEditorFailureDoesNotLeakSecrets(t *testing.T) {
+	t.Setenv("MYAPPLICATION_PRODUCTION_URL", "Server=prod;Database=App;Password=super-secret;")
+
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Production
+    valueFromEnv: MYAPPLICATION_PRODUCTION_URL
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{`)
+
+	result := runCommandForTest(t, []string{"apply", "Production"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(result.stderr, `contains invalid JSON`) {
+		t.Fatalf("stderr %q does not include editor failure", result.stderr)
+	}
+	if strings.Contains(result.stderr, "super-secret") {
+		t.Fatalf("stderr %q must not include the secret value", result.stderr)
+	}
+
+	jsonResult := runCommandForTest(t, []string{"apply", "Production", "--json"}, projectRoot)
+	if jsonResult.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", jsonResult.exitCode, runtimeExitCode)
+	}
+	if strings.Contains(jsonResult.stdout, "super-secret") {
+		t.Fatalf("stdout %q must not include the secret value", jsonResult.stdout)
+	}
+}
+
 func TestRunCommand_UsageErrorsReturnExitCodeTwoAndStructuredJSON(t *testing.T) {
 	projectRoot := t.TempDir()
 
@@ -410,6 +501,33 @@ func TestRunCommand_UsageErrorsReturnExitCodeTwoAndStructuredJSON(t *testing.T) 
 	}
 	if !strings.Contains(payload.Error.Message, "apply requires exactly one profile name") {
 		t.Fatalf("error.message = %q, want usage guidance", payload.Error.Message)
+	}
+}
+
+func TestREADME_ContainsVersionThreeCommandExamples(t *testing.T) {
+	_, currentFilePath, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller returned ok=false")
+	}
+
+	readmePath := filepath.Clean(filepath.Join(filepath.Dir(currentFilePath), "..", "..", "README.md"))
+	contents, err := os.ReadFile(readmePath)
+	if err != nil {
+		t.Fatalf("read README %q: %v", readmePath, err)
+	}
+
+	readme := string(contents)
+	for _, expected := range []string{
+		"switchlet list",
+		"switchlet inspect Local",
+		"switchlet apply Local",
+		"switchlet apply Production --dry-run --allow-protected",
+		"Use `--json` on `list`, `inspect`, and `apply`",
+		"No changes were written.",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Fatalf("README %q does not contain %q", readmePath, expected)
+		}
 	}
 }
 

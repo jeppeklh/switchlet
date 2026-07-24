@@ -56,6 +56,9 @@ output.
 Protected profiles are never applied silently in non-interactive mode.
 Use `--allow-protected` to opt in explicitly.
 
+Dry-run validates the full apply path without writing the target file.
+Successful dry-run output ends with `No changes were written.`
+
 Exit behavior for non-interactive commands:
 
 - `0` success
@@ -68,6 +71,14 @@ Short `--json` examples:
 {"profiles":[{"name":"Local","protected":false,"available":true,"source":"literal","environmentVariableName":"","maskedValue":"postgres://localhost:5432/myapp","unavailableReason":""}]}
 {"profile":{"name":"Production","protected":true,"available":true,"source":"environment","environmentVariableName":"MYAPP_PRODUCTION_DATABASE_URL","maskedValue":"Server=prod;Password=****;","unavailableReason":""}}
 {"result":{"profileName":"Production","targetPath":"database.primary.url","targetFile":"/path/to/config/development.json","protected":true,"dryRun":true}}
+```
+
+## Verification
+
+```bash
+gofmt -w .
+go test ./...
+go vet ./...
 ```
 
 Example configuration:

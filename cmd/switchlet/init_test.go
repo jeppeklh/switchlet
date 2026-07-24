@@ -36,6 +36,15 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "switchlet apply <profile-name>") {
 		t.Fatalf("help output %q does not mention apply", output.String())
 	}
+	if !strings.Contains(output.String(), "--dry-run") {
+		t.Fatalf("help output %q does not mention --dry-run", output.String())
+	}
+	if !strings.Contains(output.String(), "--allow-protected") {
+		t.Fatalf("help output %q does not mention --allow-protected", output.String())
+	}
+	if !strings.Contains(output.String(), "--json") {
+		t.Fatalf("help output %q does not mention --json", output.String())
+	}
 }
 
 func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
