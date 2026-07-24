@@ -117,6 +117,71 @@ func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
 	}
 }
 
+func TestApplication_InspectProfileByName_ReturnsResolvedDisplayData(t *testing.T) {
+	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=App;Password=super-secret;")
+
+	application := app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Test", ValueFromEnv: stringPointer("MYAPPLICATION_TEST_CONNECTION_STRING"), Protected: true}},
+	)
+
+	item, err := application.InspectProfileByName("Test")
+	if err != nil {
+		t.Fatalf("InspectProfileByName returned error: %v", err)
+	}
+	if !item.Available {
+		t.Fatalf("Available = false, want true (reason: %q)", item.UnavailableReason)
+	}
+	if !item.Protected {
+		t.Fatal("Protected = false, want true")
+	}
+	if item.Source != app.ProfileSourceEnvironment {
+		t.Fatalf("Source = %q, want %q", item.Source, app.ProfileSourceEnvironment)
+	}
+	if item.EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
+		t.Fatalf("EnvironmentVariableName = %q, want %q", item.EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
+	}
+	if item.MaskedValue != "Server=test;Database=App;Password=****;" {
+		t.Fatalf("MaskedValue = %q, want masked value", item.MaskedValue)
+	}
+	if item.UnavailableReason != "" {
+		t.Fatalf("UnavailableReason = %q, want empty string", item.UnavailableReason)
+	}
+}
+
+func TestApplication_InspectProfileByName_ReturnsUnavailableProfile(t *testing.T) {
+	application := app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_MISSING_CONNECTION_STRING")}},
+	)
+
+	item, err := application.InspectProfileByName("Production")
+	if err != nil {
+		t.Fatalf("InspectProfileByName returned error: %v", err)
+	}
+	if item.Available {
+		t.Fatal("Available = true, want false")
+	}
+	if !strings.Contains(item.UnavailableReason, "MYAPPLICATION_MISSING_CONNECTION_STRING") {
+		t.Fatalf("UnavailableReason = %q, want environment variable name", item.UnavailableReason)
+	}
+	if item.MaskedValue != "" {
+		t.Fatalf("MaskedValue = %q, want empty string", item.MaskedValue)
+	}
+}
+
+func TestApplication_InspectProfileByName_ReturnsErrorForUnknownProfile(t *testing.T) {
+	application := app.New(config.Target{}, []config.Profile{{Name: "Local", Value: stringPointer("postgres://local")}})
+
+	_, err := application.InspectProfileByName("Missing")
+	if err == nil {
+		t.Fatal("InspectProfileByName returned nil error, want not-found error")
+	}
+	if !errors.Is(err, app.ErrProfileNotFound) {
+		t.Fatalf("InspectProfileByName returned error %v, want ErrProfileNotFound", err)
+	}
+}
+
 func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 	t.Setenv("MYAPPLICATION_SERVICE_URL", "https://env.example.test")
 
@@ -157,6 +222,9 @@ func TestApplication_ApplyProfile_ReturnsErrorForMissingEnvironmentVariable(t *t
 	if err == nil {
 		t.Fatal("ApplyProfileByName returned nil error, want missing environment variable error")
 	}
+	if !errors.Is(err, app.ErrProfileUnavailable) {
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrProfileUnavailable", err)
+	}
 	if !errors.Is(err, profile.ErrEnvironmentVariableNotSet) {
 		t.Fatalf("ApplyProfileByName returned error %v, want ErrEnvironmentVariableNotSet", err)
 	}
@@ -181,6 +249,9 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyEnvironmentVariable(t *tes
 	_, err := application.ApplyProfileByName("Production")
 	if err == nil {
 		t.Fatal("ApplyProfileByName returned nil error, want empty environment variable error")
+	}
+	if !errors.Is(err, app.ErrProfileUnavailable) {
+		t.Fatalf("ApplyProfileByName returned error %v, want ErrProfileUnavailable", err)
 	}
 	if !errors.Is(err, profile.ErrEnvironmentVariableEmpty) {
 		t.Fatalf("ApplyProfileByName returned error %v, want ErrEnvironmentVariableEmpty", err)
@@ -212,6 +283,57 @@ func TestApplication_ApplyProfile_ReturnsErrorForEmptyResolvedValue(t *testing.T
 	updatedContents := readFile(t, targetPath)
 	if !bytes.Equal(updatedContents, originalContents) {
 		t.Fatal("target file changed after empty value error")
+	}
+}
+
+func TestApplication_ApplyProfileWithOptions_ReturnsErrorForProtectedProfileWithoutOptIn(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
+	originalContents := readFile(t, targetPath)
+
+	application := app.New(
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
+		[]config.Profile{{Name: "Production", Value: stringPointer("https://prod.example.test"), Protected: true}},
+	)
+
+	_, err := application.ApplyProfileByNameWithOptions("Production", app.ApplyOptions{})
+	if err == nil {
+		t.Fatal("ApplyProfileByNameWithOptions returned nil error, want protected-profile error")
+	}
+	if !errors.Is(err, app.ErrProtectedProfileRequiresApproval) {
+		t.Fatalf("ApplyProfileByNameWithOptions returned error %v, want ErrProtectedProfileRequiresApproval", err)
+	}
+
+	updatedContents := readFile(t, targetPath)
+	if !bytes.Equal(updatedContents, originalContents) {
+		t.Fatal("target file changed after protected-profile refusal")
+	}
+}
+
+func TestApplication_ApplyProfileWithOptions_DryRunDoesNotModifyTargetFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
+	originalContents := readFile(t, targetPath)
+
+	application := app.New(
+		config.Target{File: targetPath, JSONPath: "serviceUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
+	)
+
+	result, err := application.ApplyProfileByNameWithOptions("Local", app.ApplyOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyProfileByNameWithOptions returned error: %v", err)
+	}
+	if !result.DryRun {
+		t.Fatal("DryRun = false, want true")
+	}
+	if result.TargetFile != targetPath {
+		t.Fatalf("TargetFile = %q, want %q", result.TargetFile, targetPath)
+	}
+
+	updatedContents := readFile(t, targetPath)
+	if !bytes.Equal(updatedContents, originalContents) {
+		t.Fatal("target file changed during dry run")
 	}
 }
 

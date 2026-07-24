@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -28,24 +29,20 @@ func New(target config.Target, profiles []config.Profile) Application {
 func (application Application) Profiles() []ProfileItem {
 	items := make([]ProfileItem, 0, len(application.profiles))
 	for _, configuredProfile := range application.profiles {
-		resolvedProfile := profile.ResolveProfile(configuredProfile)
-
-		item := ProfileItem{
-			Name:                    resolvedProfile.Name,
-			Protected:               resolvedProfile.Protected,
-			Available:               resolvedProfile.IsAvailable(),
-			Source:                  profileSource(resolvedProfile.Source),
-			EnvironmentVariableName: resolvedProfile.EnvironmentVariableName,
-			MaskedValue:             resolvedProfile.MaskedValue,
-		}
-		if resolvedProfile.ResolutionError != nil {
-			item.UnavailableReason = resolvedProfile.ResolutionError.Error()
-		}
-
-		items = append(items, item)
+		items = append(items, profileItem(configuredProfile))
 	}
 
 	return items
+}
+
+// InspectProfileByName returns one resolved profile in a display-safe form.
+func (application Application) InspectProfileByName(profileName string) (ProfileItem, error) {
+	configuredProfile, err := application.profileByName(profileName)
+	if err != nil {
+		return ProfileItem{}, err
+	}
+
+	return profileItem(configuredProfile), nil
 }
 
 // ValidateStartup verifies that the configured target is valid before the UI starts.
@@ -59,30 +56,49 @@ func (application Application) ValidateStartup() error {
 
 // ApplyProfileByName resolves and applies one configured profile owned by the application.
 func (application Application) ApplyProfileByName(profileName string) (Result, error) {
+	return application.ApplyProfileByNameWithOptions(profileName, ApplyOptions{AllowProtected: true})
+}
+
+// ApplyProfileByNameWithOptions resolves and applies one configured profile
+// using the requested non-interactive behavior.
+func (application Application) ApplyProfileByNameWithOptions(profileName string, options ApplyOptions) (Result, error) {
 	configuredProfile, err := application.profileByName(profileName)
 	if err != nil {
 		return Result{}, err
 	}
 
-	return application.applyConfiguredProfile(application.target, configuredProfile)
+	return application.applyConfiguredProfile(application.target, configuredProfile, options)
 }
 
-func (application Application) applyConfiguredProfile(target config.Target, configuredProfile config.Profile) (Result, error) {
+func (application Application) applyConfiguredProfile(target config.Target, configuredProfile config.Profile, options ApplyOptions) (Result, error) {
+	if configuredProfile.Protected && !options.AllowProtected {
+		return Result{}, fmt.Errorf("profile %q is protected: %w", configuredProfile.Name, ErrProtectedProfileRequiresApproval)
+	}
+
 	resolvedProfile := profile.ResolveProfile(configuredProfile)
 	if !resolvedProfile.IsAvailable() {
-		return Result{}, fmt.Errorf("resolve profile %q: %w", configuredProfile.Name, resolvedProfile.ResolutionError)
+		return Result{}, fmt.Errorf("resolve profile %q: %w", configuredProfile.Name, errors.Join(ErrProfileUnavailable, resolvedProfile.ResolutionError))
 	}
 	if resolvedProfile.Value == "" {
 		return Result{}, fmt.Errorf("resolved profile %q is empty", configuredProfile.Name)
 	}
 
-	if err := editor.UpdateStringValue(target.File, target.JSONPath, resolvedProfile.Value); err != nil {
-		return Result{}, fmt.Errorf("apply profile %q to target file %q: %w", configuredProfile.Name, target.File, err)
+	if options.DryRun {
+		if err := editor.PreviewStringValueUpdate(target.File, target.JSONPath, resolvedProfile.Value); err != nil {
+			return Result{}, fmt.Errorf("dry-run apply profile %q to target file %q: %w", configuredProfile.Name, target.File, err)
+		}
+	} else {
+		if err := editor.UpdateStringValue(target.File, target.JSONPath, resolvedProfile.Value); err != nil {
+			return Result{}, fmt.Errorf("apply profile %q to target file %q: %w", configuredProfile.Name, target.File, err)
+		}
 	}
 
 	return Result{
 		ProfileName: resolvedProfile.Name,
 		TargetPath:  target.JSONPath,
+		TargetFile:  target.File,
+		Protected:   configuredProfile.Protected,
+		DryRun:      options.DryRun,
 	}, nil
 }
 
@@ -93,7 +109,25 @@ func (application Application) profileByName(profileName string) (config.Profile
 		}
 	}
 
-	return config.Profile{}, fmt.Errorf("configured profile %q was not found", profileName)
+	return config.Profile{}, fmt.Errorf("configured profile %q was not found: %w", profileName, ErrProfileNotFound)
+}
+
+func profileItem(configuredProfile config.Profile) ProfileItem {
+	resolvedProfile := profile.ResolveProfile(configuredProfile)
+
+	item := ProfileItem{
+		Name:                    resolvedProfile.Name,
+		Protected:               resolvedProfile.Protected,
+		Available:               resolvedProfile.IsAvailable(),
+		Source:                  profileSource(resolvedProfile.Source),
+		EnvironmentVariableName: resolvedProfile.EnvironmentVariableName,
+		MaskedValue:             resolvedProfile.MaskedValue,
+	}
+	if resolvedProfile.ResolutionError != nil {
+		item.UnavailableReason = resolvedProfile.ResolutionError.Error()
+	}
+
+	return item
 }
 
 func profileSource(source profile.ValueSource) ProfileSource {

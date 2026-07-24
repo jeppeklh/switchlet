@@ -27,6 +27,15 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "switchlet init") {
 		t.Fatalf("help output %q does not mention init", output.String())
 	}
+	if !strings.Contains(output.String(), "switchlet list") {
+		t.Fatalf("help output %q does not mention list", output.String())
+	}
+	if !strings.Contains(output.String(), "switchlet inspect <profile-name>") {
+		t.Fatalf("help output %q does not mention inspect", output.String())
+	}
+	if !strings.Contains(output.String(), "switchlet apply <profile-name>") {
+		t.Fatalf("help output %q does not mention apply", output.String())
+	}
 }
 
 func TestRunCommand_InitCreatesConfiguration(t *testing.T) {

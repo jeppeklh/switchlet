@@ -2,6 +2,7 @@ package editor
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"sort"
 )
@@ -102,27 +103,43 @@ func UpdateConnectionString(targetPath string, connectionName string, replacemen
 
 // UpdateStringValue replaces one configured string value and writes the updated JSON safely.
 func UpdateStringValue(targetPath string, jsonPath string, replacementValue string) error {
-	targetInfo, err := os.Stat(targetPath)
+	updatedContents, permissions, err := prepareStringValueUpdate(targetPath, jsonPath, replacementValue)
 	if err != nil {
-		return fmt.Errorf("stat target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return fmt.Errorf("target file %q is a directory", targetPath)
+		return err
 	}
 
-	contents, err := os.ReadFile(targetPath)
-	if err != nil {
-		return fmt.Errorf("read target file %q: %w", targetPath, err)
-	}
-
-	updatedContents, err := replaceStringValue(contents, jsonPath, replacementValue)
-	if err != nil {
-		return fmt.Errorf("update target file %q: %w", targetPath, err)
-	}
-
-	if err := writeFileAtomically(targetPath, updatedContents, targetInfo.Mode().Perm()); err != nil {
+	if err := writeFileAtomically(targetPath, updatedContents, permissions); err != nil {
 		return fmt.Errorf("write target file %q: %w", targetPath, err)
 	}
 
 	return nil
+}
+
+// PreviewStringValueUpdate validates that a configured string value can be
+// updated without writing the target file.
+func PreviewStringValueUpdate(targetPath string, jsonPath string, replacementValue string) error {
+	_, _, err := prepareStringValueUpdate(targetPath, jsonPath, replacementValue)
+	return err
+}
+
+func prepareStringValueUpdate(targetPath string, jsonPath string, replacementValue string) ([]byte, fs.FileMode, error) {
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat target file %q: %w", targetPath, err)
+	}
+	if targetInfo.IsDir() {
+		return nil, 0, fmt.Errorf("target file %q is a directory", targetPath)
+	}
+
+	contents, err := os.ReadFile(targetPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read target file %q: %w", targetPath, err)
+	}
+
+	updatedContents, err := replaceStringValue(contents, jsonPath, replacementValue)
+	if err != nil {
+		return nil, 0, fmt.Errorf("update target file %q: %w", targetPath, err)
+	}
+
+	return updatedContents, targetInfo.Mode().Perm(), nil
 }

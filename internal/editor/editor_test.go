@@ -130,6 +130,29 @@ func TestUpdateStringValue_ReplacesNestedStringAndPreservesOtherValues(t *testin
 	}
 }
 
+func TestPreviewStringValueUpdate_ValidatesWithoutWritingTargetFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	if err := PreviewStringValueUpdate(targetPath, "database.primary.url", "postgres://preview"); err != nil {
+		t.Fatalf("PreviewStringValueUpdate returned error: %v", err)
+	}
+
+	updatedContents := readFile(t, targetPath)
+	if !bytes.Equal(updatedContents, originalContents) {
+		t.Fatal("target file changed during preview")
+	}
+}
+
 func TestUpdateStringValue_ReturnsErrorForInvalidJSONPath(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
