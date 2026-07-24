@@ -53,6 +53,23 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	if err := dependencies.validateCreateLocation(workingDirectory); err != nil {
 		return err
 	}
+	if shouldUseInitWizard(input, output) {
+		result, err := runInitWizard(workingDirectory, input, output, dependencies)
+		if err != nil {
+			return err
+		}
+		if result.Cancelled {
+			_, err := fmt.Fprintln(output, "\nInitialization cancelled.")
+			return err
+		}
+
+		return createInitConfiguration(workingDirectory, output, result.Target, result.Profiles, result.ShouldIgnoreConfig, dependencies)
+	}
+
+	return runPromptInit(workingDirectory, input, output, dependencies)
+}
+
+func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies) error {
 
 	prompter := initPrompter{
 		reader: bufio.NewReader(input),
@@ -118,6 +135,10 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 		}
 	}
 
+	return createInitConfiguration(workingDirectory, output, target, profiles, shouldIgnoreConfig, dependencies)
+}
+
+func createInitConfiguration(workingDirectory string, output io.Writer, target config.Target, profiles []config.Profile, shouldIgnoreConfig bool, dependencies initDependencies) error {
 	configPath, loadedConfig, err := dependencies.createConfig(workingDirectory, target, profiles)
 	if err != nil {
 		return err

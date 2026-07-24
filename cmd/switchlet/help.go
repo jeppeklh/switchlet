@@ -28,11 +28,15 @@ func initHelpText() string {
 	Create a new .switchlet.yaml in the current directory.
 
 	The init flow guides you through file selection, JSON-path selection,
-	profile entry, and final review. It can narrow large file lists, browse
-	or search existing string-valued JSON paths, keeps manual entry
-	available for both selection steps, can add .switchlet.yaml to the
-	project .gitignore when literal profiles are configured, and validates
-	each step before writing the configuration.
+	profile entry, and final review. When stdin and stdout are interactive
+	terminals, init launches a terminal-native wizard. It can narrow large file lists,
+	browse or search existing string-valued JSON paths, keeps manual entry available
+	for both selection steps, can add .switchlet.yaml to the project .gitignore when
+	literal profiles are configured, and validates each step before writing the
+	configuration.
+
+	When standard terminal interaction is unavailable, init falls back to
+	the existing line-oriented prompt flow.
 `
 }
 
