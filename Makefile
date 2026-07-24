@@ -10,7 +10,7 @@ RELEASE_PLATFORMS := \
 	windows/amd64 \
 	windows/arm64
 
-.PHONY: build install verify clean release-binaries
+.PHONY: build install verify clean release-binaries release-check
 
 build:
 	go build -o $(BINARY) $(PACKAGE)
@@ -37,3 +37,5 @@ release-binaries:
 		echo "Building $$output"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o "$$output" $(PACKAGE) || exit 1; \
 	done
+
+release-check: verify release-binaries
