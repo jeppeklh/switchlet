@@ -1,21 +1,49 @@
 # Switchlet
 
 Switchlet is a terminal application for safely switching named
-configuration profiles in an existing JSON file.
+configuration profiles in one existing JSON file.
 
-It updates one configured existing string value through a small terminal
-workflow: select a profile, apply it, and continue working.
+It updates one configured existing string value through a small workflow:
+configure the target once, choose a profile, apply it, and continue
+working.
+
+## Supported Scope
+
+Switchlet currently supports:
+
+- one existing JSON file
+- one configured JSON path
+- one existing string value
+- literal profile values and environment-backed profile values
+- interactive and non-interactive profile application
+
+Switchlet does not create missing JSON values, manage multiple targets,
+or create backup files.
 
 ## Installation
 
-Install the binary into your Go bin directory:
+Supported install paths:
 
-```bash
-go install ./cmd/switchlet
-```
+1. Install with Go:
 
-If `GOBIN` or `$(go env GOPATH)/bin` is on your `PATH`, the executable is
-available as `switchlet`.
+   ```bash
+   go install github.com/jeppeklh/switchlet/cmd/switchlet@latest
+   ```
+
+2. Download the matching release binary for your platform from the
+   repository releases, place it on your `PATH`, and run `switchlet`.
+
+   Current binary names follow this pattern:
+
+   - `switchlet_linux_amd64`
+   - `switchlet_linux_arm64`
+   - `switchlet_darwin_amd64`
+   - `switchlet_darwin_arm64`
+   - `switchlet_windows_amd64.exe`
+   - `switchlet_windows_arm64.exe`
+
+If `GOBIN` or `$(go env GOPATH)/bin` is on your `PATH`, the Go install
+command makes the executable available as `switchlet`.
 
 Local build alternative:
 
@@ -23,25 +51,25 @@ Local build alternative:
 go build -o switchlet ./cmd/switchlet
 ```
 
-## Setup
+## Quick Start
 
 1. Run `switchlet init` from your project root.
 2. Enter the path to the existing JSON file you want to update.
-3. Enter the JSON path to the existing string value you want Switchlet to
+3. Enter the JSON path to the existing string value Switchlet should
    manage.
 4. Add one or more profiles.
-5. Run `switchlet`.
-6. Select a profile and apply it.
+5. Run `switchlet` for the interactive workflow, or use a non-interactive
+   command.
 
 ## Commands
 
-The default command keeps the existing TUI workflow:
+Interactive workflow:
 
 ```bash
 switchlet
 ```
 
-Version 0.3 also adds non-interactive commands:
+Non-interactive workflow:
 
 ```bash
 switchlet list
@@ -65,23 +93,7 @@ Exit behavior for non-interactive commands:
 - `1` runtime or validation failure
 - `2` command-usage failure
 
-Short `--json` examples:
-
-```json
-{"profiles":[{"name":"Local","protected":false,"available":true,"source":"literal","environmentVariableName":"","maskedValue":"postgres://localhost:5432/myapp","unavailableReason":""}]}
-{"profile":{"name":"Production","protected":true,"available":true,"source":"environment","environmentVariableName":"MYAPP_PRODUCTION_DATABASE_URL","maskedValue":"Server=prod;Password=****;","unavailableReason":""}}
-{"result":{"profileName":"Production","targetPath":"database.primary.url","targetFile":"/path/to/config/development.json","protected":true,"dryRun":true}}
-```
-
-## Verification
-
-```bash
-gofmt -w .
-go test ./...
-go vet ./...
-```
-
-Example configuration:
+## Example Configuration
 
 ```yaml
 version: 2
@@ -100,4 +112,25 @@ profiles:
   - name: Production
     valueFromEnv: MYAPP_PRODUCTION_DATABASE_URL
     protected: true
+```
+
+Version `1` ASP.NET `target.connectionName` configurations are still
+supported for existing projects.
+
+## Example Output
+
+Short `--json` examples:
+
+```json
+{"profiles":[{"name":"Local","protected":false,"available":true,"source":"literal","environmentVariableName":"","maskedValue":"postgres://localhost:5432/myapp","unavailableReason":""}]}
+{"profile":{"name":"Production","protected":true,"available":true,"source":"environment","environmentVariableName":"MYAPP_PRODUCTION_DATABASE_URL","maskedValue":"Server=prod;Password=****;","unavailableReason":""}}
+{"result":{"profileName":"Production","targetPath":"database.primary.url","targetFile":"/path/to/config/development.json","protected":true,"dryRun":true}}
+```
+
+## Verification
+
+```bash
+gofmt -w .
+go test ./...
+go vet ./...
 ```

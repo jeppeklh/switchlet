@@ -504,7 +504,7 @@ func TestRunCommand_UsageErrorsReturnExitCodeTwoAndStructuredJSON(t *testing.T) 
 	}
 }
 
-func TestREADME_ContainsVersionThreeCommandExamples(t *testing.T) {
+func TestREADME_ContainsInstallationAndCommandExamples(t *testing.T) {
 	_, currentFilePath, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller returned ok=false")
@@ -518,6 +518,10 @@ func TestREADME_ContainsVersionThreeCommandExamples(t *testing.T) {
 
 	readme := string(contents)
 	for _, expected := range []string{
+		"go install github.com/jeppeklh/switchlet/cmd/switchlet@latest",
+		"switchlet_linux_amd64",
+		"switchlet_windows_amd64.exe",
+		"switchlet init",
 		"switchlet list",
 		"switchlet inspect Local",
 		"switchlet apply Local",
