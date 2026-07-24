@@ -14,24 +14,13 @@ func connectionStringJSONPath(connectionName string) string {
 // ValidateStringTarget verifies that the configured target file exists and
 // contains the configured string value at the expected JSON path.
 func ValidateStringTarget(targetPath string, jsonPath string) error {
-	if targetPath == "" {
-		return fmt.Errorf("target path must be set")
-	}
 	if jsonPath == "" {
 		return fmt.Errorf("JSON path must be set")
 	}
 
-	targetInfo, err := os.Stat(targetPath)
+	contents, _, err := readTargetFile(targetPath)
 	if err != nil {
-		return fmt.Errorf("stat target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return fmt.Errorf("target file %q is a directory", targetPath)
-	}
-
-	contents, err := os.ReadFile(targetPath)
-	if err != nil {
-		return fmt.Errorf("read target file %q: %w", targetPath, err)
+		return err
 	}
 
 	if _, _, _, err := parseStringTarget(contents, jsonPath); err != nil {
@@ -54,21 +43,9 @@ func ValidateConnectionStringTarget(targetPath string, connectionName string) er
 // ListConnectionStringNames returns the existing string-valued connection names
 // from the target file's ConnectionStrings object.
 func ListConnectionStringNames(targetPath string) ([]string, error) {
-	if targetPath == "" {
-		return nil, fmt.Errorf("target path must be set")
-	}
-
-	targetInfo, err := os.Stat(targetPath)
+	contents, _, err := readTargetFile(targetPath)
 	if err != nil {
-		return nil, fmt.Errorf("stat target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return nil, fmt.Errorf("target file %q is a directory", targetPath)
-	}
-
-	contents, err := os.ReadFile(targetPath)
-	if err != nil {
-		return nil, fmt.Errorf("read target file %q: %w", targetPath, err)
+		return nil, err
 	}
 
 	_, connectionStringsObject, err := parseConnectionStringsObject(contents)
@@ -123,17 +100,9 @@ func PreviewStringValueUpdate(targetPath string, jsonPath string, replacementVal
 }
 
 func prepareStringValueUpdate(targetPath string, jsonPath string, replacementValue string) ([]byte, fs.FileMode, error) {
-	targetInfo, err := os.Stat(targetPath)
+	contents, targetInfo, err := readTargetFile(targetPath)
 	if err != nil {
-		return nil, 0, fmt.Errorf("stat target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return nil, 0, fmt.Errorf("target file %q is a directory", targetPath)
-	}
-
-	contents, err := os.ReadFile(targetPath)
-	if err != nil {
-		return nil, 0, fmt.Errorf("read target file %q: %w", targetPath, err)
+		return nil, 0, err
 	}
 
 	updatedContents, err := replaceStringValue(contents, jsonPath, replacementValue)
@@ -142,4 +111,25 @@ func prepareStringValueUpdate(targetPath string, jsonPath string, replacementVal
 	}
 
 	return updatedContents, targetInfo.Mode().Perm(), nil
+}
+
+func readTargetFile(targetPath string) ([]byte, fs.FileInfo, error) {
+	if targetPath == "" {
+		return nil, nil, fmt.Errorf("target path must be set")
+	}
+
+	targetInfo, err := os.Stat(targetPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("stat target file %q: %w", targetPath, err)
+	}
+	if targetInfo.IsDir() {
+		return nil, nil, fmt.Errorf("target file %q is a directory", targetPath)
+	}
+
+	contents, err := os.ReadFile(targetPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("read target file %q: %w", targetPath, err)
+	}
+
+	return contents, targetInfo, nil
 }

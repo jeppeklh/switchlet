@@ -3,7 +3,7 @@ package main
 func usageText() string {
 	return `Usage:
 	  switchlet                                      Launch the profile switcher
-	  switchlet init                                 Create a new .switchlet.yaml in the current directory
+	  switchlet init                                 Guided setup for a new .switchlet.yaml in the current directory
 	  switchlet list [--json]                        List configured profiles without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile by name
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
@@ -27,7 +27,9 @@ func initHelpText() string {
 
 	Create a new .switchlet.yaml in the current directory.
 
-	The init flow validates the target file and JSON path before writing the
+	The init flow discovers candidate JSON files, lets you browse existing
+	string-valued JSON paths inside the selected file, keeps manual entry
+	available for both steps, and validates each step before writing the
 	configuration.
 `
 }

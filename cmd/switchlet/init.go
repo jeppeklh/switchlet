@@ -17,11 +17,13 @@ import (
 )
 
 type initDependencies struct {
-	validateCreateLocation func(string) error
-	validateStringTarget   func(string, string) error
-	createConfig           func(string, config.Target, []config.Profile) (string, config.Config, error)
-	validateCreatedConfig  func(config.Config) error
-	removeFile             func(string) error
+	validateCreateLocation       func(string) error
+	discoverTargetFileCandidates func(string) ([]editor.TargetFileCandidate, error)
+	inspectStringTargets         func(string) ([]editor.StringTargetNode, error)
+	validateStringTarget         func(string, string) error
+	createConfig                 func(string, config.Target, []config.Profile) (string, config.Config, error)
+	validateCreatedConfig        func(config.Config) error
+	removeFile                   func(string) error
 }
 
 type initPrompter struct {
@@ -31,9 +33,11 @@ type initPrompter struct {
 
 func defaultInitDependencies() initDependencies {
 	return initDependencies{
-		validateCreateLocation: config.ValidateCreateLocation,
-		validateStringTarget:   editor.ValidateStringTarget,
-		createConfig:           config.Create,
+		validateCreateLocation:       config.ValidateCreateLocation,
+		discoverTargetFileCandidates: editor.DiscoverTargetFileCandidates,
+		inspectStringTargets:         editor.InspectStringTargets,
+		validateStringTarget:         editor.ValidateStringTarget,
+		createConfig:                 config.Create,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return app.New(loadedConfig.Target, loadedConfig.Profiles).ValidateStartup()
 		},
@@ -52,6 +56,15 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	}
 
 	if _, err := fmt.Fprintln(output, "Switchlet init"); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, ""); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "Select the target JSON file first, then choose the existing string value Switchlet should manage."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "Manual entry is available for both steps."); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(output, ""); err != nil {
@@ -100,39 +113,6 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	_, err = fmt.Fprintln(output, "Run `switchlet` to choose and apply a profile.")
 	return err
 }
-
-func promptTarget(prompter initPrompter, workingDirectory string, dependencies initDependencies) (config.Target, error) {
-	for {
-		targetPath, err := prompter.promptNonEmptyLine("Target JSON file path: ")
-		if err != nil {
-			return config.Target{}, err
-		}
-
-		resolvedTargetPath := targetPath
-		if !filepath.IsAbs(resolvedTargetPath) {
-			resolvedTargetPath = filepath.Join(workingDirectory, resolvedTargetPath)
-		}
-		resolvedTargetPath = filepath.Clean(resolvedTargetPath)
-
-		jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
-		if err != nil {
-			return config.Target{}, err
-		}
-
-		if err := dependencies.validateStringTarget(resolvedTargetPath, jsonPath); err != nil {
-			if _, writeErr := fmt.Fprintf(prompter.writer, "Error: %v\n\n", err); writeErr != nil {
-				return config.Target{}, writeErr
-			}
-			continue
-		}
-
-		return config.Target{
-			File:     resolvedTargetPath,
-			JSONPath: jsonPath,
-		}, nil
-	}
-}
-
 func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 	profiles := make([]config.Profile, 0, 1)
 	seenNames := make(map[string]struct{})
@@ -264,28 +244,37 @@ func (prompter initPrompter) promptNonEmptyLine(prompt string) (string, error) {
 }
 
 func (prompter initPrompter) promptChoice(prompt string, choices []string) (string, error) {
-	if _, err := fmt.Fprintln(prompter.writer, prompt); err != nil {
+	selectedIndex, err := prompter.promptChoiceIndex(prompt, choices)
+	if err != nil {
 		return "", err
+	}
+
+	return choices[selectedIndex], nil
+}
+
+func (prompter initPrompter) promptChoiceIndex(prompt string, choices []string) (int, error) {
+	if _, err := fmt.Fprintln(prompter.writer, prompt); err != nil {
+		return 0, err
 	}
 	for index, choice := range choices {
 		if _, err := fmt.Fprintf(prompter.writer, "  %d. %s\n", index+1, choice); err != nil {
-			return "", err
+			return 0, err
 		}
 	}
 
 	for {
 		enteredValue, err := prompter.promptNonEmptyLine("Choice: ")
 		if err != nil {
-			return "", err
+			return 0, err
 		}
 
 		selectedIndex, err := strconv.Atoi(enteredValue)
 		if err == nil && selectedIndex >= 1 && selectedIndex <= len(choices) {
-			return choices[selectedIndex-1], nil
+			return selectedIndex - 1, nil
 		}
 
 		if _, err := fmt.Fprintf(prompter.writer, "Error: enter a number between 1 and %d.\n", len(choices)); err != nil {
-			return "", err
+			return 0, err
 		}
 	}
 }

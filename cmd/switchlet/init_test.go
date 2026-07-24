@@ -68,7 +68,25 @@ func TestRunCommand_HelpTopicWritesSubcommandUsage(t *testing.T) {
 	}
 }
 
-func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
+func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
+	var output bytes.Buffer
+
+	err := runCommand([]string{"help", "init"}, t.TempDir(), func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init help topic")
+		return nil
+	}, strings.NewReader(""), &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "discovers candidate JSON files") {
+		t.Fatalf("help output %q does not describe guided file discovery", output.String())
+	}
+	if !strings.Contains(output.String(), "manual entry") {
+		t.Fatalf("help output %q does not mention manual entry", output.String())
+	}
+}
+
+func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
@@ -81,8 +99,10 @@ func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"config.json",
-		"database.primary.url",
+		"1",
+		"1",
+		"1",
+		"1",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -133,6 +153,9 @@ func TestRunCommand_InitCreatesConfiguration(t *testing.T) {
 	if !strings.Contains(output.String(), "Created configuration:") {
 		t.Fatalf("init output %q does not report created configuration", output.String())
 	}
+	if strings.Contains(output.String(), "postgres://old") {
+		t.Fatalf("init output %q must not include the existing target value", output.String())
+	}
 }
 
 func TestRunCommand_InitReturnsErrorWhenConfigurationExistsInParentDirectory(t *testing.T) {
@@ -179,8 +202,9 @@ func TestRunCommand_InitCancellationDoesNotWriteConfiguration(t *testing.T) {
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"config.json",
-		"service.baseUrl",
+		"1",
+		"1",
+		"1",
 		"Local",
 		"1",
 		"https://new.example.test",
@@ -220,8 +244,10 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"config.json",
-		"database.primary.url",
+		"1",
+		"1",
+		"1",
+		"1",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -232,9 +258,11 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 	var output bytes.Buffer
 
 	err := runInit(projectRoot, input, &output, initDependencies{
-		validateCreateLocation: config.ValidateCreateLocation,
-		validateStringTarget:   editor.ValidateStringTarget,
-		createConfig:           config.Create,
+		validateCreateLocation:       config.ValidateCreateLocation,
+		discoverTargetFileCandidates: editor.DiscoverTargetFileCandidates,
+		inspectStringTargets:         editor.InspectStringTargets,
+		validateStringTarget:         editor.ValidateStringTarget,
+		createConfig:                 config.Create,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return errors.New("target validation failed")
 		},
@@ -253,50 +281,7 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 	}
 }
 
-func TestRunInit_RePromptsAfterInvalidTargetPath(t *testing.T) {
-	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
-{
-  "database": {
-    "primary": {
-      "url": "postgres://old"
-    }
-  }
-}
-`)+"\n")
-
-	input := strings.NewReader(strings.Join([]string{
-		"missing.json",
-		"database.primary.url",
-		"config.json",
-		"database.primary.url",
-		"Local",
-		"2",
-		"MYAPP_DATABASE_URL",
-		"y",
-		"n",
-		"n",
-	}, "\n") + "\n")
-	var output bytes.Buffer
-
-	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
-		t.Fatal("runProgram should not be called for init")
-		return nil
-	}, input, &output)
-	if err != nil {
-		t.Fatalf("runCommand returned error: %v", err)
-	}
-	if !strings.Contains(output.String(), `Error: stat target file`) {
-		t.Fatalf("init output %q does not report invalid target path", output.String())
-	}
-
-	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
-	if !errors.Is(statErr, os.ErrNotExist) {
-		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
-	}
-}
-
-func TestRunInit_RePromptsAfterMissingTargetJSONPath(t *testing.T) {
+func TestRunCommand_InitKeepsSelectedFileWhileRetryingJSONPathSelection(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
 {
@@ -309,10 +294,12 @@ func TestRunInit_RePromptsAfterMissingTargetJSONPath(t *testing.T) {
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"config.json",
+		"1",
+		"2",
 		"database.primary.url",
-		"config.json",
-		"database.replica.url",
+		"1",
+		"1",
+		"1",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -332,6 +319,9 @@ func TestRunInit_RePromptsAfterMissingTargetJSONPath(t *testing.T) {
 	if !strings.Contains(output.String(), `does not contain JSON path "database.primary.url"`) {
 		t.Fatalf("init output %q does not report missing JSON path", output.String())
 	}
+	if strings.Count(output.String(), "Select target JSON file:") != 1 {
+		t.Fatalf("init output %q should prompt for the target file only once", output.String())
+	}
 
 	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
 	if !errors.Is(statErr, os.ErrNotExist) {
@@ -339,24 +329,83 @@ func TestRunInit_RePromptsAfterMissingTargetJSONPath(t *testing.T) {
 	}
 }
 
-func TestRunInit_RePromptsAfterNonStringTargetValue(t *testing.T) {
+func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsNothing(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	projectRoot := filepath.Join(workspaceRoot, "project")
+	sharedRoot := filepath.Join(workspaceRoot, "shared")
+
+	if err := os.MkdirAll(projectRoot, 0o755); err != nil {
+		t.Fatalf("create project root: %v", err)
+	}
+	writeFile(t, projectRoot, "arrays-only.json", `{"services":[{"baseUrl":"https://old.example.test"}]}`)
+	writeFile(t, sharedRoot, "config.json", strings.TrimSpace(`
+{
+  "service": {
+    "baseUrl": "https://old.example.test"
+  }
+}
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"missing.json",
+		filepath.Join("..", "shared", "config.json"),
+		"2",
+		"service.baseUrl",
+		"Local",
+		"1",
+		"https://new.example.test",
+		"n",
+		"n",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+	if !strings.Contains(output.String(), "No target JSON files with selectable string values were discovered") {
+		t.Fatalf("init output %q does not report empty discovery results", output.String())
+	}
+	if !strings.Contains(output.String(), `Error: stat target file`) {
+		t.Fatalf("init output %q does not report the invalid manual file path", output.String())
+	}
+
+	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
+	}
+}
+
+func TestRunCommand_InitAllowsBackingOutToChooseDifferentFile(t *testing.T) {
 	projectRoot := t.TempDir()
-	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+	writeFile(t, projectRoot, "a.json", strings.TrimSpace(`
+{
+  "service": {
+    "baseUrl": "https://first.example.test"
+  }
+}
+`)+"\n")
+	writeFile(t, projectRoot, "b.json", strings.TrimSpace(`
 {
   "database": {
     "primary": {
-      "port": 5432,
-      "url": "postgres://old"
+      "url": "postgres://second"
     }
   }
 }
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"config.json",
-		"database.primary.port",
-		"config.json",
-		"database.primary.url",
+		"1",
+		"3",
+		"2",
+		"1",
+		"1",
+		"1",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -373,8 +422,14 @@ func TestRunInit_RePromptsAfterNonStringTargetValue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), `JSON path "database.primary.port" must resolve to a string`) {
-		t.Fatalf("init output %q does not report non-string target value", output.String())
+	if strings.Count(output.String(), "Select target JSON file:") != 2 {
+		t.Fatalf("init output %q should prompt for the target file twice", output.String())
+	}
+	if !strings.Contains(output.String(), "Target file: b.json") {
+		t.Fatalf("init output %q does not summarize the second selected target file", output.String())
+	}
+	if !strings.Contains(output.String(), "Target JSON path: database.primary.url") {
+		t.Fatalf("init output %q does not summarize the selected JSON path", output.String())
 	}
 
 	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -116,4 +117,48 @@ func parseJSONDocument(contents []byte) (any, error) {
 	}
 
 	return decodedDocument, nil
+}
+
+func buildStringTargetNodes(currentObject map[string]any, parentSegments []string) []StringTargetNode {
+	propertyNames := make([]string, 0, len(currentObject))
+	for propertyName := range currentObject {
+		propertyNames = append(propertyNames, propertyName)
+	}
+	sort.Strings(propertyNames)
+
+	objectNodes := make([]StringTargetNode, 0)
+	stringNodes := make([]StringTargetNode, 0)
+	for _, propertyName := range propertyNames {
+		pathSegments := appendPathSegment(parentSegments, propertyName)
+		jsonPath := strings.Join(pathSegments, ".")
+
+		switch propertyValue := currentObject[propertyName].(type) {
+		case string:
+			stringNodes = append(stringNodes, StringTargetNode{
+				Name:       propertyName,
+				JSONPath:   jsonPath,
+				Selectable: true,
+			})
+		case map[string]any:
+			children := buildStringTargetNodes(propertyValue, pathSegments)
+			if len(children) == 0 {
+				continue
+			}
+
+			objectNodes = append(objectNodes, StringTargetNode{
+				Name:     propertyName,
+				JSONPath: jsonPath,
+				Children: children,
+			})
+		}
+	}
+
+	return append(objectNodes, stringNodes...)
+}
+
+func appendPathSegment(pathSegments []string, segment string) []string {
+	nextPathSegments := make([]string, len(pathSegments)+1)
+	copy(nextPathSegments, pathSegments)
+	nextPathSegments[len(pathSegments)] = segment
+	return nextPathSegments
 }

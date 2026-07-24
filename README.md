@@ -54,12 +54,16 @@ go build -o switchlet ./cmd/switchlet
 ## Quick Start
 
 1. Run `switchlet init` from your project root.
-2. Enter the path to the existing JSON file you want to update.
-3. Enter the JSON path to the existing string value Switchlet should
-   manage.
+2. Choose one of the discovered JSON files or enter a file path manually.
+3. Browse to an existing string-valued JSON path or enter a JSON path
+	manually.
 4. Add one or more profiles.
 5. Run `switchlet` for the interactive workflow, or use a non-interactive
    command.
+
+`switchlet init` validates the file-selection step and the JSON-path step
+separately, so correcting a bad JSON path does not force you to re-enter
+the file choice.
 
 ## Commands
 
