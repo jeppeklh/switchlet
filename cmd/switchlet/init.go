@@ -22,6 +22,7 @@ type initDependencies struct {
 	inspectStringTargets         func(string) ([]editor.StringTargetNode, error)
 	validateStringTarget         func(string, string) error
 	createConfig                 func(string, config.Target, []config.Profile) (string, config.Config, error)
+	ensureConfigIgnored          func(string) (bool, error)
 	validateCreatedConfig        func(config.Config) error
 	removeFile                   func(string) error
 }
@@ -40,6 +41,7 @@ func defaultInitDependencies() initDependencies {
 		inspectStringTargets:         editor.InspectStringTargets,
 		validateStringTarget:         editor.ValidateStringTarget,
 		createConfig:                 config.Create,
+		ensureConfigIgnored:          config.EnsureConfigIgnored,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return app.New(loadedConfig.Target, loadedConfig.Profiles).ValidateStartup()
 		},
@@ -104,6 +106,18 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 		return err
 	}
 
+	shouldIgnoreConfig := false
+	if hasLiteralProfiles(profiles) {
+		if _, err := fmt.Fprintln(output, "\nLiteral profile values are stored directly in .switchlet.yaml."); err != nil {
+			return err
+		}
+
+		shouldIgnoreConfig, err = prompter.promptYesNo(formatYesNoPrompt("Add .switchlet.yaml to the project .gitignore?", true), true)
+		if err != nil {
+			return err
+		}
+	}
+
 	configPath, loadedConfig, err := dependencies.createConfig(workingDirectory, target, profiles)
 	if err != nil {
 		return err
@@ -120,9 +134,38 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 	if _, err := fmt.Fprintf(output, "\nCreated configuration: %s\n", configPath); err != nil {
 		return err
 	}
+	if shouldIgnoreConfig {
+		if dependencies.ensureConfigIgnored == nil {
+			return fmt.Errorf("configuration file %q was created, but project .gitignore protection is not configured", configPath)
+		}
+
+		changed, err := dependencies.ensureConfigIgnored(workingDirectory)
+		if err != nil {
+			return fmt.Errorf("configuration file %q was created, but update project .gitignore: %w", configPath, err)
+		}
+
+		message := "Project .gitignore already ignores .switchlet.yaml."
+		if changed {
+			message = "Updated project .gitignore to ignore .switchlet.yaml."
+		}
+		if _, err := fmt.Fprintln(output, message); err != nil {
+			return err
+		}
+	}
 	_, err = fmt.Fprintln(output, "Run `switchlet` to choose and apply a profile.")
 	return err
 }
+
+func hasLiteralProfiles(profiles []config.Profile) bool {
+	for _, profile := range profiles {
+		if profile.Value != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
 func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 	profiles := make([]config.Profile, 0, 1)
 	seenNames := make(map[string]struct{})

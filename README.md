@@ -61,7 +61,9 @@ go build -o switchlet ./cmd/switchlet
 4. Add one or more profiles.
 5. Review the generated configuration summary and press Enter to create
    `.switchlet.yaml`, or type `n` to cancel.
-6. Run `switchlet` for the interactive workflow, or use a non-interactive
+6. If any profile uses a literal value, let Switchlet add
+   `.switchlet.yaml` to the project `.gitignore`.
+7. Run `switchlet` for the interactive workflow, or use a non-interactive
    command.
 
 `switchlet init` validates the file-selection step and the JSON-path step

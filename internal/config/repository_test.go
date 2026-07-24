@@ -210,3 +210,84 @@ func TestCreate_WritesConfigurationForGenericJSONTarget(t *testing.T) {
 		t.Fatalf("configuration file contents %q do not contain generic JSON path", string(contents))
 	}
 }
+
+func TestEnsureConfigIgnored_CreatesGitignoreWhenMissing(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	changed, err := config.EnsureConfigIgnored(projectRoot)
+	if err != nil {
+		t.Fatalf("EnsureConfigIgnored returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("EnsureConfigIgnored changed = false, want true when creating .gitignore")
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(contents) != ".switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want %q", string(contents), ".switchlet.yaml\n")
+	}
+}
+
+func TestEnsureConfigIgnored_AppendsEntryWithoutDuplicatingExistingContent(t *testing.T) {
+	projectRoot := t.TempDir()
+	gitignorePath := writeFile(t, projectRoot, ".gitignore", strings.TrimSpace(`
+node_modules/
+dist/
+`)+"\n")
+
+	changed, err := config.EnsureConfigIgnored(projectRoot)
+	if err != nil {
+		t.Fatalf("EnsureConfigIgnored returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("EnsureConfigIgnored changed = false, want true when appending .switchlet.yaml")
+	}
+
+	contents, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(contents) != "node_modules/\ndist/\n.switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want appended ignore entry", string(contents))
+	}
+
+	changed, err = config.EnsureConfigIgnored(projectRoot)
+	if err != nil {
+		t.Fatalf("second EnsureConfigIgnored returned error: %v", err)
+	}
+	if changed {
+		t.Fatal("EnsureConfigIgnored changed = true, want false when .switchlet.yaml is already ignored")
+	}
+
+	contents, err = os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore after second call: %v", err)
+	}
+	if strings.Count(string(contents), ".switchlet.yaml") != 1 {
+		t.Fatalf(".gitignore contents = %q, want exactly one .switchlet.yaml entry", string(contents))
+	}
+}
+
+func TestEnsureConfigIgnored_PreservesExistingLineEndingsWhenUpdating(t *testing.T) {
+	projectRoot := t.TempDir()
+	gitignorePath := writeFile(t, projectRoot, ".gitignore", "bin/\r\ndist/")
+
+	changed, err := config.EnsureConfigIgnored(projectRoot)
+	if err != nil {
+		t.Fatalf("EnsureConfigIgnored returned error: %v", err)
+	}
+	if !changed {
+		t.Fatal("EnsureConfigIgnored changed = false, want true when appending to existing .gitignore")
+	}
+
+	contents, err := os.ReadFile(gitignorePath)
+	if err != nil {
+		t.Fatalf("read .gitignore: %v", err)
+	}
+	if string(contents) != "bin/\r\ndist/\r\n.switchlet.yaml\r\n" {
+		t.Fatalf(".gitignore contents = %q, want preserved CRLF line endings", string(contents))
+	}
+}

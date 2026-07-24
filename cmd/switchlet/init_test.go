@@ -90,6 +90,9 @@ func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "search existing string-valued JSON paths") {
 		t.Fatalf("help output %q does not mention JSON-path search", output.String())
 	}
+	if !strings.Contains(output.String(), "project .gitignore") {
+		t.Fatalf("help output %q does not mention literal-value gitignore protection", output.String())
+	}
 }
 
 func TestPromptTargetJSONPath_AllowsSearchingLargeSelectablePathSets(t *testing.T) {
@@ -344,6 +347,7 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 		"n",
 		"n",
 		"",
+		"",
 	}, "\n") + "\n")
 	var output bytes.Buffer
 
@@ -379,6 +383,10 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read configuration file: %v", err)
 	}
+	gitignoreContents, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
+	if err != nil {
+		t.Fatalf("read gitignore file: %v", err)
+	}
 	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
 		t.Fatalf("configuration file contents %q do not contain version 2 JSON path", string(contents))
 	}
@@ -396,6 +404,15 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "Create .switchlet.yaml now? [Y/n]: ") {
 		t.Fatalf("init output %q does not show the Enter-as-yes confirmation prompt", output.String())
+	}
+	if !strings.Contains(output.String(), "Add .switchlet.yaml to the project .gitignore? [Y/n]: ") {
+		t.Fatalf("init output %q does not show the literal-value gitignore prompt", output.String())
+	}
+	if !strings.Contains(output.String(), "Updated project .gitignore to ignore .switchlet.yaml.") {
+		t.Fatalf("init output %q does not report the gitignore update", output.String())
+	}
+	if string(gitignoreContents) != ".switchlet.yaml\n" {
+		t.Fatalf("gitignore contents = %q, want %q", string(gitignoreContents), ".switchlet.yaml\n")
 	}
 }
 
@@ -494,6 +511,7 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 		"postgres://localhost:5432/myapp",
 		"n",
 		"n",
+		"y",
 		"y",
 	}, "\n") + "\n")
 	var output bytes.Buffer
