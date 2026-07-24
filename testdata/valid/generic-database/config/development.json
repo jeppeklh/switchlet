@@ -1,0 +1,11 @@
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    },
+    "replica": {
+      "url": "postgres://replica"
+    }
+  },
+  "environment": "development"
+}

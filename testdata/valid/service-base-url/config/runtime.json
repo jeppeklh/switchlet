@@ -1,0 +1,10 @@
+{
+  "services": {
+    "backend": {
+      "baseUrl": "https://old.example.test"
+    }
+  },
+  "featureFlags": {
+    "beta": true
+  }
+}

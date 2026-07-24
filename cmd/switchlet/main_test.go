@@ -52,6 +52,47 @@ profiles:
 	}
 }
 
+func TestRun_StartsProgramForValidVersionTwoProject(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", strings.TrimSpace(`
+{
+  "services": {
+    "backend": {
+      "baseUrl": "https://old.example.test"
+    }
+  }
+}
+`)+"\n")
+
+	programStarted := false
+
+	err := run(projectRoot, func(model tea.Model) error {
+		programStarted = true
+		if model == nil {
+			t.Fatal("runProgram received nil model")
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !programStarted {
+		t.Fatal("runProgram was not called")
+	}
+}
+
 func TestRun_ReturnsDiscoveryErrorWithoutStartingProgram(t *testing.T) {
 	workingDirectory := t.TempDir()
 	programStarted := false

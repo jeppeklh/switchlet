@@ -1,0 +1,12 @@
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+  - name: Staging
+    valueFromEnv: MYAPP_STAGING_BASE_URL
+    protected: true

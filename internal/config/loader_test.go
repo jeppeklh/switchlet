@@ -98,6 +98,55 @@ profiles:
 	}
 }
 
+func TestLoad_LoadsVersionTwoNestedDatabaseExampleFixture(t *testing.T) {
+	configPath := fixturePath(t, "valid", "generic-database", ".switchlet.yaml")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	projectRoot := fixturePath(t, "valid", "generic-database")
+	if loadedConfig.Version != 2 {
+		t.Fatalf("Version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.File != filepath.Join(projectRoot, "config", "development.json") {
+		t.Fatalf("Target.File = %q, want fixture target path", loadedConfig.Target.File)
+	}
+	if loadedConfig.Target.JSONPath != "database.primary.url" {
+		t.Fatalf("Target.JSONPath = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	}
+	if len(loadedConfig.Profiles) != 2 {
+		t.Fatalf("len(Profiles) = %d, want 2", len(loadedConfig.Profiles))
+	}
+}
+
+func TestLoad_LoadsVersionTwoServiceBaseURLExampleFixture(t *testing.T) {
+	configPath := fixturePath(t, "valid", "service-base-url", ".switchlet.yaml")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	projectRoot := fixturePath(t, "valid", "service-base-url")
+	if loadedConfig.Version != 2 {
+		t.Fatalf("Version = %d, want 2", loadedConfig.Version)
+	}
+	if loadedConfig.Target.File != filepath.Join(projectRoot, "config", "runtime.json") {
+		t.Fatalf("Target.File = %q, want fixture target path", loadedConfig.Target.File)
+	}
+	if loadedConfig.Target.JSONPath != "services.backend.baseUrl" {
+		t.Fatalf("Target.JSONPath = %q, want %q", loadedConfig.Target.JSONPath, "services.backend.baseUrl")
+	}
+	if len(loadedConfig.Profiles) != 2 {
+		t.Fatalf("len(Profiles) = %d, want 2", len(loadedConfig.Profiles))
+	}
+	if !loadedConfig.Profiles[1].Protected {
+		t.Fatal("Profiles[1].Protected = false, want true")
+	}
+}
+
 func TestLoad_ResolvesTargetPathRelativeToConfiguration(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeFile(t, projectRoot, "config/.switchlet.yaml", strings.TrimSpace(`

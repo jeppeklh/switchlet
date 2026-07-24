@@ -1,0 +1,11 @@
+version: 2
+
+target:
+  file: config/development.json
+  jsonPath: database.primary.url
+
+profiles:
+  - name: Local
+    value: postgres://localhost:5432/myapp
+  - name: Test
+    valueFromEnv: MYAPP_TEST_DATABASE_URL
