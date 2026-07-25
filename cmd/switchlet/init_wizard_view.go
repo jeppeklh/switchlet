@@ -35,8 +35,9 @@ func (model initWizardModel) View() string {
 		return model.fileFilterView()
 	case initWizardStepManualFile:
 		return model.textInputView(1, "Enter target JSON file path", []string{
-			"Enter a path relative to the project root or an absolute path.",
-			"Switchlet inspects the file and keeps only existing string-valued JSON targets.",
+			"Task",
+			"Enter a relative or absolute JSON file path.",
+			"Switchlet inspects it before continuing.",
 		}, "Target file", "Validate file")
 	case initWizardStepPathBrowse:
 		return model.pathBrowseView()
@@ -44,22 +45,30 @@ func (model initWizardModel) View() string {
 		return model.pathSearchView()
 	case initWizardStepManualPath:
 		return model.textInputView(2, "Enter target JSON path", []string{
-			fmt.Sprintf("Selected file: %s", model.selectedFile.displayPath),
-			"Enter the existing string-valued JSON path Switchlet should manage.",
+			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			"",
+			"Task",
+			"Enter one existing string-valued JSON path.",
 		}, "Target JSON path", "Validate path")
 	case initWizardStepProfileName:
 		return model.textInputView(3, "Add profiles", []string{
-			fmt.Sprintf("Target file: %s", model.selectedFile.displayPath),
-			fmt.Sprintf("Target JSON path: %s", model.selectedJSONPath),
-			fmt.Sprintf("Profiles added: %d", len(model.profiles)),
+			ui.RenderKeyValue("Target file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Target JSON path", model.selectedJSONPath),
+			ui.RenderKeyValue("Profiles added", fmt.Sprintf("%d", len(model.profiles))),
+			"",
+			"Task",
+			"Name the profile shown in the picker.",
 		}, "Profile name", "Continue")
 	case initWizardStepProfileSource:
 		return model.profileChoiceView(
 			3,
 			"Choose profile source",
 			[]string{
-				fmt.Sprintf("Profile: %s", model.draftProfile.Name),
-				"Choose whether this profile stores a literal value or an environment variable name.",
+				ui.RenderKeyValue("Profile", model.draftProfile.Name),
+				"",
+				"Task",
+				"Choose how Switchlet resolves this profile.",
+				"Literal values are written to .switchlet.yaml.",
 			},
 			[]string{"Use a literal value", "Use an environment variable"},
 		)
@@ -70,16 +79,21 @@ func (model initWizardModel) View() string {
 		}
 
 		return model.textInputView(3, "Enter profile value", []string{
-			fmt.Sprintf("Profile: %s", model.draftProfile.Name),
-			fmt.Sprintf("Source: %s", profileSourceSummary(model.draftProfile.UseEnvironment)),
+			ui.RenderKeyValue("Profile", model.draftProfile.Name),
+			ui.RenderKeyValue("Source", profileSourceSummary(model.draftProfile.UseEnvironment)),
+			"",
+			"Task",
+			profileValueGuidance(model.draftProfile.UseEnvironment),
 		}, label, "Continue")
 	case initWizardStepProfileProtected:
 		return model.profileChoiceView(
 			3,
 			"Protected profile confirmation",
 			[]string{
-				fmt.Sprintf("Profile: %s", model.draftProfile.Name),
-				"Protected profiles require confirmation before Switchlet applies them later.",
+				ui.RenderKeyValue("Profile", model.draftProfile.Name),
+				"",
+				"Task",
+				"Choose whether this profile requires apply-time confirmation.",
 			},
 			[]string{"Do not require confirmation", "Require confirmation"},
 		)
@@ -120,11 +134,15 @@ func (model initWizardModel) fileSelectionView() string {
 	}
 
 	guidanceLines := []string{
-		"Pick the JSON file Switchlet should update.",
-		"Filter large lists when needed, or use manual entry for files outside discovery.",
+		"Task",
+		"Choose the JSON file Switchlet may update.",
+		"Only files with existing string targets appear.",
+		"",
+		"Manual fallback",
+		"Press m when the file is not listed.",
 	}
 	if len(matchingCandidates) > 0 {
-		guidanceLines = append(guidanceLines, "", "Selected", matchingCandidates[model.cursor].RelativePath)
+		guidanceLines = append(guidanceLines, "", ui.RenderKeyValue("Selected file", matchingCandidates[model.cursor].RelativePath))
 	}
 
 	return model.initWizardShell(1, "Choose target JSON file", []ui.Panel{
@@ -154,9 +172,10 @@ func (model initWizardModel) fileFilterView() string {
 	return model.initWizardShell(1, "Filter target JSON files", []ui.Panel{
 		{Title: "Filter results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			"Type part of a file name or path to narrow the discovered results.",
+			"Task",
+			"Narrow discovered files by name or path.",
 			"Enter selects the highlighted file.",
-			"Esc returns to the file list with the typed filter.",
+			"Esc returns to the file list with this filter.",
 		})},
 	}, searchableTextInputActions("Select"))
 }
@@ -182,9 +201,11 @@ func (model initWizardModel) pathBrowseView() string {
 	return model.initWizardShell(2, "Choose target JSON path", []ui.Panel{
 		{Title: "JSON path hierarchy", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			fmt.Sprintf("Selected file: %s", model.selectedFile.displayPath),
-			"Choose the existing string-valued JSON path Switchlet should manage.",
-			"Selectable values are shown without a trailing slash.",
+			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			"",
+			"Task",
+			"Choose one existing string-valued JSON path.",
+			"Rows ending in / open nested objects.",
 		})},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Open/Select"},
@@ -207,9 +228,11 @@ func (model initWizardModel) pathSearchView() string {
 	return model.initWizardShell(2, "Search selectable JSON paths", []ui.Panel{
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			fmt.Sprintf("Selected file: %s", model.selectedFile.displayPath),
-			"Type part of a path or leaf name.",
-			"Enter chooses the highlighted existing string target.",
+			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			"",
+			"Task",
+			"Search by path segment or leaf name.",
+			"Enter chooses the highlighted string target.",
 		})},
 	}, searchableTextInputActions("Select"))
 }
@@ -218,8 +241,8 @@ func (model initWizardModel) profileSummaryView() string {
 	choices := []string{"Review and create configuration", "Add another profile", "Remove last profile", "Back to target JSON path"}
 
 	return model.initWizardShell(3, "Profile summary", []ui.Panel{
-		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
@@ -253,8 +276,8 @@ func (model initWizardModel) reviewView() string {
 	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
 	return model.initWizardShell(4, "Review and create configuration", []ui.Panel{
-		{Title: "Configuration summary", Lines: model.reviewSummaryLines()},
 		{Title: "Create", Lines: model.withErrorLines(decisionLines), Focused: true},
+		{Title: "Configuration summary", Lines: model.reviewSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
@@ -277,7 +300,7 @@ func (model initWizardModel) profileChoiceView(stepNumber int, title string, det
 
 func (model initWizardModel) textInputView(stepNumber int, title string, details []string, label string, enterAction string) string {
 	return model.initWizardShell(stepNumber, title, []ui.Panel{
-		{Title: "Input", Lines: []string{model.inputLine(label)}, Focused: true},
+		{Title: "Active input", Lines: []string{model.inputLine(label)}, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines(details)},
 	}, textInputActions(enterAction))
 }
@@ -286,14 +309,18 @@ func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, pa
 	return ui.RenderShell(ui.Shell{
 		Title:    "Switchlet init",
 		Subtitle: subtitle,
-		Metadata: []string{
-			fmt.Sprintf("Step %d of %d", stepNumber, initStepCount),
-			ui.RenderStepProgress(stepNumber, initWizardStepLabels),
-		},
-		Panels:  panels,
-		Actions: actions,
-		Width:   model.width,
+		Metadata: wizardStepMetadata(stepNumber),
+		Panels:   panels,
+		Actions:  actions,
+		Width:    model.width,
 	})
+}
+
+func wizardStepMetadata(stepNumber int) []string {
+	return []string{
+		fmt.Sprintf("Step %d of %d", stepNumber, initStepCount),
+		ui.RenderStepProgress(stepNumber, initWizardStepLabels),
+	}
 }
 
 func (model initWizardModel) candidateListLines(candidates []editor.TargetFileCandidate, cursor int, windowSize int) []string {
@@ -374,16 +401,19 @@ func (model initWizardModel) profileRows() []string {
 		return []string{"No profiles configured."}
 	}
 
-	rows := make([]ui.ListRow, 0, len(model.profiles))
+	lines := make([]string, 0, len(model.profiles)*2)
 	for _, profile := range model.profiles {
-		rows = append(rows, ui.ListRow{
+		lines = append(lines, ui.RenderListRow(ui.ListRow{
 			Label:  profileReviewLabel(profile),
 			State:  ui.RowNormal,
 			Badges: profileReviewBadges(profile),
-		})
+		}))
+		if profile.ValueFromEnv != nil {
+			lines = append(lines, ui.RenderKeyValue("  Environment", *profile.ValueFromEnv))
+		}
 	}
 
-	return ui.RenderListRows(rows)
+	return lines
 }
 
 func (model initWizardModel) inputLine(label string) string {
@@ -395,7 +425,7 @@ func (model initWizardModel) withErrorLines(lines []string) []string {
 		return lines
 	}
 
-	return append(lines, "", "Error: "+model.errorMessage)
+	return append(lines, "", "Error", model.errorMessage)
 }
 
 func textInputActions(enterAction string) []ui.Action {
@@ -422,10 +452,6 @@ func searchableTextInputActions(enterAction string) []ui.Action {
 }
 
 func profileReviewLabel(profile config.Profile) string {
-	if profile.ValueFromEnv != nil {
-		return profile.Name + " -> " + *profile.ValueFromEnv
-	}
-
 	return profile.Name
 }
 
@@ -449,4 +475,12 @@ func profileSourceSummary(useEnvironment bool) string {
 	}
 
 	return sourceLabel(app.ProfileSourceLiteral)
+}
+
+func profileValueGuidance(useEnvironment bool) string {
+	if useEnvironment {
+		return "Enter the environment variable name only."
+	}
+
+	return "Enter the literal value to store in .switchlet.yaml."
 }

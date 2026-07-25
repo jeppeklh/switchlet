@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
 )
 
@@ -432,7 +433,7 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
 	model = updatedModel.(initWizardModel)
 	widView := model.View()
-	for _, expected := range []string{"Switchlet init", "Step 1 of 4", "[1 Target]", "* Target JSON files", "Guidance", "Enter Select"} {
+	for _, expected := range []string{"Switchlet init", "Step 1 of 4", "[1 Target]", "2 Path", "3 Profiles", "4 Review", "* Target JSON files", "> config.json", "Guidance", "Enter Select", "m Manual path"} {
 		if !strings.Contains(widView, expected) {
 			t.Fatalf("wide View() = %q, want %q", widView, expected)
 		}
@@ -450,6 +451,50 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	if !strings.Contains(narrowView, "* Target JSON files") || !strings.Contains(narrowView, "Guidance") {
 		t.Fatalf("narrow View() = %q, want both stacked panels", narrowView)
 	}
+}
+
+func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testing.T) {
+	projectRoot := t.TempDir()
+	literalValue := "postgres://local"
+	environmentVariableName := "MYAPP_PRODUCTION_URL"
+	model := initWizardModel{
+		workingDirectory: projectRoot,
+		step:             initWizardStepProfileSummary,
+		width:            120,
+		height:           32,
+		selectedFile: targetFileSelection{
+			path:        filepath.Join(projectRoot, "config.json"),
+			displayPath: "config.json",
+		},
+		selectedJSONPath:   "database.primary.url",
+		shouldIgnoreConfig: true,
+		profiles: []config.Profile{
+			{Name: "Local", Value: &literalValue},
+			{Name: "Production", ValueFromEnv: &environmentVariableName, Protected: true},
+		},
+	}
+
+	summaryView := model.View()
+	if !wizardLineContains(summaryView, "* Next action", "Configured profiles") {
+		t.Fatalf("summary View() = %q, want focused next action as the primary panel", summaryView)
+	}
+	for _, expected := range []string{"Local [literal]", "Production [protected] [env]", "Environment: MYAPP_PRODUCTION_URL"} {
+		if !strings.Contains(summaryView, expected) {
+			t.Fatalf("summary View() = %q, want profile badge summary %q", summaryView, expected)
+		}
+	}
+
+	model.step = initWizardStepReview
+	reviewView := model.View()
+	if !wizardLineContains(reviewView, "* Create", "Configuration summary") {
+		t.Fatalf("review View() = %q, want focused create decision as the primary panel", reviewView)
+	}
+	for _, expected := range []string{"Step 4 of 4", "1 Target", "2 Path", "3 Profiles", "[4 Review]", ".gitignore protection: Enabled", "Create .switchlet.yaml"} {
+		if !strings.Contains(reviewView, expected) {
+			t.Fatalf("review View() = %q, want %q", reviewView, expected)
+		}
+	}
+	assertWizardViewWidth(t, reviewView, 120)
 }
 
 func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) {
@@ -482,6 +527,9 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 
 	view := model.View()
 	assertWizardViewWidth(t, view, 80)
+	if !strings.Contains(view, "* Active input") {
+		t.Fatalf("View() = %q, want focused active input panel", view)
+	}
 	if !strings.Contains(view, "Literal value: ...") {
 		t.Fatalf("View() = %q, want deliberately truncated long input field", view)
 	}
