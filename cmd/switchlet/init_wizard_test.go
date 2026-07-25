@@ -415,6 +415,80 @@ func TestInitWizardModel_CanRemoveLastProfileBeforeReview(t *testing.T) {
 	}
 }
 
+func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(initWizardModel)
+	widView := model.View()
+	for _, expected := range []string{"Switchlet init", "Step 1 of 4", "[1 Target]", "* Target JSON files", "Guidance", "Enter Select"} {
+		if !strings.Contains(widView, expected) {
+			t.Fatalf("wide View() = %q, want %q", widView, expected)
+		}
+	}
+	if !wizardLineContains(widView, "* Target JSON files", "Guidance") {
+		t.Fatalf("wide View() = %q, want split target and guidance panels", widView)
+	}
+
+	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(initWizardModel)
+	narrowView := model.View()
+	if wizardLineContains(narrowView, "* Target JSON files", "Guidance") {
+		t.Fatalf("narrow View() = %q, want stacked panels at minimum width", narrowView)
+	}
+	if !strings.Contains(narrowView, "* Target JSON files") || !strings.Contains(narrowView, "Guidance") {
+		t.Fatalf("narrow View() = %q, want both stacked panels", narrowView)
+	}
+}
+
+func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) {
+	projectRoot := t.TempDir()
+	longRelativePath := filepath.Join("services", "backend", "configuration", "very-long-directory-name", "appsettings.Development.json")
+	longJSONPath := "services.database.primary.connectionStrings.defaultConnection.value"
+	selectedCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, longRelativePath),
+		RelativePath: longRelativePath,
+	}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(initWizardModel)
+	assertWizardViewWidth(t, model.View(), 80)
+
+	model.step = initWizardStepProfileValue
+	model.selectedFile = targetFileSelection{path: selectedCandidate.Path, displayPath: selectedCandidate.RelativePath}
+	model.selectedJSONPath = longJSONPath
+	model.draftProfile = initWizardProfileDraft{Name: "Local"}
+	model.setInputValue("postgres://very-long-host-name.example.test/database-name-with-a-long-suffix")
+
+	view := model.View()
+	assertWizardViewWidth(t, view, 80)
+	if !strings.Contains(view, "Literal value: ...") {
+		t.Fatalf("View() = %q, want deliberately truncated long input field", view)
+	}
+	if !strings.Contains(view, "_") {
+		t.Fatalf("View() = %q, want visible cursor for long input field", view)
+	}
+}
+
 func pressWizardEnter(t *testing.T, model initWizardModel) initWizardModel {
 	t.Helper()
 	return updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
@@ -440,4 +514,31 @@ func updateWizardModel(t *testing.T, model initWizardModel, message tea.KeyMsg) 
 
 func runeKey(value rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
+}
+
+func wizardLineContains(view string, values ...string) bool {
+	for _, line := range strings.Split(view, "\n") {
+		containsAllValues := true
+		for _, value := range values {
+			if !strings.Contains(line, value) {
+				containsAllValues = false
+				break
+			}
+		}
+		if containsAllValues {
+			return true
+		}
+	}
+
+	return false
+}
+
+func assertWizardViewWidth(t *testing.T, view string, width int) {
+	t.Helper()
+
+	for _, line := range strings.Split(view, "\n") {
+		if len([]rune(line)) > width {
+			t.Fatalf("line %q has width %d, want at most %d", line, len([]rune(line)), width)
+		}
+	}
 }

@@ -75,6 +75,29 @@ func TestRenderInput_ClampsCursorAndShowsInsertionPoint(t *testing.T) {
 	}
 }
 
+func TestRenderInputWithinWidth_KeepsCursorVisibleForLongValues(t *testing.T) {
+	got := RenderInputWithinWidth("Literal value", "postgres://very-long-host-name.example.test/database", 51, 32)
+
+	if len([]rune(got)) > 32 {
+		t.Fatalf("RenderInputWithinWidth() = %q with width %d, want at most 32", got, len([]rune(got)))
+	}
+	if !strings.Contains(got, "_") {
+		t.Fatalf("RenderInputWithinWidth() = %q, want visible cursor", got)
+	}
+	if !strings.Contains(got, "...") {
+		t.Fatalf("RenderInputWithinWidth() = %q, want truncated long value marker", got)
+	}
+}
+
+func TestPrimaryPanelWidth_MatchesShellSplitBehavior(t *testing.T) {
+	if got := PrimaryPanelWidth(120, 2); got != 66 {
+		t.Fatalf("PrimaryPanelWidth(120, 2) = %d, want 66", got)
+	}
+	if got := PrimaryPanelWidth(80, 2); got != 80 {
+		t.Fatalf("PrimaryPanelWidth(80, 2) = %d, want 80", got)
+	}
+}
+
 func TestRenderStepProgress_MarksCurrentStep(t *testing.T) {
 	got := RenderStepProgress(2, []string{"Target", "Path", "Profiles", "Review"})
 	want := "1 Target  [2 Path]  3 Profiles  4 Review"

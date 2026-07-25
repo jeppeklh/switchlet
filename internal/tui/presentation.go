@@ -177,6 +177,60 @@ func RenderInput(label string, value string, cursor int) string {
 	return label + ": " + string(runes[:cursor]) + "_" + string(runes[cursor:])
 }
 
+// RenderInputWithinWidth renders a text input while keeping the cursor visible.
+func RenderInputWithinWidth(label string, value string, cursor int, width int) string {
+	line := RenderInput(label, value, cursor)
+	width = normalizedWidth(width)
+	if len([]rune(line)) <= width {
+		return line
+	}
+
+	prefix := label + ": "
+	ellipsisWidth := len([]rune(textEllipsis))
+	availableInputWidth := width - len([]rune(prefix))
+	if availableInputWidth <= ellipsisWidth {
+		return fitLine(line, width)
+	}
+
+	valueRunes := []rune(value)
+	cursor = clampRuneIndex(cursor, len(valueRunes))
+	markedRunes := make([]rune, 0, len(valueRunes)+1)
+	markedRunes = append(markedRunes, valueRunes[:cursor]...)
+	markedRunes = append(markedRunes, '_')
+	markedRunes = append(markedRunes, valueRunes[cursor:]...)
+
+	cursorMarkerIndex := cursor
+	if cursorMarkerIndex < availableInputWidth-ellipsisWidth {
+		return prefix + string(markedRunes[:availableInputWidth-ellipsisWidth]) + textEllipsis
+	}
+
+	windowWidth := availableInputWidth - ellipsisWidth
+	start := cursorMarkerIndex - windowWidth + 1
+	if start < 0 {
+		start = 0
+	}
+	end := start + windowWidth
+	if end > len(markedRunes) {
+		end = len(markedRunes)
+		start = end - windowWidth
+		if start < 0 {
+			start = 0
+		}
+	}
+
+	return prefix + textEllipsis + string(markedRunes[start:end])
+}
+
+// PrimaryPanelWidth returns the line width for the dominant panel in RenderShell.
+func PrimaryPanelWidth(shellWidth int, panelCount int) int {
+	width := normalizedWidth(shellWidth)
+	if panelCount == 2 && width >= splitShellWidth {
+		return width * 55 / 100
+	}
+
+	return width
+}
+
 // RenderKeyValue renders one metadata line.
 func RenderKeyValue(label string, value string) string {
 	if value == "" {
@@ -354,6 +408,17 @@ func normalizedWidth(width int) int {
 	}
 
 	return width
+}
+
+func clampRuneIndex(index int, runeCount int) int {
+	if index < 0 {
+		return 0
+	}
+	if index > runeCount {
+		return runeCount
+	}
+
+	return index
 }
 
 func rowMarker(state RowState) string {
