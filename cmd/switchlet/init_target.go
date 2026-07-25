@@ -67,7 +67,7 @@ func promptTargets(prompter initPrompter, workingDirectory string, dependencies 
 		targets = append(targets, target)
 		seenNames[target.Name] = struct{}{}
 
-		addAnother, err := prompter.promptYesNo(formatYesNoPrompt("Add another target?", false), false)
+		addAnother, err := prompter.promptYesNo(formatYesNoPrompt("Add another managed value?", false), false)
 		if err != nil {
 			return nil, err
 		}
@@ -75,8 +75,8 @@ func promptTargets(prompter initPrompter, workingDirectory string, dependencies 
 			return targets, nil
 		}
 
-		if err := writeInitStep(prompter.writer, 1, "Choose target file",
-			"Pick the next JSON or dotenv file Switchlet should update.",
+		if err := writeInitStep(prompter.writer, 1, "Choose configuration file",
+			"Pick the next JSON or dotenv file containing a value Switchlet should manage.",
 			"You can also enter a file path manually.",
 		); err != nil {
 			return nil, err
@@ -104,6 +104,14 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 		}
 		if chooseDifferentFile {
 			continue
+		}
+
+		if err := writeInitStep(prompter.writer, 3, "Name managed value",
+			fmt.Sprintf("Selected file: %s", selectedFile.displayPath),
+			fmt.Sprintf("Selected value: %s", selector),
+			"Use a short name profiles can refer to.",
+		); err != nil {
+			return config.Target{}, err
 		}
 
 		name, err := promptTargetName(prompter, seenNames)
@@ -493,13 +501,13 @@ func targetDotenvKeyPrompt(displayPath string, filterValue string, visibleCount 
 
 func promptTargetName(prompter initPrompter, seenNames map[string]struct{}) (string, error) {
 	for {
-		name, err := prompter.promptNonEmptyLine("Target name: ")
+		name, err := prompter.promptNonEmptyLine("Managed value name: ")
 		if err != nil {
 			return "", err
 		}
 
 		if _, exists := seenNames[name]; exists {
-			if _, err := fmt.Fprintf(prompter.writer, "Error: target name %q is already configured.\n", name); err != nil {
+			if _, err := fmt.Fprintf(prompter.writer, "Error: managed value name %q is already configured.\n", name); err != nil {
 				return "", err
 			}
 			continue

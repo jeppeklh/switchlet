@@ -10,7 +10,7 @@ import (
 	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
-var initWizardStepLabels = []string{"Target", "Selector", "Profiles", "Review"}
+var initWizardStepLabels = []string{"File", "Value", "Name", "Profiles", "Review"}
 
 // View renders the current init-wizard state.
 func (model initWizardModel) View() string {
@@ -34,20 +34,20 @@ func (model initWizardModel) View() string {
 	case initWizardStepFileFilter:
 		return model.fileFilterView()
 	case initWizardStepManualFile:
-		return model.textInputView(1, "Enter target file path", []string{
+		return model.textInputView(1, "Enter configuration file path", []string{
 			"Task",
 			"Enter a relative or absolute JSON or dotenv file path.",
 			"Switchlet inspects it before continuing.",
-		}, "Target file", "Validate file")
+		}, "Configuration file", "Validate file")
 	case initWizardStepTypeSelect:
 		return model.profileChoiceView(
 			1,
-			"Choose target type",
+			"Choose file type",
 			[]string{
 				ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
 				"",
 				"Task",
-				"Choose the target type because it cannot be inferred safely.",
+				"Choose the file type because it cannot be inferred safely.",
 			},
 			[]string{"JSON", "dotenv"},
 		)
@@ -56,75 +56,46 @@ func (model initWizardModel) View() string {
 	case initWizardStepPathSearch:
 		return model.pathSearchView()
 	case initWizardStepManualPath:
-		return model.textInputView(2, "Enter target JSON path", []string{
+		return model.textInputView(2, "Enter JSON value path", []string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
 			"",
 			"Task",
 			"Enter one existing string-valued JSON path.",
-		}, "Target JSON path", "Validate path")
+		}, "JSON value path", "Validate path")
 	case initWizardStepDotenvKeySelect:
 		return model.dotenvKeySelectView()
 	case initWizardStepManualDotenvKey:
-		return model.textInputView(2, "Enter target dotenv key", []string{
+		return model.textInputView(2, "Enter dotenv value key", []string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
 			"",
 			"Task",
 			"Enter one existing dotenv key.",
-		}, "Target dotenv key", "Validate key")
-	case initWizardStepTargetName:
-		return model.textInputView(2, "Name target", model.targetNameGuidanceLines(), "Target name", "Add target")
-	case initWizardStepTargetSummary:
-		return model.targetSummaryView()
+		}, "Dotenv value key", "Validate key")
+	case initWizardStepManagedValueName:
+		return model.textInputView(3, "Name managed value", model.managedValueNameGuidanceLines(), "Managed value name", "Save")
+	case initWizardStepManagedValueCheckpoint:
+		return model.managedValueCheckpointView()
 	case initWizardStepProfileName:
-		return model.textInputView(3, "Add profiles", []string{
-			ui.RenderKeyValue("Targets configured", fmt.Sprintf("%d", len(model.targets))),
-			ui.RenderKeyValue("Profiles added", fmt.Sprintf("%d", len(model.profiles))),
-			"",
-			"Task",
-			"Name the profile shown in the picker.",
-		}, "Profile name", "Continue")
+		return model.profileNameView()
 	case initWizardStepProfileTargetInclude:
 		return model.profileTargetIncludeView()
-	case initWizardStepProfileSource:
-		return model.profileChoiceView(
-			3,
-			"Choose profile source",
-			[]string{
-				ui.RenderKeyValue("Profile", model.draftProfile.Name),
-				ui.RenderKeyValue("Target", model.currentDraftTarget().Name),
-				"",
-				"Task",
-				"Choose how Switchlet resolves this target value.",
-				"Literal values are written to .switchlet.yaml.",
-			},
-			[]string{"Use a literal value", "Use an environment variable"},
-		)
 	case initWizardStepProfileValue:
 		label := "Literal value"
 		if model.draftProfile.UseEnvironment {
 			label = "Environment variable name"
 		}
 
-		return model.textInputView(3, "Enter profile value", []string{
+		return model.profileValueInputView("Set "+model.currentDraftTarget().Name+" for "+model.draftProfile.Name, []string{
 			ui.RenderKeyValue("Profile", model.draftProfile.Name),
-			ui.RenderKeyValue("Target", model.currentDraftTarget().Name),
+			ui.RenderKeyValue("Managed value", model.currentDraftTarget().Name),
 			ui.RenderKeyValue("Source", profileSourceSummary(model.draftProfile.UseEnvironment)),
+			ui.RenderKeyValue("Protection", profileProtectionSummary(model.draftProfile.Protected)),
 			"",
 			"Task",
 			profileValueGuidance(model.draftProfile.UseEnvironment),
-		}, label, "Continue")
-	case initWizardStepProfileProtected:
-		return model.profileChoiceView(
-			3,
-			"Protected profile confirmation",
-			[]string{
-				ui.RenderKeyValue("Profile", model.draftProfile.Name),
-				"",
-				"Task",
-				"Choose whether this profile requires apply-time confirmation.",
-			},
-			[]string{"Do not require confirmation", "Require confirmation"},
-		)
+		}, label, "Save")
+	case initWizardStepProfileOptions:
+		return model.profileOptionsView()
 	case initWizardStepProfileSummary:
 		return model.profileSummaryView()
 	case initWizardStepReview:
@@ -136,6 +107,36 @@ func (model initWizardModel) View() string {
 			Width:    model.width,
 		})
 	}
+}
+
+func (model initWizardModel) profileNameView() string {
+	details := []string{
+		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.targets))),
+		ui.RenderKeyValue("Profiles added", fmt.Sprintf("%d", len(model.profiles))),
+		"",
+		"Task",
+		"Name the profile users will select later.",
+	}
+	if len(model.profiles) > 0 {
+		details = append(details, "Leave blank and press Enter to review.")
+	}
+
+	actions := []ui.Action{
+		{Key: "Enter", Label: "Continue"},
+		{Key: "←/→", Label: "Move"},
+		{Key: "Home/End", Label: "Jump"},
+		{Key: "Bksp/Del", Label: "Edit"},
+		{Key: "Esc", Label: "Managed values"},
+		{Key: "Ctrl+C", Label: "Cancel"},
+	}
+	if len(model.profiles) > 0 {
+		actions[0].Label = "Continue/Review"
+	}
+
+	return model.initWizardShell(4, "Profile name", []ui.Panel{
+		{Title: "Name", Lines: []string{model.inputLine("Profile name")}, Focused: true},
+		{Title: "Context", Lines: model.withErrorLines(details)},
+	}, actions)
 }
 
 func (model initWizardModel) fileSelectionView() string {
@@ -173,8 +174,8 @@ func (model initWizardModel) fileSelectionView() string {
 		guidanceLines = append(guidanceLines, "", ui.RenderKeyValue("Selected file", matchingCandidates[model.cursor].RelativePath))
 	}
 
-	return model.initWizardShell(1, "Choose target file", []ui.Panel{
-		{Title: "Target files", Lines: workLines, Focused: true},
+	return model.initWizardShell(1, "Choose configuration file", []ui.Panel{
+		{Title: "Configuration files", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines(guidanceLines)},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -197,7 +198,7 @@ func (model initWizardModel) fileFilterView() string {
 		workLines = append(workLines, "", fmt.Sprintf("Showing %d matching file(s) out of %d discovered.", len(matchingCandidates), len(model.fileCandidates)))
 	}
 
-	return model.initWizardShell(1, "Filter target files", []ui.Panel{
+	return model.initWizardShell(1, "Filter configuration files", []ui.Panel{
 		{Title: "Filter results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			"Task",
@@ -226,8 +227,8 @@ func (model initWizardModel) pathBrowseView() string {
 	workLines := []string{ui.RenderKeyValue("Current location", currentLocation), ""}
 	workLines = append(workLines, model.choiceLines(choices, model.cursor, jsonPathChoiceWindowSize)...)
 
-	return model.initWizardShell(2, "Choose target JSON path", []ui.Panel{
-		{Title: "JSON path hierarchy", Lines: workLines, Focused: true},
+	return model.initWizardShell(2, "Choose value", []ui.Panel{
+		{Title: "JSON strings", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
 			"",
@@ -253,7 +254,7 @@ func (model initWizardModel) pathSearchView() string {
 	workLines = append(workLines, model.choiceLines(matchingPaths, model.cursor, jsonPathChoiceWindowSize)...)
 	workLines = append(workLines, "", fmt.Sprintf("Showing %d matching path(s).", len(matchingPaths)))
 
-	return model.initWizardShell(2, "Search selectable JSON paths", []ui.Panel{
+	return model.initWizardShell(2, "Search JSON values", []ui.Panel{
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
@@ -272,7 +273,7 @@ func (model initWizardModel) dotenvKeySelectView() string {
 	workLines := model.choiceLines(choices, model.cursor, dotenvKeyChoiceWindowSize)
 	workLines = append(workLines, "", fmt.Sprintf("Showing %d dotenv key(s).", len(model.selectedFile.dotenvKeys)))
 
-	return model.initWizardShell(2, "Choose target dotenv key", []ui.Panel{
+	return model.initWizardShell(2, "Choose value", []ui.Panel{
 		{Title: "Dotenv keys", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
@@ -289,28 +290,30 @@ func (model initWizardModel) dotenvKeySelectView() string {
 	})
 }
 
-func (model initWizardModel) targetNameGuidanceLines() []string {
+func (model initWizardModel) managedValueNameGuidanceLines() []string {
 	lines := []string{
 		ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-		ui.RenderKeyValue("Target type", string(model.selectedFile.targetType)),
+		ui.RenderKeyValue("Detected format", string(model.selectedFile.targetType)),
 	}
 	selectorName, selector := targetSelectorLabel(config.Target{Type: model.selectedFile.targetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
 	lines = append(lines,
 		ui.RenderKeyValue(selectorName, selector),
 		"",
 		"Task",
-		"Choose the stable name profiles will use for this target.",
+		"Give this selected value a short name.",
+		"Profiles use this name later.",
+		"Examples: database, frontendApi, redisUrl",
 	)
 
 	return lines
 }
 
-func (model initWizardModel) targetSummaryView() string {
-	choices := []string{"Continue to profiles", "Add another target", "Remove last target"}
+func (model initWizardModel) managedValueCheckpointView() string {
+	choices := []string{"Create profiles", "Add value", "Remove value"}
 
-	return model.initWizardShell(2, "Target summary", []ui.Panel{
+	return model.initWizardShell(3, "Managed values", []ui.Panel{
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
-		{Title: "Configured targets", Lines: model.configuredTargetLines()},
+		{Title: "Managed values", Lines: model.configuredTargetLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
@@ -323,11 +326,11 @@ func (model initWizardModel) profileTargetIncludeView() string {
 	target := model.currentDraftTarget()
 	choices := []string{"Include this target", "Omit this target"}
 
-	return model.initWizardShell(3, "Choose profile targets", []ui.Panel{
+	return model.initWizardShell(4, "Choose profile targets", []ui.Panel{
 		{Title: "Profile scope", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Profile", model.draftProfile.Name),
-			ui.RenderKeyValue("Target", target.Name),
+			ui.RenderKeyValue("Managed value", target.Name),
 			ui.RenderKeyValue("Progress", fmt.Sprintf("%d of %d", model.draftProfile.TargetIndex+1, len(model.targets))),
 			"",
 			"Task",
@@ -341,10 +344,33 @@ func (model initWizardModel) profileTargetIncludeView() string {
 	})
 }
 
+func (model initWizardModel) profileOptionsView() string {
+	choices := []string{
+		"Source " + profileSourceSummary(model.draftProfile.UseEnvironment),
+		"Protection " + profileProtectionSummary(model.draftProfile.Protected),
+	}
+
+	return model.initWizardShell(4, "Profile options", []ui.Panel{
+		{Title: "Options", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Context", Lines: model.withErrorLines([]string{
+			ui.RenderKeyValue("Profile", model.draftProfile.Name),
+			ui.RenderKeyValue("Managed value", model.currentDraftTarget().Name),
+			"",
+			"Task",
+			"Literal and unprotected are the defaults.",
+		})},
+	}, []ui.Action{
+		{Key: "Enter", Label: "Toggle"},
+		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "Esc", Label: "Back"},
+		{Key: "q", Label: "Cancel"},
+	})
+}
+
 func (model initWizardModel) profileSummaryView() string {
 	choices := []string{"Review and create configuration", "Add another profile", "Remove last profile", "Back to targets"}
 
-	return model.initWizardShell(3, "Profile summary", []ui.Panel{
+	return model.initWizardShell(4, "Profile summary", []ui.Panel{
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 	}, []ui.Action{
@@ -379,7 +405,7 @@ func (model initWizardModel) reviewView() string {
 	}
 	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
-	return model.initWizardShell(4, "Review and create configuration", []ui.Panel{
+	return model.initWizardShell(5, "Review and create configuration", []ui.Panel{
 		{Title: "Create", Lines: model.withErrorLines(decisionLines), Focused: true},
 		{Title: "Configuration summary", Lines: model.reviewSummaryLines()},
 	}, []ui.Action{
@@ -407,6 +433,13 @@ func (model initWizardModel) textInputView(stepNumber int, title string, details
 		{Title: "Active input", Lines: []string{model.inputLine(label)}, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines(details)},
 	}, textInputActions(enterAction))
+}
+
+func (model initWizardModel) profileValueInputView(title string, details []string, label string, enterAction string) string {
+	return model.initWizardShell(4, title, []ui.Panel{
+		{Title: "Value", Lines: []string{model.inputLine(label)}, Focused: true},
+		{Title: "Context", Lines: model.withErrorLines(details)},
+	}, profileValueInputActions(enterAction))
 }
 
 func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, panels []ui.Panel, actions []ui.Action) string {
@@ -482,7 +515,7 @@ func (model initWizardModel) choiceLines(choices []string, cursor int, windowSiz
 
 func (model initWizardModel) configuredProfileLines() []string {
 	lines := []string{
-		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(model.targets))),
+		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.targets))),
 		"",
 		"Profiles",
 	}
@@ -494,7 +527,7 @@ func (model initWizardModel) configuredProfileLines() []string {
 func (model initWizardModel) reviewSummaryLines() []string {
 	lines := []string{
 		ui.RenderKeyValue("Configuration file", filepath.Join(model.workingDirectory, ".switchlet.yaml")),
-		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(model.targets))),
+		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.targets))),
 	}
 	lines = append(lines, model.targetRows()...)
 	lines = append(lines,
@@ -507,7 +540,7 @@ func (model initWizardModel) reviewSummaryLines() []string {
 }
 
 func (model initWizardModel) configuredTargetLines() []string {
-	lines := []string{ui.RenderKeyValue("Targets configured", fmt.Sprintf("%d", len(model.targets))), ""}
+	lines := []string{ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.targets))), ""}
 	lines = append(lines, model.targetRows()...)
 
 	return lines
@@ -515,7 +548,7 @@ func (model initWizardModel) configuredTargetLines() []string {
 
 func (model initWizardModel) targetRows() []string {
 	if len(model.targets) == 0 {
-		return []string{"No targets configured."}
+		return []string{"No managed values configured."}
 	}
 
 	lines := make([]string, 0, len(model.targets)*3)
@@ -572,6 +605,18 @@ func (model initWizardModel) withErrorLines(lines []string) []string {
 func textInputActions(enterAction string) []ui.Action {
 	return []ui.Action{
 		{Key: "Enter", Label: enterAction},
+		{Key: "←/→", Label: "Move"},
+		{Key: "Home/End", Label: "Jump"},
+		{Key: "Bksp/Del", Label: "Edit"},
+		{Key: "Esc", Label: "Back"},
+		{Key: "Ctrl+C", Label: "Cancel"},
+	}
+}
+
+func profileValueInputActions(enterAction string) []ui.Action {
+	return []ui.Action{
+		{Key: "Enter", Label: enterAction},
+		{Key: "Tab", Label: "Options"},
 		{Key: "←/→", Label: "Move"},
 		{Key: "Home/End", Label: "Jump"},
 		{Key: "Bksp/Del", Label: "Edit"},
@@ -645,6 +690,14 @@ func profileSourceSummary(useEnvironment bool) string {
 	}
 
 	return sourceLabel(app.ProfileSourceLiteral)
+}
+
+func profileProtectionSummary(protected bool) string {
+	if protected {
+		return "on"
+	}
+
+	return "off"
 }
 
 func profileValueGuidance(useEnvironment bool) string {

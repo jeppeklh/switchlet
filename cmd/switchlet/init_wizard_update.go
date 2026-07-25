@@ -52,20 +52,18 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model.handleDotenvKeySelectKey(message)
 		case initWizardStepManualDotenvKey:
 			return model.handleManualDotenvKeyKey(message)
-		case initWizardStepTargetName:
-			return model.handleTargetNameKey(message)
-		case initWizardStepTargetSummary:
-			return model.handleTargetSummaryKey(message)
+		case initWizardStepManagedValueName:
+			return model.handleManagedValueNameKey(message)
+		case initWizardStepManagedValueCheckpoint:
+			return model.handleManagedValueCheckpointKey(message)
 		case initWizardStepProfileName:
 			return model.handleProfileNameKey(message)
 		case initWizardStepProfileTargetInclude:
 			return model.handleProfileTargetIncludeKey(message)
-		case initWizardStepProfileSource:
-			return model.handleProfileSourceKey(message)
 		case initWizardStepProfileValue:
 			return model.handleProfileValueKey(message)
-		case initWizardStepProfileProtected:
-			return model.handleProfileProtectedKey(message)
+		case initWizardStepProfileOptions:
+			return model.handleProfileOptionsKey(message)
 		case initWizardStepProfileSummary:
 			return model.handleProfileSummaryKey(message)
 		case initWizardStepReview:
@@ -273,7 +271,7 @@ func (model initWizardModel) handleDotenvKeySelectKey(message tea.KeyMsg) (tea.M
 	case message.Type == tea.KeyEnter:
 		if model.cursor < len(keys) {
 			model.selectedDotenvKey = keys[model.cursor]
-			model.beginTargetName()
+			model.beginManagedValueName()
 			return model, nil
 		}
 
@@ -293,12 +291,12 @@ func (model initWizardModel) handleManualDotenvKeyKey(message tea.KeyMsg) (tea.M
 		}
 
 		model.selectedDotenvKey = value
-		model.beginTargetName()
+		model.beginManagedValueName()
 		return model, nil
 	})
 }
 
-func (model initWizardModel) handleTargetNameKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (model initWizardModel) handleManagedValueNameKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	previousStep := initWizardStepPathBrowse
 	if model.selectedFile.targetType == config.TargetTypeDotenv {
 		previousStep = initWizardStepDotenvKeySelect
@@ -306,7 +304,7 @@ func (model initWizardModel) handleTargetNameKey(message tea.KeyMsg) (tea.Model,
 
 	return model.handleTextInputKey(message, previousStep, func(value string) (initWizardModel, error) {
 		if model.targetNameExists(value) {
-			return model, fmt.Errorf("target name %q is already configured", value)
+			return model, fmt.Errorf("managed value name %q is already configured", value)
 		}
 
 		model.appendTarget(value)
@@ -314,7 +312,7 @@ func (model initWizardModel) handleTargetNameKey(message tea.KeyMsg) (tea.Model,
 	})
 }
 
-func (model initWizardModel) handleTargetSummaryKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (model initWizardModel) handleManagedValueCheckpointKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	choiceCount := 3
 	model.clampCursor(choiceCount)
 
@@ -330,9 +328,7 @@ func (model initWizardModel) handleTargetSummaryKey(message tea.KeyMsg) (tea.Mod
 			model.cursor = 0
 		}
 	case message.Type == tea.KeyEsc:
-		model.step = initWizardStepFileSelect
-		model.cursor = 0
-		model.errorMessage = ""
+		model.beginProfileEntry()
 	case message.Type == tea.KeyEnter:
 		switch model.cursor {
 		case 0:
@@ -395,7 +391,7 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 			selectedNode := model.browseNodes[model.cursor]
 			if selectedNode.Selectable {
 				model.selectedJSONPath = selectedNode.JSONPath
-				model.beginTargetName()
+				model.beginManagedValueName()
 				return model, nil
 			}
 
@@ -457,7 +453,7 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 		}
 
 		model.selectedJSONPath = matchingPaths[model.cursor]
-		model.beginTargetName()
+		model.beginManagedValueName()
 		return model, nil
 	case tea.KeyUp:
 		if len(matchingPaths) > 0 {
@@ -492,30 +488,48 @@ func (model initWizardModel) handleManualPathKey(message tea.KeyMsg) (tea.Model,
 		}
 
 		model.selectedJSONPath = value
-		model.beginTargetName()
+		model.beginManagedValueName()
 		return model, nil
 	})
 }
 
 func (model initWizardModel) handleProfileNameKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	previousStep := initWizardStepTargetSummary
-	if len(model.profiles) > 0 {
-		previousStep = initWizardStepProfileSummary
-	}
+	switch message.Type {
+	case tea.KeyEsc:
+		model.beginManagedValueCheckpoint()
+		return model, nil
+	case tea.KeyEnter:
+		enteredValue := strings.TrimSpace(model.inputValue)
+		if enteredValue == "" {
+			if len(model.profiles) > 0 {
+				model.beginReview()
+				return model, nil
+			}
 
-	return model.handleTextInputKey(message, previousStep, func(value string) (initWizardModel, error) {
-		if model.profileNameExists(value) {
-			return model, fmt.Errorf("profile name %q is already configured", value)
+			model.errorMessage = "profile name must not be empty"
+			return model, nil
 		}
 
-		model.draftProfile = initWizardProfileDraft{Name: value, Values: make([]config.ProfileValue, 0, len(model.targets))}
+		if model.profileNameExists(enteredValue) {
+			model.errorMessage = fmt.Sprintf("profile name %q is already configured", enteredValue)
+			return model, nil
+		}
+
+		model.draftProfile = initWizardProfileDraft{Name: enteredValue, Values: make([]config.ProfileValue, 0, len(model.targets))}
 		if len(model.targets) == 1 {
-			model.beginProfileSource()
+			model.draftProfile.TargetIndex = 0
+			model.beginProfileValue()
 		} else {
 			model.beginProfileTargetInclude()
 		}
 		return model, nil
-	})
+	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
+		return model, nil
+	}
 }
 
 func (model initWizardModel) handleProfileTargetIncludeKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -535,7 +549,7 @@ func (model initWizardModel) handleProfileTargetIncludeKey(message tea.KeyMsg) (
 		model.beginProfileTargetInclude()
 	case message.Type == tea.KeyEnter:
 		if model.cursor == 0 {
-			model.beginProfileSource()
+			model.beginProfileValue()
 			return model, nil
 		}
 
@@ -545,39 +559,43 @@ func (model initWizardModel) handleProfileTargetIncludeKey(message tea.KeyMsg) (
 	return model, nil
 }
 
-func (model initWizardModel) handleProfileSourceKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch {
-	case isMoveUpKey(message), isMoveDownKey(message):
-		model.cursor = 1 - model.cursor
-	case message.Type == tea.KeyEsc:
-		if len(model.targets) == 1 {
+func (model initWizardModel) handleProfileValueKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch message.Type {
+	case tea.KeyEsc:
+		if len(model.targets) == 1 || model.draftProfile.TargetIndex == 0 {
 			model.step = initWizardStepProfileName
 			model.cursor = 0
 			model.errorMessage = ""
 			model.setInputValue(model.draftProfile.Name)
-		} else {
-			model.beginProfileTargetInclude()
+			return model, nil
 		}
-	case message.Type == tea.KeyEnter:
-		model.draftProfile.UseEnvironment = model.cursor == 1
-		model.step = initWizardStepProfileValue
-		model.cursor = 0
-		model.errorMessage = ""
-		model.clearInputValue()
-	}
 
-	return model, nil
-}
+		model.beginProfileTargetInclude()
+		return model, nil
+	case tea.KeyTab:
+		model.draftProfile.Value = model.inputValue
+		model.beginProfileOptions()
+		return model, nil
+	case tea.KeyEnter:
+		enteredValue := strings.TrimSpace(model.inputValue)
+		if enteredValue == "" {
+			model.errorMessage = "value must not be empty"
+			return model, nil
+		}
 
-func (model initWizardModel) handleProfileValueKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return model.handleTextInputKey(message, initWizardStepProfileSource, func(value string) (initWizardModel, error) {
-		model.draftProfile.Value = value
+		model.draftProfile.Value = enteredValue
 		model.appendDraftProfileValue()
 		return model, nil
-	})
+	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
+		return model, nil
+	}
 }
 
-func (model initWizardModel) handleProfileProtectedKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (model initWizardModel) handleProfileOptionsKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case isMoveUpKey(message), isMoveDownKey(message):
 		model.cursor = 1 - model.cursor
@@ -587,8 +605,11 @@ func (model initWizardModel) handleProfileProtectedKey(message tea.KeyMsg) (tea.
 		model.errorMessage = ""
 		model.setInputValue(model.draftProfile.Value)
 	case message.Type == tea.KeyEnter:
-		model.draftProfile.Protected = model.cursor == 1
-		model.appendDraftProfile()
+		if model.cursor == 0 {
+			model.draftProfile.UseEnvironment = !model.draftProfile.UseEnvironment
+		} else {
+			model.draftProfile.Protected = !model.draftProfile.Protected
+		}
 	}
 
 	return model, nil
@@ -613,9 +634,7 @@ func (model initWizardModel) handleProfileSummaryKey(message tea.KeyMsg) (tea.Mo
 			model.cursor = 0
 		}
 	case message.Type == tea.KeyEsc:
-		model.step = initWizardStepTargetSummary
-		model.cursor = 0
-		model.errorMessage = ""
+		model.beginProfileEntry()
 	case message.Type == tea.KeyEnter:
 		switch model.cursor {
 		case 0:
@@ -625,9 +644,7 @@ func (model initWizardModel) handleProfileSummaryKey(message tea.KeyMsg) (tea.Mo
 		case 2:
 			model.removeLastProfile()
 		default:
-			model.step = initWizardStepTargetSummary
-			model.cursor = 0
-			model.errorMessage = ""
+			model.beginManagedValueCheckpoint()
 		}
 	}
 
@@ -653,9 +670,7 @@ func (model initWizardModel) handleReviewKey(message tea.KeyMsg) (tea.Model, tea
 			model.cursor = 0
 		}
 	case message.Type == tea.KeyEsc:
-		model.step = initWizardStepProfileSummary
-		model.cursor = 0
-		model.errorMessage = ""
+		model.returnToProfilesFromReview()
 	case message.Type == tea.KeyEnter:
 		if model.cursor == 0 {
 			model.complete()
@@ -668,9 +683,7 @@ func (model initWizardModel) handleReviewKey(message tea.KeyMsg) (tea.Model, tea
 			return model, nil
 		}
 
-		model.step = initWizardStepProfileSummary
-		model.cursor = 0
-		model.errorMessage = ""
+		model.returnToProfilesFromReview()
 	}
 
 	return model, nil

@@ -34,7 +34,7 @@ type initPrompter struct {
 	writer io.Writer
 }
 
-const initStepCount = 4
+const initStepCount = 5
 
 func defaultInitDependencies() initDependencies {
 	return initDependencies{
@@ -83,8 +83,8 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 	if _, err := fmt.Fprintln(output, "Switchlet init"); err != nil {
 		return err
 	}
-	if err := writeInitStep(output, 1, "Choose target file",
-		"Pick the JSON or dotenv file Switchlet should update.",
+	if err := writeInitStep(output, 1, "Choose configuration file",
+		"Pick the JSON or dotenv file containing a value Switchlet should manage.",
 		"When many files are discovered, narrow the list by name or path.",
 		"You can also enter a file path manually.",
 	); err != nil {
@@ -96,8 +96,8 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	if err := writeInitStep(output, 3, "Add profiles",
-		"Add one or more named profiles for the selected target.",
+	if err := writeInitStep(output, 4, "Add profiles",
+		"Add one or more named profiles for the managed values.",
 		"Each profile can use a literal value or an environment variable name.",
 	); err != nil {
 		return err
@@ -108,8 +108,8 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	if err := writeInitStep(output, 4, "Review and create configuration",
-		"Review the target and profiles below before creating .switchlet.yaml.",
+	if err := writeInitStep(output, 5, "Review and create configuration",
+		"Review the managed values and profiles below before creating .switchlet.yaml.",
 	); err != nil {
 		return err
 	}

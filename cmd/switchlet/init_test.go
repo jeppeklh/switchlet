@@ -442,7 +442,7 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	if strings.Contains(output.String(), "postgres://old") {
 		t.Fatalf("init output %q must not include the existing target value", output.String())
 	}
-	if !strings.Contains(output.String(), "Step 4 of 4: Review and create configuration") {
+	if !strings.Contains(output.String(), "Step 5 of 5: Review and create configuration") {
 		t.Fatalf("init output %q does not include the final review step", output.String())
 	}
 	if !strings.Contains(output.String(), "Create .switchlet.yaml now? [Y/n]: ") {
@@ -881,7 +881,7 @@ VITE_FEATURES=local
 	}
 }
 
-func TestPromptTargetName_RefusesDuplicateTargetNames(t *testing.T) {
+func TestPromptTargetName_RefusesDuplicateManagedValueNames(t *testing.T) {
 	var output bytes.Buffer
 	prompter := initPrompter{
 		reader: bufio.NewReader(strings.NewReader("database\nfrontendApi\n")),
@@ -895,7 +895,7 @@ func TestPromptTargetName_RefusesDuplicateTargetNames(t *testing.T) {
 	if name != "frontendApi" {
 		t.Fatalf("name = %q, want frontendApi", name)
 	}
-	if !strings.Contains(output.String(), `target name "database" is already configured`) {
-		t.Fatalf("output %q does not report duplicate target name", output.String())
+	if !strings.Contains(output.String(), `managed value name "database" is already configured`) {
+		t.Fatalf("output %q does not report duplicate managed value name", output.String())
 	}
 }

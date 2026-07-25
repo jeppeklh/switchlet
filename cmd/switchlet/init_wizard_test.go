@@ -65,8 +65,8 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 		t.Fatal("command is not nil, want no quit command while selecting a JSON path")
 	}
 	model = updatedModel.(initWizardModel)
-	if model.step != initWizardStepTargetName {
-		t.Fatalf("step = %d, want target name step", model.step)
+	if model.step != initWizardStepManagedValueName {
+		t.Fatalf("step = %d, want managed value name step", model.step)
 	}
 	if model.selectedJSONPath != "database.replica.url" {
 		t.Fatalf("selectedJSONPath = %q, want %q", model.selectedJSONPath, "database.replica.url")
@@ -78,22 +78,19 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 
 	typeWizardText(t, &model, "Production")
 	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
-	typeWizardText(t, &model, "postgres://prod")
-	model = pressWizardEnter(t, model)
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	typeWizardText(t, &model, "postgres://prod")
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
 
-	if model.step != initWizardStepProfileSummary {
-		t.Fatalf("step = %d, want profile summary step", model.step)
+	if model.step != initWizardStepReview {
+		t.Fatalf("step = %d, want review step", model.step)
 	}
 	if len(model.profiles) != 1 {
 		t.Fatalf("len(profiles) = %d, want 1", len(model.profiles))
-	}
-
-	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepReview {
-		t.Fatalf("step = %d, want review step", model.step)
 	}
 	if !strings.Contains(model.View(), ".gitignore protection: Enabled") {
 		t.Fatalf("View() = %q, want enabled gitignore protection in the review view", model.View())
@@ -127,6 +124,134 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 	}
 	if len(model.result.Profiles) != 1 || model.result.Profiles[0].Name != "Production" || !model.result.Profiles[0].Protected {
 		t.Fatalf("result profiles = %#v, want one protected Production profile", model.result.Profiles)
+	}
+}
+
+func TestInitWizardModel_OneManagedValueLiteralProfilesUseFastPath(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	nameCurrentTargetAndContinue(t, &model, "database")
+	if strings.Contains(model.View(), "Target summary") {
+		t.Fatalf("View() = %q, want no mandatory target summary after naming one managed value", model.View())
+	}
+
+	typeWizardText(t, &model, "Local")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileValue {
+		t.Fatalf("step = %d, want profile value directly after profile name", model.step)
+	}
+	if strings.Contains(model.View(), "Choose profile source") || strings.Contains(model.View(), "Protected profile confirmation") {
+		t.Fatalf("View() = %q, want literal and unprotected defaults without choice screens", model.View())
+	}
+	typeWizardText(t, &model, "postgres://local")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want next profile name after saving first literal profile", model.step)
+	}
+
+	typeWizardText(t, &model, "Test")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileValue {
+		t.Fatalf("step = %d, want profile value directly for second profile", model.step)
+	}
+	typeWizardText(t, &model, "postgres://test")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name loop after second literal profile", model.step)
+	}
+
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepReview {
+		t.Fatalf("step = %d, want blank profile name to advance to review after profiles exist", model.step)
+	}
+	if len(model.profiles) != 2 {
+		t.Fatalf("len(profiles) = %d, want 2", len(model.profiles))
+	}
+	for _, profile := range model.profiles {
+		if profile.Protected {
+			t.Fatalf("profile %#v is protected, want unprotected default", profile)
+		}
+		if len(profile.Values) != 1 || profile.Values[0].Value == nil {
+			t.Fatalf("profile %#v should contain one literal value", profile)
+		}
+	}
+}
+
+func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+		inspectStringTargets: func(string) ([]editor.StringTargetNode, error) {
+			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	nameCurrentTargetAndContinue(t, &model, "service")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-values checkpoint after backing out of profile entry", model.step)
+	}
+	if len(model.targets) != 1 || model.targets[0].Name != "service" {
+		t.Fatalf("targets = %#v, want configured managed value preserved", model.targets)
+	}
+	checkpointModel := model
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want Esc from optional checkpoint to return to profile entry", model.step)
+	}
+
+	updatedModel, command := checkpointModel.Update(runeKey('q'))
+	if command == nil {
+		t.Fatal("command is nil, want quit command for q cancellation")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.result == nil || !model.result.Cancelled {
+		t.Fatalf("result = %#v, want cancelled result", model.result)
+	}
+
+	model, err = newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if command == nil {
+		t.Fatal("command is nil, want quit command for Ctrl+C cancellation")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.result == nil || !model.result.Cancelled {
+		t.Fatalf("result = %#v, want cancelled result", model.result)
 	}
 }
 
@@ -173,10 +298,11 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "database")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepTargetSummary {
-		t.Fatalf("step = %d, want target summary", model.step)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after naming the first managed value", model.step)
 	}
 
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepFileSelect {
@@ -188,21 +314,20 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 		t.Fatalf("step = %d, want dotenv key selection", model.step)
 	}
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepTargetName {
-		t.Fatalf("step = %d, want target name after dotenv key", model.step)
+	if model.step != initWizardStepManagedValueName {
+		t.Fatalf("step = %d, want managed value name after dotenv key", model.step)
 	}
 
 	typeWizardText(t, &model, "database")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepTargetName {
-		t.Fatalf("step = %d, want duplicate name to keep target name step", model.step)
+	if model.step != initWizardStepManagedValueName {
+		t.Fatalf("step = %d, want duplicate name to keep managed value name step", model.step)
 	}
-	if !strings.Contains(model.View(), `target name "database" is already configured`) {
-		t.Fatalf("View() = %q, want duplicate target-name error", model.View())
+	if !strings.Contains(model.View(), `managed value name "database" is already configured`) {
+		t.Fatalf("View() = %q, want duplicate managed-value-name error", model.View())
 	}
 	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlU})
 	typeWizardText(t, &model, "frontendApi")
-	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepProfileName {
 		t.Fatalf("step = %d, want profile name", model.step)
@@ -211,11 +336,9 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "postgres://localhost:5432/app")
 	model = pressWizardEnter(t, model)
 	model = updateWizardModel(t, model, runeKey('j'))
-	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepProfileSummary {
 		t.Fatalf("step = %d, want profile summary", model.step)
@@ -293,8 +416,8 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	model = updateWizardModel(t, model, runeKey('m'))
 	typeWizardText(t, &model, "service.baseUrl")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepTargetName {
-		t.Fatalf("step = %d, want target name step", model.step)
+	if model.step != initWizardStepManagedValueName {
+		t.Fatalf("step = %d, want managed value name step", model.step)
 	}
 	if model.selectedJSONPath != "service.baseUrl" {
 		t.Fatalf("selectedJSONPath = %q, want %q", model.selectedJSONPath, "service.baseUrl")
@@ -326,10 +449,10 @@ func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testi
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Test")
 	model = pressWizardEnter(t, model)
-	model = updateWizardModel(t, model, runeKey('j'))
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
 	model = pressWizardEnter(t, model)
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	typeWizardText(t, &model, "MYAPP_TEST_URL")
-	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 
@@ -378,9 +501,7 @@ func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t 
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "https://new.example.test")
-	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
 
@@ -486,7 +607,6 @@ func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
 	pasteWizardText(t, &model, "[value]")
 
 	for range 7 {
@@ -501,15 +621,15 @@ func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 	}
 
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileProtected {
-		t.Fatalf("step = %d, want protected-profile step after submitting the edited value", model.step)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want next profile name step after submitting the edited value", model.step)
 	}
-	if len(model.draftProfile.Values) != 1 || model.draftProfile.Values[0].Value == nil || *model.draftProfile.Values[0].Value != "value" {
-		t.Fatalf("draftProfile values = %#v, want one literal value", model.draftProfile.Values)
+	if len(model.profiles) != 1 || len(model.profiles[0].Values) != 1 || model.profiles[0].Values[0].Value == nil || *model.profiles[0].Values[0].Value != "value" {
+		t.Fatalf("profiles = %#v, want one profile with one literal value", model.profiles)
 	}
 }
 
-func TestInitWizardModel_CanRemoveLastProfileBeforeReview(t *testing.T) {
+func TestInitWizardModel_CanRemoveLastManagedValueBeforeReview(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
@@ -530,24 +650,26 @@ func TestInitWizardModel_CanRemoveLastProfileBeforeReview(t *testing.T) {
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "https://new.example.test")
-	model = pressWizardEnter(t, model)
-	model = pressWizardEnter(t, model)
-
-	if model.step != initWizardStepProfileSummary {
-		t.Fatalf("step = %d, want profile summary step", model.step)
-	}
-
-	model = updateWizardModel(t, model, runeKey('j'))
-	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 
 	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name step after removing the last profile", model.step)
+		t.Fatalf("step = %d, want profile name step", model.step)
+	}
+
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+
+	if model.step != initWizardStepFileSelect {
+		t.Fatalf("step = %d, want file selection after removing the only managed value", model.step)
+	}
+	if len(model.targets) != 0 {
+		t.Fatalf("len(targets) = %d, want 0 after removing the only managed value", len(model.targets))
 	}
 	if len(model.profiles) != 0 {
-		t.Fatalf("len(profiles) = %d, want 0 after removing the only profile", len(model.profiles))
+		t.Fatalf("len(profiles) = %d, want 0 after removing values that referenced the removed managed value", len(model.profiles))
 	}
 }
 
@@ -567,22 +689,22 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
 	model = updatedModel.(initWizardModel)
 	widView := model.View()
-	for _, expected := range []string{"Switchlet init", "Step 1 of 4", "[1 Target]", "2 Selector", "3 Profiles", "4 Review", "* Target files", "> config.json", "Guidance", "Enter Select", "m Manual path"} {
+	for _, expected := range []string{"Switchlet init", "Step 1 of 5", "[1 File]", "2 Value", "3 Name", "4 Profiles", "5 Review", "* Configuration files", "> config.json", "Guidance", "Enter Select", "m Manual path"} {
 		if !strings.Contains(widView, expected) {
 			t.Fatalf("wide View() = %q, want %q", widView, expected)
 		}
 	}
-	if !wizardLineContains(widView, "* Target files", "Guidance") {
-		t.Fatalf("wide View() = %q, want split target and guidance panels", widView)
+	if !wizardLineContains(widView, "* Configuration files", "Guidance") {
+		t.Fatalf("wide View() = %q, want split file and guidance panels", widView)
 	}
 
 	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(initWizardModel)
 	narrowView := model.View()
-	if wizardLineContains(narrowView, "* Target files", "Guidance") {
+	if wizardLineContains(narrowView, "* Configuration files", "Guidance") {
 		t.Fatalf("narrow View() = %q, want stacked panels at minimum width", narrowView)
 	}
-	if !strings.Contains(narrowView, "* Target files") || !strings.Contains(narrowView, "Guidance") {
+	if !strings.Contains(narrowView, "* Configuration files") || !strings.Contains(narrowView, "Guidance") {
 		t.Fatalf("narrow View() = %q, want both stacked panels", narrowView)
 	}
 }
@@ -619,7 +741,7 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 	if !wizardLineContains(reviewView, "* Create", "Configuration summary") {
 		t.Fatalf("review View() = %q, want focused create decision as the primary panel", reviewView)
 	}
-	for _, expected := range []string{"Step 4 of 4", "1 Target", "2 Selector", "3 Profiles", "[4 Review]", ".gitignore protection: Enabled", "Create .switchlet.yaml"} {
+	for _, expected := range []string{"Step 5 of 5", "1 File", "2 Value", "3 Name", "4 Profiles", "[5 Review]", ".gitignore protection: Enabled", "Create .switchlet.yaml"} {
 		if !strings.Contains(reviewView, expected) {
 			t.Fatalf("review View() = %q, want %q", reviewView, expected)
 		}
@@ -656,8 +778,8 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 
 	view := model.View()
 	assertWizardViewWidth(t, view, 80)
-	if !strings.Contains(view, "* Active input") {
-		t.Fatalf("View() = %q, want focused active input panel", view)
+	if !strings.Contains(view, "* Value") {
+		t.Fatalf("View() = %q, want focused value input panel", view)
 	}
 	if !strings.Contains(view, "Literal value: ...") {
 		t.Fatalf("View() = %q, want deliberately truncated long input field", view)
@@ -676,10 +798,9 @@ func nameCurrentTargetAndContinue(t *testing.T, model *initWizardModel, targetNa
 	t.Helper()
 	typeWizardText(t, model, targetName)
 	*model = pressWizardEnter(t, *model)
-	if model.step != initWizardStepTargetSummary {
-		t.Fatalf("step = %d, want target summary after naming target", model.step)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after naming managed value", model.step)
 	}
-	*model = pressWizardEnter(t, *model)
 }
 
 func typeWizardText(t *testing.T, model *initWizardModel, value string) {

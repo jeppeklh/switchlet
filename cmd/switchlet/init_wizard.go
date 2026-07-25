@@ -28,13 +28,12 @@ const (
 	initWizardStepManualPath
 	initWizardStepDotenvKeySelect
 	initWizardStepManualDotenvKey
-	initWizardStepTargetName
-	initWizardStepTargetSummary
+	initWizardStepManagedValueName
+	initWizardStepManagedValueCheckpoint
 	initWizardStepProfileName
 	initWizardStepProfileTargetInclude
-	initWizardStepProfileSource
 	initWizardStepProfileValue
-	initWizardStepProfileProtected
+	initWizardStepProfileOptions
 	initWizardStepProfileSummary
 	initWizardStepReview
 )
@@ -189,15 +188,15 @@ func (model *initWizardModel) beginDotenvKeySelect() {
 	model.selectedDotenvKey = ""
 }
 
-func (model *initWizardModel) beginTargetName() {
-	model.step = initWizardStepTargetName
+func (model *initWizardModel) beginManagedValueName() {
+	model.step = initWizardStepManagedValueName
 	model.cursor = 0
 	model.errorMessage = ""
 	model.clearInputValue()
 }
 
-func (model *initWizardModel) beginTargetSummary() {
-	model.step = initWizardStepTargetSummary
+func (model *initWizardModel) beginManagedValueCheckpoint() {
+	model.step = initWizardStepManagedValueCheckpoint
 	model.cursor = 0
 	model.errorMessage = ""
 	model.clearInputValue()
@@ -217,6 +216,31 @@ func (model *initWizardModel) beginReview() {
 	model.cursor = 0
 	model.errorMessage = ""
 	model.clearInputValue()
+}
+
+func (model *initWizardModel) returnToProfilesFromReview() {
+	if len(model.targets) == 1 {
+		model.beginProfileEntry()
+		return
+	}
+
+	model.step = initWizardStepProfileSummary
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+}
+
+func (model *initWizardModel) beginProfileValue() {
+	model.step = initWizardStepProfileValue
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+}
+
+func (model *initWizardModel) beginProfileOptions() {
+	model.step = initWizardStepProfileOptions
+	model.cursor = 0
+	model.errorMessage = ""
 }
 
 func (model *initWizardModel) syncIgnorePreference() {
@@ -245,7 +269,7 @@ func (model *initWizardModel) appendTarget(name string) {
 	}
 
 	model.targets = append(model.targets, target)
-	model.beginTargetSummary()
+	model.beginProfileEntry()
 }
 
 func (model *initWizardModel) removeLastTarget() {
@@ -253,7 +277,9 @@ func (model *initWizardModel) removeLastTarget() {
 		return
 	}
 
+	removedTarget := model.targets[len(model.targets)-1]
 	model.targets = model.targets[:len(model.targets)-1]
+	model.removeProfileValuesForTarget(removedTarget.Name)
 	if len(model.targets) == 0 {
 		model.step = initWizardStepFileSelect
 		model.cursor = 0
@@ -261,7 +287,28 @@ func (model *initWizardModel) removeLastTarget() {
 		return
 	}
 
-	model.beginTargetSummary()
+	model.beginManagedValueCheckpoint()
+}
+
+func (model *initWizardModel) removeProfileValuesForTarget(targetName string) {
+	profiles := make([]config.Profile, 0, len(model.profiles))
+	for _, profile := range model.profiles {
+		values := make([]config.ProfileValue, 0, len(profile.Values))
+		for _, value := range profile.Values {
+			if value.Target != targetName {
+				values = append(values, value)
+			}
+		}
+		if len(values) == 0 {
+			continue
+		}
+
+		profile.Values = values
+		profiles = append(profiles, profile)
+	}
+
+	model.profiles = profiles
+	model.syncIgnorePreference()
 }
 
 func (model *initWizardModel) appendDraftProfile() {
@@ -273,11 +320,17 @@ func (model *initWizardModel) appendDraftProfile() {
 
 	model.profiles = append(model.profiles, profile)
 	model.draftProfile = initWizardProfileDraft{}
+	model.syncIgnorePreference()
+
+	if len(model.targets) == 1 {
+		model.beginProfileEntry()
+		return
+	}
+
 	model.step = initWizardStepProfileSummary
 	model.cursor = 0
 	model.errorMessage = ""
 	model.clearInputValue()
-	model.syncIgnorePreference()
 }
 
 func (model *initWizardModel) removeLastProfile() {
@@ -362,13 +415,6 @@ func (model *initWizardModel) beginProfileTargetInclude() {
 	model.clearInputValue()
 }
 
-func (model *initWizardModel) beginProfileSource() {
-	model.step = initWizardStepProfileSource
-	model.cursor = 0
-	model.errorMessage = ""
-	model.clearInputValue()
-}
-
 func (model *initWizardModel) appendDraftProfileValue() {
 	target := model.currentDraftTarget()
 	value := config.ProfileValue{Target: target.Name}
@@ -392,18 +438,13 @@ func (model *initWizardModel) advanceDraftProfileTarget() {
 
 	if model.draftProfile.TargetIndex >= len(model.targets) {
 		if len(model.draftProfile.Values) == 0 {
-			model.errorMessage = "a profile must include at least one target value"
+			model.errorMessage = "a profile must include at least one managed value"
 			model.draftProfile.TargetIndex = 0
 			model.beginProfileTargetInclude()
 			return
 		}
 
-		model.step = initWizardStepProfileProtected
-		return
-	}
-
-	if len(model.targets) == 1 {
-		model.beginProfileSource()
+		model.appendDraftProfile()
 		return
 	}
 
@@ -434,7 +475,7 @@ func isTextEntryStep(step initWizardStep) bool {
 		initWizardStepPathSearch,
 		initWizardStepManualPath,
 		initWizardStepManualDotenvKey,
-		initWizardStepTargetName,
+		initWizardStepManagedValueName,
 		initWizardStepProfileName,
 		initWizardStepProfileValue:
 		return true
