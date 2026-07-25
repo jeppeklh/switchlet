@@ -11,6 +11,7 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableJSONFiles(t *testi
 	projectRoot := t.TempDir()
 
 	writeTargetFile(t, projectRoot, "root.json", `{"serviceUrl":"https://old.example.test"}`)
+	writeTargetFile(t, projectRoot, ".env.local", "VITE_API_URL=http://localhost:5173\n")
 	writeTargetFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
 	writeTargetFile(t, projectRoot, "src/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=localhost;Database=App;"}}`)
 	writeTargetFile(t, projectRoot, "invalid.json", `{`)
@@ -33,6 +34,7 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableJSONFiles(t *testi
 	}
 
 	wantRelativePaths := []string{
+		".env.local",
 		"root.json",
 		filepath.Join("config", "runtime.json"),
 		filepath.Join("src", "appsettings.Development.json"),

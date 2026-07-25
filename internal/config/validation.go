@@ -205,7 +205,7 @@ func validateVersionThreeTarget(index int, parsedTarget fileTarget, projectRoot 
 func validateVersionThreeTargetType(index int, rawTargetType string, targetFile string) (TargetType, error) {
 	targetType := strings.TrimSpace(rawTargetType)
 	if targetType == "" {
-		inferredType, ok := inferTargetType(targetFile)
+		inferredType, ok := InferTargetType(targetFile)
 		if !ok {
 			return "", fmt.Errorf("targets[%d].type must be set because target type cannot be inferred from file %q", index, targetFile)
 		}
@@ -223,7 +223,9 @@ func validateVersionThreeTargetType(index int, rawTargetType string, targetFile 
 	}
 }
 
-func inferTargetType(targetFile string) (TargetType, bool) {
+// InferTargetType returns the target type that can be safely inferred from a
+// configured file name.
+func InferTargetType(targetFile string) (TargetType, bool) {
 	fileName := strings.ToLower(filepath.Base(targetFile))
 	if strings.HasSuffix(fileName, ".json") {
 		return TargetTypeJSON, true

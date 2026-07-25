@@ -90,14 +90,17 @@ func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "guides you through file selection") {
+	if !strings.Contains(output.String(), "guides you through target-file selection") {
 		t.Fatalf("help output %q does not describe guided file discovery", output.String())
 	}
-	if !strings.Contains(output.String(), "narrow large file lists") {
+	if !strings.Contains(output.String(), "large file lists") {
 		t.Fatalf("help output %q does not mention large-repository narrowing", output.String())
 	}
-	if !strings.Contains(output.String(), "search existing string-valued JSON paths") {
-		t.Fatalf("help output %q does not mention JSON-path search", output.String())
+	if !strings.Contains(output.String(), "dotenv keys") {
+		t.Fatalf("help output %q does not mention dotenv key selection", output.String())
+	}
+	if !strings.Contains(output.String(), "Version 3 target/profile configuration") {
+		t.Fatalf("help output %q does not mention Version 3 target/profile output", output.String())
 	}
 	if !strings.Contains(output.String(), "project .gitignore") {
 		t.Fatalf("help output %q does not mention literal-value gitignore protection", output.String())
@@ -225,6 +228,8 @@ func TestRunInit_LimitsLargeDiscoveredTargetFileListUntilTheUserNarrowsIt(t *tes
 		"appsettings",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -247,7 +252,7 @@ func TestRunInit_LimitsLargeDiscoveredTargetFileListUntilTheUserNarrowsIt(t *tes
 			}}, nil
 		},
 		validateStringTarget: func(string, string) error { return nil },
-		createConfig: func(string, config.Target, []config.Profile) (string, config.Config, error) {
+		createConfig: func(string, []config.Target, []config.Profile) (string, config.Config, error) {
 			t.Fatal("createConfig should not be called after cancellation")
 			return "", config.Config{}, nil
 		},
@@ -268,7 +273,7 @@ func TestRunInit_LimitsLargeDiscoveredTargetFileListUntilTheUserNarrowsIt(t *tes
 	if !strings.Contains(outputText, desiredCandidate.RelativePath) {
 		t.Fatalf("init output %q does not show the narrowed matching candidate", outputText)
 	}
-	if !strings.Contains(outputText, "Target file: src/MyApplication/appsettings.Development.json") {
+	if !strings.Contains(outputText, "database [json] -> src/MyApplication/appsettings.Development.json") {
 		t.Fatalf("init output %q does not summarize the narrowed target file", outputText)
 	}
 }
@@ -294,6 +299,8 @@ func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testi
 		"appsettings",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -316,7 +323,7 @@ func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testi
 			}}, nil
 		},
 		validateStringTarget: func(string, string) error { return nil },
-		createConfig: func(string, config.Target, []config.Profile) (string, config.Config, error) {
+		createConfig: func(string, []config.Target, []config.Profile) (string, config.Config, error) {
 			t.Fatal("createConfig should not be called after cancellation")
 			return "", config.Config{}, nil
 		},
@@ -328,10 +335,10 @@ func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testi
 	}
 
 	outputText := output.String()
-	if !strings.Contains(outputText, `No discovered target JSON files match "missing".`) {
+	if !strings.Contains(outputText, `No discovered target files match "missing".`) {
 		t.Fatalf("init output %q does not report the no-match filter state", outputText)
 	}
-	if !strings.Contains(outputText, "Target file: src/MyApplication/appsettings.Development.json") {
+	if !strings.Contains(outputText, "database [json] -> src/MyApplication/appsettings.Development.json") {
 		t.Fatalf("init output %q does not recover to the narrowed target file", outputText)
 	}
 }
@@ -353,6 +360,8 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 		"1",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -375,11 +384,17 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
 	}
-	if loadedConfig.Version != 2 {
-		t.Fatalf("Version = %d, want 2", loadedConfig.Version)
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
 	}
-	if loadedConfig.Target.JSONPath != "database.primary.url" {
-		t.Fatalf("JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	if loadedConfig.Targets[0].Name != "database" {
+		t.Fatalf("target name = %q, want database", loadedConfig.Targets[0].Name)
+	}
+	if loadedConfig.Targets[0].JSONPath != "database.primary.url" {
+		t.Fatalf("JSON path = %q, want %q", loadedConfig.Targets[0].JSONPath, "database.primary.url")
 	}
 	if len(loadedConfig.Profiles) != 1 {
 		t.Fatalf("len(profiles) = %d, want 1", len(loadedConfig.Profiles))
@@ -387,8 +402,15 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	if loadedConfig.Profiles[0].Name != "Local" {
 		t.Fatalf("profile name = %q, want %q", loadedConfig.Profiles[0].Name, "Local")
 	}
-	if loadedConfig.Profiles[0].Value == nil || *loadedConfig.Profiles[0].Value != "postgres://localhost:5432/myapp" {
-		t.Fatalf("literal profile value = %#v, want configured literal value", loadedConfig.Profiles[0].Value)
+	if len(loadedConfig.Profiles[0].Values) != 1 {
+		t.Fatalf("len(profile values) = %d, want 1", len(loadedConfig.Profiles[0].Values))
+	}
+	profileValue := loadedConfig.Profiles[0].Values[0]
+	if profileValue.Target != "database" {
+		t.Fatalf("profile value target = %q, want database", profileValue.Target)
+	}
+	if profileValue.Value == nil || *profileValue.Value != "postgres://localhost:5432/myapp" {
+		t.Fatalf("literal profile value = %#v, want configured literal value", profileValue.Value)
 	}
 
 	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
@@ -399,8 +421,17 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read gitignore file: %v", err)
 	}
+	if !strings.Contains(string(contents), "version: 3") {
+		t.Fatalf("configuration file contents %q do not contain version 3", string(contents))
+	}
+	if !strings.Contains(string(contents), "name: database") {
+		t.Fatalf("configuration file contents %q do not contain target name", string(contents))
+	}
 	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
-		t.Fatalf("configuration file contents %q do not contain version 2 JSON path", string(contents))
+		t.Fatalf("configuration file contents %q do not contain JSON path", string(contents))
+	}
+	if !strings.Contains(string(contents), "target: database") {
+		t.Fatalf("configuration file contents %q do not contain profile target reference", string(contents))
 	}
 	if strings.Contains(string(contents), "connectionName:") {
 		t.Fatalf("configuration file contents %q must not contain legacy connectionName", string(contents))
@@ -475,6 +506,8 @@ func TestRunCommand_InitCancellationDoesNotWriteConfiguration(t *testing.T) {
 		"1",
 		"1",
 		"1",
+		"service",
+		"n",
 		"Local",
 		"1",
 		"https://new.example.test",
@@ -518,6 +551,8 @@ func TestRunInit_RemovesCreatedConfigurationWhenFinalValidationFails(t *testing.
 		"1",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -571,6 +606,8 @@ func TestRunCommand_InitKeepsSelectedFileWhileRetryingJSONPathSelection(t *testi
 		"1",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -590,7 +627,7 @@ func TestRunCommand_InitKeepsSelectedFileWhileRetryingJSONPathSelection(t *testi
 	if !strings.Contains(output.String(), `does not contain JSON path "database.primary.url"`) {
 		t.Fatalf("init output %q does not report missing JSON path", output.String())
 	}
-	if strings.Count(output.String(), "Select target JSON file:") != 1 {
+	if strings.Count(output.String(), "Select target file:") != 1 {
 		t.Fatalf("init output %q should prompt for the target file only once", output.String())
 	}
 
@@ -622,6 +659,8 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 		filepath.Join("..", "shared", "config.json"),
 		"2",
 		"service.baseUrl",
+		"service",
+		"n",
 		"Local",
 		"1",
 		"https://new.example.test",
@@ -638,7 +677,7 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "No target JSON files with selectable string values were discovered") {
+	if !strings.Contains(output.String(), "No target files with selectable JSON paths or dotenv keys were discovered") {
 		t.Fatalf("init output %q does not report empty discovery results", output.String())
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {
@@ -666,6 +705,8 @@ func TestRunCommand_InitAllowsManualTargetFileEntryOutsideTheDiscoveredCandidate
 		"2",
 		filepath.Join("..", "shared", "config.json"),
 		"1",
+		"service",
+		"n",
 		"Local",
 		"1",
 		"https://new.example.test",
@@ -718,6 +759,8 @@ func TestRunCommand_InitAllowsBackingOutToChooseDifferentFile(t *testing.T) {
 		"1",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -734,18 +777,125 @@ func TestRunCommand_InitAllowsBackingOutToChooseDifferentFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if strings.Count(output.String(), "Select target JSON file:") != 2 {
+	if strings.Count(output.String(), "Select target file:") != 2 {
 		t.Fatalf("init output %q should prompt for the target file twice", output.String())
 	}
-	if !strings.Contains(output.String(), "Target file: b.json") {
+	if !strings.Contains(output.String(), "database [json] -> b.json") {
 		t.Fatalf("init output %q does not summarize the second selected target file", output.String())
 	}
-	if !strings.Contains(output.String(), "Target JSON path: database.primary.url") {
+	if !strings.Contains(output.String(), "JSON path: database.primary.url") {
 		t.Fatalf("init output %q does not summarize the selected JSON path", output.String())
 	}
 
 	_, statErr := os.Stat(filepath.Join(projectRoot, ".switchlet.yaml"))
 	if !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("configuration file stat error = %v, want not-exist error after cancellation", statErr)
+	}
+}
+
+func TestRunCommand_InitCreatesVersionThreeConfigForMultipleTargetsAndPartialProfiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "url": "postgres://old"
+  }
+}
+`)+"\n")
+	writeFile(t, projectRoot, "frontend/.env.local", strings.TrimSpace(`
+VITE_API_URL=http://localhost:5173
+VITE_FEATURES=local
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"1",
+		"1",
+		"1",
+		"database",
+		"y",
+		"2",
+		"1",
+		"frontendApi",
+		"n",
+		"Local Database",
+		"y",
+		"1",
+		"postgres://localhost:5432/app",
+		"n",
+		"n",
+		"y",
+		"Frontend Local",
+		"n",
+		"y",
+		"1",
+		"http://localhost:5173",
+		"n",
+		"n",
+		"",
+		"",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v\noutput: %s", err, output.String())
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
+	}
+	if len(loadedConfig.Targets) != 2 {
+		t.Fatalf("len(targets) = %d, want 2", len(loadedConfig.Targets))
+	}
+	if loadedConfig.Targets[0].Name != "database" || loadedConfig.Targets[0].Type != config.TargetTypeJSON || loadedConfig.Targets[0].JSONPath != "database.url" {
+		t.Fatalf("first target = %#v, want database JSON target", loadedConfig.Targets[0])
+	}
+	if loadedConfig.Targets[1].Name != "frontendApi" || loadedConfig.Targets[1].Type != config.TargetTypeDotenv || loadedConfig.Targets[1].Key != "VITE_API_URL" {
+		t.Fatalf("second target = %#v, want frontendApi dotenv target", loadedConfig.Targets[1])
+	}
+	if len(loadedConfig.Profiles) != 2 {
+		t.Fatalf("len(profiles) = %d, want 2", len(loadedConfig.Profiles))
+	}
+	if len(loadedConfig.Profiles[0].Values) != 1 || loadedConfig.Profiles[0].Values[0].Target != "database" {
+		t.Fatalf("first profile values = %#v, want database-only partial profile", loadedConfig.Profiles[0].Values)
+	}
+	if len(loadedConfig.Profiles[1].Values) != 1 || loadedConfig.Profiles[1].Values[0].Target != "frontendApi" {
+		t.Fatalf("second profile values = %#v, want frontendApi-only partial profile", loadedConfig.Profiles[1].Values)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	for _, expected := range []string{"version: 3", "type: dotenv", "key: VITE_API_URL", "target: frontendApi"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("configuration file contents %q do not contain %q", string(contents), expected)
+		}
+	}
+}
+
+func TestPromptTargetName_RefusesDuplicateTargetNames(t *testing.T) {
+	var output bytes.Buffer
+	prompter := initPrompter{
+		reader: bufio.NewReader(strings.NewReader("database\nfrontendApi\n")),
+		writer: &output,
+	}
+
+	name, err := promptTargetName(prompter, map[string]struct{}{"database": {}})
+	if err != nil {
+		t.Fatalf("promptTargetName returned error: %v", err)
+	}
+	if name != "frontendApi" {
+		t.Fatalf("name = %q, want frontendApi", name)
+	}
+	if !strings.Contains(output.String(), `target name "database" is already configured`) {
+		t.Fatalf("output %q does not report duplicate target name", output.String())
 	}
 }

@@ -15,6 +15,8 @@ func TestRunInit_DoesNotOfferGitignoreProtectionForEnvironmentOnlyProfiles(t *te
 	input := strings.NewReader(strings.Join([]string{
 		"1",
 		"1",
+		"service",
+		"n",
 		"Test",
 		"2",
 		"MYAPP_TEST_DATABASE_URL",
@@ -40,16 +42,18 @@ func TestRunInit_DoesNotOfferGitignoreProtectionForEnvironmentOnlyProfiles(t *te
 			}}, nil
 		},
 		validateStringTarget: func(string, string) error { return nil },
-		createConfig: func(string, config.Target, []config.Profile) (string, config.Config, error) {
+		createConfig: func(string, []config.Target, []config.Profile) (string, config.Config, error) {
 			return filepath.Join(projectRoot, ".switchlet.yaml"), config.Config{
-				Version: 2,
-				Target: config.Target{
+				Version: 3,
+				Targets: []config.Target{{
+					Name:     "service",
 					File:     filepath.Join(projectRoot, "config.json"),
+					Type:     config.TargetTypeJSON,
 					JSONPath: "service.baseUrl",
-				},
+				}},
 				Profiles: []config.Profile{{
-					Name:         "Test",
-					ValueFromEnv: stringPointer("MYAPP_TEST_DATABASE_URL"),
+					Name:   "Test",
+					Values: []config.ProfileValue{{Target: "service", ValueFromEnv: stringPointer("MYAPP_TEST_DATABASE_URL")}},
 				}},
 			}, nil
 		},

@@ -20,8 +20,10 @@ type initDependencies struct {
 	validateCreateLocation       func(string) error
 	discoverTargetFileCandidates func(string) ([]editor.TargetFileCandidate, error)
 	inspectStringTargets         func(string) ([]editor.StringTargetNode, error)
+	inspectDotenvKeys            func(string) ([]string, error)
 	validateStringTarget         func(string, string) error
-	createConfig                 func(string, config.Target, []config.Profile) (string, config.Config, error)
+	validateDotenvTarget         func(string, string) error
+	createConfig                 func(string, []config.Target, []config.Profile) (string, config.Config, error)
 	ensureConfigIgnored          func(string) (bool, error)
 	validateCreatedConfig        func(config.Config) error
 	removeFile                   func(string) error
@@ -39,7 +41,9 @@ func defaultInitDependencies() initDependencies {
 		validateCreateLocation:       config.ValidateCreateLocation,
 		discoverTargetFileCandidates: editor.DiscoverTargetFileCandidates,
 		inspectStringTargets:         editor.InspectStringTargets,
+		inspectDotenvKeys:            editor.InspectDotenvKeys,
 		validateStringTarget:         editor.ValidateStringTarget,
+		validateDotenvTarget:         editor.ValidateDotenvTarget,
 		createConfig:                 config.Create,
 		ensureConfigIgnored:          config.EnsureConfigIgnored,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
@@ -63,7 +67,7 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 			return err
 		}
 
-		return createInitConfiguration(workingDirectory, output, result.Target, result.Profiles, result.ShouldIgnoreConfig, dependencies)
+		return createInitConfiguration(workingDirectory, output, result.Targets, result.Profiles, result.ShouldIgnoreConfig, dependencies)
 	}
 
 	return runPromptInit(workingDirectory, input, output, dependencies)
@@ -79,15 +83,15 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 	if _, err := fmt.Fprintln(output, "Switchlet init"); err != nil {
 		return err
 	}
-	if err := writeInitStep(output, 1, "Choose target JSON file",
-		"Pick the JSON file Switchlet should update.",
-		"When many JSON files are discovered, narrow the list by name or path.",
+	if err := writeInitStep(output, 1, "Choose target file",
+		"Pick the JSON or dotenv file Switchlet should update.",
+		"When many files are discovered, narrow the list by name or path.",
 		"You can also enter a file path manually.",
 	); err != nil {
 		return err
 	}
 
-	target, err := promptTarget(prompter, workingDirectory, dependencies)
+	targets, err := promptTargets(prompter, workingDirectory, dependencies)
 	if err != nil {
 		return err
 	}
@@ -99,7 +103,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	profiles, err := promptProfiles(prompter)
+	profiles, err := promptProfiles(prompter, targets)
 	if err != nil {
 		return err
 	}
@@ -110,7 +114,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	if err := printInitSummary(output, workingDirectory, target, profiles); err != nil {
+	if err := printInitSummary(output, workingDirectory, targets, profiles); err != nil {
 		return err
 	}
 
@@ -135,11 +139,11 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		}
 	}
 
-	return createInitConfiguration(workingDirectory, output, target, profiles, shouldIgnoreConfig, dependencies)
+	return createInitConfiguration(workingDirectory, output, targets, profiles, shouldIgnoreConfig, dependencies)
 }
 
-func createInitConfiguration(workingDirectory string, output io.Writer, target config.Target, profiles []config.Profile, shouldIgnoreConfig bool, dependencies initDependencies) error {
-	configPath, loadedConfig, err := dependencies.createConfig(workingDirectory, target, profiles)
+func createInitConfiguration(workingDirectory string, output io.Writer, targets []config.Target, profiles []config.Profile, shouldIgnoreConfig bool, dependencies initDependencies) error {
+	configPath, loadedConfig, err := dependencies.createConfig(workingDirectory, targets, profiles)
 	if err != nil {
 		return err
 	}
@@ -182,12 +186,17 @@ func hasLiteralProfiles(profiles []config.Profile) bool {
 		if profile.Value != nil {
 			return true
 		}
+		for _, value := range profile.Values {
+			if value.Value != nil {
+				return true
+			}
+		}
 	}
 
 	return false
 }
 
-func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
+func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Profile, error) {
 	profiles := make([]config.Profile, 0, 1)
 	seenNames := make(map[string]struct{})
 
@@ -202,28 +211,12 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 			return nil, err
 		}
 
-		sourceChoice, err := prompter.promptChoice("How should Switchlet resolve this profile?", []string{"Use a literal value", "Use an environment variable"})
+		values, err := promptProfileValues(prompter, targets)
 		if err != nil {
 			return nil, err
 		}
 
-		profile := config.Profile{Name: name}
-		switch sourceChoice {
-		case "Use a literal value":
-			literalValue, err := prompter.promptNonEmptyLine("Literal value: ")
-			if err != nil {
-				return nil, err
-			}
-			profile.Value = stringValuePointer(literalValue)
-		case "Use an environment variable":
-			environmentVariableName, err := prompter.promptNonEmptyLine("Environment variable name: ")
-			if err != nil {
-				return nil, err
-			}
-			profile.ValueFromEnv = stringValuePointer(environmentVariableName)
-		default:
-			return nil, fmt.Errorf("unsupported profile source %q", sourceChoice)
-		}
+		profile := config.Profile{Name: name, Values: values}
 
 		protected, err := prompter.promptYesNo(formatYesNoPrompt("Require confirmation before applying this profile?", false), false)
 		if err != nil {
@@ -244,6 +237,70 @@ func promptProfiles(prompter initPrompter) ([]config.Profile, error) {
 	}
 }
 
+func promptProfileValues(prompter initPrompter, targets []config.Target) ([]config.ProfileValue, error) {
+	for {
+		values := make([]config.ProfileValue, 0, len(targets))
+		for _, target := range targets {
+			includeTarget := true
+			if len(targets) > 1 {
+				var err error
+				includeTarget, err = prompter.promptYesNo(formatYesNoPrompt(fmt.Sprintf("Include target %q in this profile?", target.Name), true), true)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if !includeTarget {
+				continue
+			}
+
+			value, err := promptProfileValue(prompter, target)
+			if err != nil {
+				return nil, err
+			}
+			values = append(values, value)
+		}
+
+		if len(values) > 0 {
+			return values, nil
+		}
+
+		if _, err := fmt.Fprintln(prompter.writer, "Error: a profile must include at least one target value."); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func promptProfileValue(prompter initPrompter, target config.Target) (config.ProfileValue, error) {
+	if _, err := fmt.Fprintf(prompter.writer, "\nValue for target %q\n", target.Name); err != nil {
+		return config.ProfileValue{}, err
+	}
+
+	sourceChoice, err := prompter.promptChoice("How should Switchlet resolve this target value?", []string{"Use a literal value", "Use an environment variable"})
+	if err != nil {
+		return config.ProfileValue{}, err
+	}
+
+	value := config.ProfileValue{Target: target.Name}
+	switch sourceChoice {
+	case "Use a literal value":
+		literalValue, err := prompter.promptNonEmptyLine("Literal value: ")
+		if err != nil {
+			return config.ProfileValue{}, err
+		}
+		value.Value = stringValuePointer(literalValue)
+	case "Use an environment variable":
+		environmentVariableName, err := prompter.promptNonEmptyLine("Environment variable name: ")
+		if err != nil {
+			return config.ProfileValue{}, err
+		}
+		value.ValueFromEnv = stringValuePointer(environmentVariableName)
+	default:
+		return config.ProfileValue{}, fmt.Errorf("unsupported profile source %q", sourceChoice)
+	}
+
+	return value, nil
+}
+
 func promptProfileName(prompter initPrompter, seenNames map[string]struct{}) (string, error) {
 	for {
 		name, err := prompter.promptNonEmptyLine("Profile name: ")
@@ -262,33 +319,31 @@ func promptProfileName(prompter initPrompter, seenNames map[string]struct{}) (st
 	}
 }
 
-func printInitSummary(output io.Writer, workingDirectory string, target config.Target, profiles []config.Profile) error {
-	relativeTargetPath, err := filepath.Rel(workingDirectory, target.File)
-	if err != nil {
-		relativeTargetPath = target.File
-	}
-
+func printInitSummary(output io.Writer, workingDirectory string, targets []config.Target, profiles []config.Profile) error {
 	if _, err := fmt.Fprintln(output, "Summary"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(output, "  Configuration file: %s\n", filepath.Join(workingDirectory, ".switchlet.yaml")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "  Target file: %s\n", relativeTargetPath); err != nil {
+	if _, err := fmt.Fprintln(output, "  Targets:"); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "  Target JSON path: %s\n", target.JSONPath); err != nil {
-		return err
+	for _, target := range targets {
+		if _, err := fmt.Fprintf(output, "    - %s [%s] -> %s\n", target.Name, target.Type, displayTargetPath(workingDirectory, target.File)); err != nil {
+			return err
+		}
+		selectorName, selector := targetSelectorLabel(target)
+		if _, err := fmt.Fprintf(output, "      %s: %s\n", selectorName, selector); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintln(output, "  Profiles:"); err != nil {
 		return err
 	}
 
 	for _, profile := range profiles {
-		description := "literal"
-		if profile.ValueFromEnv != nil {
-			description = fmt.Sprintf("env %s", *profile.ValueFromEnv)
-		}
+		description := profileValueSummary(profile)
 		if profile.Protected {
 			description += ", protected"
 		}
@@ -299,6 +354,48 @@ func printInitSummary(output io.Writer, workingDirectory string, target config.T
 	}
 
 	return nil
+}
+
+func targetSelectorLabel(target config.Target) (string, string) {
+	if target.Type == config.TargetTypeDotenv {
+		return "Key", target.Key
+	}
+
+	return "JSON path", target.JSONPath
+}
+
+func profileValueSummary(profile config.Profile) string {
+	if len(profile.Values) == 0 {
+		if profile.ValueFromEnv != nil {
+			return fmt.Sprintf("env %s", *profile.ValueFromEnv)
+		}
+		return "literal"
+	}
+
+	literalCount := 0
+	environmentCount := 0
+	for _, value := range profile.Values {
+		if value.ValueFromEnv != nil {
+			environmentCount++
+		} else {
+			literalCount++
+		}
+	}
+
+	description := fmt.Sprintf("%d target", len(profile.Values))
+	if len(profile.Values) != 1 {
+		description += "s"
+	}
+	switch {
+	case literalCount > 0 && environmentCount > 0:
+		description += ", mixed"
+	case environmentCount > 0:
+		description += ", env"
+	default:
+		description += ", literal"
+	}
+
+	return description
 }
 
 func (prompter initPrompter) promptNonEmptyLine(prompt string) (string, error) {

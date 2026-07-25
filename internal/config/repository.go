@@ -21,15 +21,15 @@ func ValidateCreateLocation(projectRoot string) error {
 	return err
 }
 
-// Create writes a new Switchlet configuration file, then loads it back to
-// verify that the generated YAML is valid.
-func Create(projectRoot string, target Target, profiles []Profile) (configPath string, loadedConfig Config, returnErr error) {
+// Create writes a new Version 3 Switchlet configuration file, then loads it
+// back to verify that the generated YAML is valid.
+func Create(projectRoot string, targets []Target, profiles []Profile) (configPath string, loadedConfig Config, returnErr error) {
 	resolvedProjectRoot, configPath, err := resolveCreateLocation(projectRoot)
 	if err != nil {
 		return "", Config{}, err
 	}
 
-	contents, err := marshalCreatedConfig(resolvedProjectRoot, target, profiles)
+	contents, err := marshalCreatedConfig(resolvedProjectRoot, targets, profiles)
 	if err != nil {
 		return "", Config{}, err
 	}
@@ -171,7 +171,27 @@ func detectLineEnding(contents []byte) string {
 	return "\n"
 }
 
-func marshalCreatedConfig(projectRoot string, target Target, profiles []Profile) ([]byte, error) {
+func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profile) ([]byte, error) {
+	configuredTargets := make([]fileTarget, 0, len(targets))
+	for _, target := range targets {
+		targetType := target.Type
+		if targetType == "" {
+			if inferredType, ok := InferTargetType(target.File); ok {
+				targetType = inferredType
+			}
+		}
+
+		configuredTarget := fileTarget{
+			Name:     target.Name,
+			File:     configTargetPath(projectRoot, target.File),
+			Type:     string(targetType),
+			JSONPath: target.JSONPath,
+			Key:      target.Key,
+		}
+
+		configuredTargets = append(configuredTargets, configuredTarget)
+	}
+
 	configuredProfiles := make([]fileProfile, 0, len(profiles))
 	for _, profile := range profiles {
 		configuredProfile := fileProfile{
@@ -179,24 +199,31 @@ func marshalCreatedConfig(projectRoot string, target Target, profiles []Profile)
 			Protected: profile.Protected,
 		}
 
-		if profile.Value != nil {
-			literalValue := *profile.Value
-			configuredProfile.Value = &literalValue
-		}
-		if profile.ValueFromEnv != nil {
-			environmentVariableName := *profile.ValueFromEnv
-			configuredProfile.ValueFromEnv = &environmentVariableName
+		configuredProfile.Values = make([]fileProfileValue, 0, len(profile.Values))
+		for _, value := range profile.Values {
+			configuredValue := fileProfileValue{Target: value.Target}
+			if value.Value != nil {
+				literalValue := *value.Value
+				configuredValue.Value = &literalValue
+			}
+			if value.ValueFromEnv != nil {
+				environmentVariableName := *value.ValueFromEnv
+				configuredValue.ValueFromEnv = &environmentVariableName
+			}
+
+			configuredProfile.Values = append(configuredProfile.Values, configuredValue)
 		}
 
 		configuredProfiles = append(configuredProfiles, configuredProfile)
 	}
 
-	configFile := fileConfig{
-		Version: intPointer(currentVersion),
-		Target: fileTarget{
-			File:     configTargetPath(projectRoot, target.File),
-			JSONPath: target.JSONPath,
-		},
+	configFile := struct {
+		Version  int           `yaml:"version"`
+		Targets  []fileTarget  `yaml:"targets"`
+		Profiles []fileProfile `yaml:"profiles"`
+	}{
+		Version:  namedTargetVersion,
+		Targets:  configuredTargets,
 		Profiles: configuredProfiles,
 	}
 
@@ -247,8 +274,4 @@ func writeCreatedConfig(configPath string, contents []byte) (returnErr error) {
 	}
 
 	return nil
-}
-
-func intPointer(value int) *int {
-	return &value
 }

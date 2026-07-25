@@ -56,10 +56,10 @@ func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 
 	configPath, loadedConfig, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.primary.url"}},
 		[]config.Profile{
-			{Name: "Local", Value: stringPointer("postgres://localhost:5432/myapp")},
-			{Name: "Production", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING"), Protected: true},
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://localhost:5432/myapp")}}},
+			{Name: "Production", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer("MYAPPLICATION_PRODUCTION_CONNECTION_STRING")}}, Protected: true},
 		},
 	)
 	if err != nil {
@@ -70,14 +70,17 @@ func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 	if configPath != wantConfigPath {
 		t.Fatalf("Create returned config path %q, want %q", configPath, wantConfigPath)
 	}
-	if loadedConfig.Version != 2 {
-		t.Fatalf("loaded version = %d, want 2", loadedConfig.Version)
+	if loadedConfig.Version != 3 {
+		t.Fatalf("loaded version = %d, want 3", loadedConfig.Version)
 	}
-	if loadedConfig.Target.File != targetPath {
-		t.Fatalf("loaded target file = %q, want %q", loadedConfig.Target.File, targetPath)
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(loaded targets) = %d, want 1", len(loadedConfig.Targets))
 	}
-	if loadedConfig.Target.JSONPath != "database.primary.url" {
-		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	if loadedConfig.Targets[0].File != targetPath {
+		t.Fatalf("loaded target file = %q, want %q", loadedConfig.Targets[0].File, targetPath)
+	}
+	if loadedConfig.Targets[0].JSONPath != "database.primary.url" {
+		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Targets[0].JSONPath, "database.primary.url")
 	}
 	if len(loadedConfig.Profiles) != 2 {
 		t.Fatalf("len(loaded profiles) = %d, want 2", len(loadedConfig.Profiles))
@@ -90,14 +93,23 @@ func TestCreate_WritesConfigurationAndLoadsItBack(t *testing.T) {
 	if !strings.Contains(string(contents), "file: config/development.json") {
 		t.Fatalf("configuration file contents %q do not contain relative target path", string(contents))
 	}
+	if !strings.Contains(string(contents), "name: database") {
+		t.Fatalf("configuration file contents %q do not contain target name", string(contents))
+	}
+	if !strings.Contains(string(contents), "type: json") {
+		t.Fatalf("configuration file contents %q do not contain target type", string(contents))
+	}
 	if !strings.Contains(string(contents), "jsonPath: database.primary.url") {
-		t.Fatalf("configuration file contents %q do not contain version 2 JSON path", string(contents))
+		t.Fatalf("configuration file contents %q do not contain JSON path", string(contents))
 	}
 	if strings.Contains(string(contents), "connectionName:") {
 		t.Fatalf("configuration file contents %q must not contain legacy connection name", string(contents))
 	}
 	if !strings.Contains(string(contents), "valueFromEnv: MYAPPLICATION_PRODUCTION_CONNECTION_STRING") {
 		t.Fatalf("configuration file contents %q do not contain environment-backed profile", string(contents))
+	}
+	if !strings.Contains(string(contents), "target: database") {
+		t.Fatalf("configuration file contents %q do not contain profile target reference", string(contents))
 	}
 	if !strings.Contains(string(contents), "protected: true") {
 		t.Fatalf("configuration file contents %q do not contain protected profile", string(contents))
@@ -125,8 +137,8 @@ func TestCreate_WritesRelativePathOutsideProjectRootWhenPossible(t *testing.T) {
 
 	configPath, _, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
+		[]config.Target{{Name: "service", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "service.baseUrl"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://new.example.test")}}}},
 	)
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
@@ -155,11 +167,14 @@ func TestCreate_RemovesConfigurationFileWhenGeneratedConfigurationIsInvalid(t *t
 
 	configPath, _, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.primary.url"}},
 		[]config.Profile{{
-			Name:         "Broken",
-			Value:        stringPointer("postgres://localhost:5432/myapp"),
-			ValueFromEnv: stringPointer("MYAPPLICATION_CONNECTION_STRING"),
+			Name: "Broken",
+			Values: []config.ProfileValue{{
+				Target:       "database",
+				Value:        stringPointer("postgres://localhost:5432/myapp"),
+				ValueFromEnv: stringPointer("MYAPPLICATION_CONNECTION_STRING"),
+			}},
 		}},
 	)
 	if err == nil {
@@ -189,17 +204,17 @@ func TestCreate_WritesConfigurationForGenericJSONTarget(t *testing.T) {
 
 	configPath, loadedConfig, err := config.Create(
 		projectRoot,
-		config.Target{File: targetPath, JSONPath: "database.primary.url"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://localhost:5432/myapp")}},
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.primary.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://localhost:5432/myapp")}}}},
 	)
 	if err != nil {
 		t.Fatalf("Create returned error: %v", err)
 	}
-	if loadedConfig.Version != 2 {
-		t.Fatalf("loaded version = %d, want 2", loadedConfig.Version)
+	if loadedConfig.Version != 3 {
+		t.Fatalf("loaded version = %d, want 3", loadedConfig.Version)
 	}
-	if loadedConfig.Target.JSONPath != "database.primary.url" {
-		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	if loadedConfig.Targets[0].JSONPath != "database.primary.url" {
+		t.Fatalf("loaded JSON path = %q, want %q", loadedConfig.Targets[0].JSONPath, "database.primary.url")
 	}
 
 	contents, err := os.ReadFile(configPath)

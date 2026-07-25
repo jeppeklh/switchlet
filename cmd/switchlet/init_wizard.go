@@ -22,10 +22,16 @@ const (
 	initWizardStepFileSelect initWizardStep = iota
 	initWizardStepFileFilter
 	initWizardStepManualFile
+	initWizardStepTypeSelect
 	initWizardStepPathBrowse
 	initWizardStepPathSearch
 	initWizardStepManualPath
+	initWizardStepDotenvKeySelect
+	initWizardStepManualDotenvKey
+	initWizardStepTargetName
+	initWizardStepTargetSummary
 	initWizardStepProfileName
+	initWizardStepProfileTargetInclude
 	initWizardStepProfileSource
 	initWizardStepProfileValue
 	initWizardStepProfileProtected
@@ -35,13 +41,15 @@ const (
 
 type initWizardProfileDraft struct {
 	Name           string
+	Values         []config.ProfileValue
+	TargetIndex    int
 	UseEnvironment bool
 	Value          string
 	Protected      bool
 }
 
 type initWizardResult struct {
-	Target             config.Target
+	Targets            []config.Target
 	Profiles           []config.Profile
 	ShouldIgnoreConfig bool
 	Cancelled          bool
@@ -63,6 +71,8 @@ type initWizardModel struct {
 	browseNodes           []editor.StringTargetNode
 	browseAncestors       []targetBrowseLevel
 	selectedJSONPath      string
+	selectedDotenvKey     string
+	targets               []config.Target
 	profiles              []config.Profile
 	draftProfile          initWizardProfileDraft
 	shouldIgnoreConfig    bool
@@ -146,14 +156,14 @@ func (model *initWizardModel) cancel() {
 }
 
 func (model *initWizardModel) complete() {
+	targets := make([]config.Target, len(model.targets))
+	copy(targets, model.targets)
+
 	profiles := make([]config.Profile, len(model.profiles))
 	copy(profiles, model.profiles)
 
 	model.result = &initWizardResult{
-		Target: config.Target{
-			File:     model.selectedFile.path,
-			JSONPath: model.selectedJSONPath,
-		},
+		Targets:            targets,
 		Profiles:           profiles,
 		ShouldIgnoreConfig: model.shouldIgnoreConfig,
 	}
@@ -167,6 +177,30 @@ func (model *initWizardModel) beginPathBrowse() {
 	model.browseNodes = model.selectedFile.nodes
 	model.browseAncestors = nil
 	model.selectedJSONPath = ""
+	model.selectedDotenvKey = ""
+}
+
+func (model *initWizardModel) beginDotenvKeySelect() {
+	model.step = initWizardStepDotenvKeySelect
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+	model.selectedJSONPath = ""
+	model.selectedDotenvKey = ""
+}
+
+func (model *initWizardModel) beginTargetName() {
+	model.step = initWizardStepTargetName
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+}
+
+func (model *initWizardModel) beginTargetSummary() {
+	model.step = initWizardStepTargetSummary
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
 }
 
 func (model *initWizardModel) beginProfileEntry() {
@@ -174,10 +208,7 @@ func (model *initWizardModel) beginProfileEntry() {
 	model.cursor = 0
 	model.errorMessage = ""
 	model.clearInputValue()
-	model.draftProfile = initWizardProfileDraft{}
-	if len(model.profiles) > 0 {
-		model.draftProfile.Protected = false
-	}
+	model.draftProfile = initWizardProfileDraft{Values: make([]config.ProfileValue, 0, len(model.targets))}
 }
 
 func (model *initWizardModel) beginReview() {
@@ -201,15 +232,43 @@ func (model *initWizardModel) syncIgnorePreference() {
 	}
 }
 
+func (model *initWizardModel) appendTarget(name string) {
+	target := config.Target{
+		Name: name,
+		File: model.selectedFile.path,
+		Type: model.selectedFile.targetType,
+	}
+	if model.selectedFile.targetType == config.TargetTypeDotenv {
+		target.Key = model.selectedDotenvKey
+	} else {
+		target.JSONPath = model.selectedJSONPath
+	}
+
+	model.targets = append(model.targets, target)
+	model.beginTargetSummary()
+}
+
+func (model *initWizardModel) removeLastTarget() {
+	if len(model.targets) == 0 {
+		return
+	}
+
+	model.targets = model.targets[:len(model.targets)-1]
+	if len(model.targets) == 0 {
+		model.step = initWizardStepFileSelect
+		model.cursor = 0
+		model.errorMessage = ""
+		return
+	}
+
+	model.beginTargetSummary()
+}
+
 func (model *initWizardModel) appendDraftProfile() {
 	profile := config.Profile{
 		Name:      model.draftProfile.Name,
+		Values:    append([]config.ProfileValue(nil), model.draftProfile.Values...),
 		Protected: model.draftProfile.Protected,
-	}
-	if model.draftProfile.UseEnvironment {
-		profile.ValueFromEnv = stringValuePointer(model.draftProfile.Value)
-	} else {
-		profile.Value = stringValuePointer(model.draftProfile.Value)
 	}
 
 	model.profiles = append(model.profiles, profile)
@@ -251,6 +310,10 @@ func (model initWizardModel) filteredSelectableJSONPaths(filterValue string) []s
 	return filterSelectableJSONPaths(model.selectableJSONPaths(), filterValue)
 }
 
+func (model initWizardModel) filteredDotenvKeys(filterValue string) []string {
+	return filterDotenvKeys(model.selectedFile.dotenvKeys, filterValue)
+}
+
 func (model *initWizardModel) clampCursor(total int) {
 	if total <= 0 {
 		model.cursor = 0
@@ -272,6 +335,79 @@ func (model initWizardModel) profileNameExists(name string) bool {
 	}
 
 	return false
+}
+
+func (model initWizardModel) targetNameExists(name string) bool {
+	for _, target := range model.targets {
+		if target.Name == name {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (model initWizardModel) currentDraftTarget() config.Target {
+	if model.draftProfile.TargetIndex < 0 || model.draftProfile.TargetIndex >= len(model.targets) {
+		return config.Target{}
+	}
+
+	return model.targets[model.draftProfile.TargetIndex]
+}
+
+func (model *initWizardModel) beginProfileTargetInclude() {
+	model.step = initWizardStepProfileTargetInclude
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+}
+
+func (model *initWizardModel) beginProfileSource() {
+	model.step = initWizardStepProfileSource
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+}
+
+func (model *initWizardModel) appendDraftProfileValue() {
+	target := model.currentDraftTarget()
+	value := config.ProfileValue{Target: target.Name}
+	if model.draftProfile.UseEnvironment {
+		value.ValueFromEnv = stringValuePointer(model.draftProfile.Value)
+	} else {
+		value.Value = stringValuePointer(model.draftProfile.Value)
+	}
+
+	model.draftProfile.Values = append(model.draftProfile.Values, value)
+	model.advanceDraftProfileTarget()
+}
+
+func (model *initWizardModel) advanceDraftProfileTarget() {
+	model.draftProfile.TargetIndex++
+	model.draftProfile.UseEnvironment = false
+	model.draftProfile.Value = ""
+	model.cursor = 0
+	model.errorMessage = ""
+	model.clearInputValue()
+
+	if model.draftProfile.TargetIndex >= len(model.targets) {
+		if len(model.draftProfile.Values) == 0 {
+			model.errorMessage = "a profile must include at least one target value"
+			model.draftProfile.TargetIndex = 0
+			model.beginProfileTargetInclude()
+			return
+		}
+
+		model.step = initWizardStepProfileProtected
+		return
+	}
+
+	if len(model.targets) == 1 {
+		model.beginProfileSource()
+		return
+	}
+
+	model.beginProfileTargetInclude()
 }
 
 func windowRange(cursor int, total int, windowSize int) (int, int) {
@@ -297,6 +433,8 @@ func isTextEntryStep(step initWizardStep) bool {
 		initWizardStepManualFile,
 		initWizardStepPathSearch,
 		initWizardStepManualPath,
+		initWizardStepManualDotenvKey,
+		initWizardStepTargetName,
 		initWizardStepProfileName,
 		initWizardStepProfileValue:
 		return true

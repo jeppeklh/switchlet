@@ -125,6 +125,8 @@ func TestInstalledBinary_InitFallbackCreatesConfigurationAndGitignore(t *testing
 		"1",
 		"1",
 		"1",
+		"database",
+		"n",
 		"Local",
 		"1",
 		"postgres://localhost:5432/myapp",
@@ -152,17 +154,27 @@ func TestInstalledBinary_InitFallbackCreatesConfigurationAndGitignore(t *testing
 	if err != nil {
 		t.Fatalf("load created configuration: %v", err)
 	}
-	if loadedConfig.Version != 2 {
-		t.Fatalf("version = %d, want 2", loadedConfig.Version)
+	if loadedConfig.Version != 3 {
+		t.Fatalf("version = %d, want 3", loadedConfig.Version)
 	}
-	if loadedConfig.Target.JSONPath != "database.primary.url" {
-		t.Fatalf("json path = %q, want %q", loadedConfig.Target.JSONPath, "database.primary.url")
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	if loadedConfig.Targets[0].Name != "database" {
+		t.Fatalf("target name = %q, want database", loadedConfig.Targets[0].Name)
+	}
+	if loadedConfig.Targets[0].JSONPath != "database.primary.url" {
+		t.Fatalf("json path = %q, want %q", loadedConfig.Targets[0].JSONPath, "database.primary.url")
 	}
 	if len(loadedConfig.Profiles) != 1 {
 		t.Fatalf("len(profiles) = %d, want 1", len(loadedConfig.Profiles))
 	}
-	if loadedConfig.Profiles[0].Value == nil || *loadedConfig.Profiles[0].Value != "postgres://localhost:5432/myapp" {
-		t.Fatalf("literal profile value = %#v, want configured literal value", loadedConfig.Profiles[0].Value)
+	if len(loadedConfig.Profiles[0].Values) != 1 {
+		t.Fatalf("len(profile values) = %d, want 1", len(loadedConfig.Profiles[0].Values))
+	}
+	profileValue := loadedConfig.Profiles[0].Values[0]
+	if profileValue.Target != "database" || profileValue.Value == nil || *profileValue.Value != "postgres://localhost:5432/myapp" {
+		t.Fatalf("profile value = %#v, want configured database literal value", profileValue)
 	}
 
 	gitignoreContents, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))

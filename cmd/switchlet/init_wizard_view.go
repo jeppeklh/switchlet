@@ -10,7 +10,7 @@ import (
 	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
-var initWizardStepLabels = []string{"Target", "Path", "Profiles", "Review"}
+var initWizardStepLabels = []string{"Target", "Selector", "Profiles", "Review"}
 
 // View renders the current init-wizard state.
 func (model initWizardModel) View() string {
@@ -34,11 +34,23 @@ func (model initWizardModel) View() string {
 	case initWizardStepFileFilter:
 		return model.fileFilterView()
 	case initWizardStepManualFile:
-		return model.textInputView(1, "Enter target JSON file path", []string{
+		return model.textInputView(1, "Enter target file path", []string{
 			"Task",
-			"Enter a relative or absolute JSON file path.",
+			"Enter a relative or absolute JSON or dotenv file path.",
 			"Switchlet inspects it before continuing.",
 		}, "Target file", "Validate file")
+	case initWizardStepTypeSelect:
+		return model.profileChoiceView(
+			1,
+			"Choose target type",
+			[]string{
+				ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+				"",
+				"Task",
+				"Choose the target type because it cannot be inferred safely.",
+			},
+			[]string{"JSON", "dotenv"},
+		)
 	case initWizardStepPathBrowse:
 		return model.pathBrowseView()
 	case initWizardStepPathSearch:
@@ -50,24 +62,39 @@ func (model initWizardModel) View() string {
 			"Task",
 			"Enter one existing string-valued JSON path.",
 		}, "Target JSON path", "Validate path")
+	case initWizardStepDotenvKeySelect:
+		return model.dotenvKeySelectView()
+	case initWizardStepManualDotenvKey:
+		return model.textInputView(2, "Enter target dotenv key", []string{
+			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			"",
+			"Task",
+			"Enter one existing dotenv key.",
+		}, "Target dotenv key", "Validate key")
+	case initWizardStepTargetName:
+		return model.textInputView(2, "Name target", model.targetNameGuidanceLines(), "Target name", "Add target")
+	case initWizardStepTargetSummary:
+		return model.targetSummaryView()
 	case initWizardStepProfileName:
 		return model.textInputView(3, "Add profiles", []string{
-			ui.RenderKeyValue("Target file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Target JSON path", model.selectedJSONPath),
+			ui.RenderKeyValue("Targets configured", fmt.Sprintf("%d", len(model.targets))),
 			ui.RenderKeyValue("Profiles added", fmt.Sprintf("%d", len(model.profiles))),
 			"",
 			"Task",
 			"Name the profile shown in the picker.",
 		}, "Profile name", "Continue")
+	case initWizardStepProfileTargetInclude:
+		return model.profileTargetIncludeView()
 	case initWizardStepProfileSource:
 		return model.profileChoiceView(
 			3,
 			"Choose profile source",
 			[]string{
 				ui.RenderKeyValue("Profile", model.draftProfile.Name),
+				ui.RenderKeyValue("Target", model.currentDraftTarget().Name),
 				"",
 				"Task",
-				"Choose how Switchlet resolves this profile.",
+				"Choose how Switchlet resolves this target value.",
 				"Literal values are written to .switchlet.yaml.",
 			},
 			[]string{"Use a literal value", "Use an environment variable"},
@@ -80,6 +107,7 @@ func (model initWizardModel) View() string {
 
 		return model.textInputView(3, "Enter profile value", []string{
 			ui.RenderKeyValue("Profile", model.draftProfile.Name),
+			ui.RenderKeyValue("Target", model.currentDraftTarget().Name),
 			ui.RenderKeyValue("Source", profileSourceSummary(model.draftProfile.UseEnvironment)),
 			"",
 			"Task",
@@ -120,7 +148,7 @@ func (model initWizardModel) fileSelectionView() string {
 	}
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines,
-			"No target JSON files with selectable string values were discovered under the current directory.",
+			"No target files with selectable JSON paths or dotenv keys were discovered under the current directory.",
 			"Press m to enter a file path manually.",
 		)
 	} else {
@@ -135,8 +163,8 @@ func (model initWizardModel) fileSelectionView() string {
 
 	guidanceLines := []string{
 		"Task",
-		"Choose the JSON file Switchlet may update.",
-		"Only files with existing string targets appear.",
+		"Choose the file Switchlet may update.",
+		"JSON and dotenv files with existing selectors appear.",
 		"",
 		"Manual fallback",
 		"Press m when the file is not listed.",
@@ -145,8 +173,8 @@ func (model initWizardModel) fileSelectionView() string {
 		guidanceLines = append(guidanceLines, "", ui.RenderKeyValue("Selected file", matchingCandidates[model.cursor].RelativePath))
 	}
 
-	return model.initWizardShell(1, "Choose target JSON file", []ui.Panel{
-		{Title: "Target JSON files", Lines: workLines, Focused: true},
+	return model.initWizardShell(1, "Choose target file", []ui.Panel{
+		{Title: "Target files", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines(guidanceLines)},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -169,7 +197,7 @@ func (model initWizardModel) fileFilterView() string {
 		workLines = append(workLines, "", fmt.Sprintf("Showing %d matching file(s) out of %d discovered.", len(matchingCandidates), len(model.fileCandidates)))
 	}
 
-	return model.initWizardShell(1, "Filter target JSON files", []ui.Panel{
+	return model.initWizardShell(1, "Filter target files", []ui.Panel{
 		{Title: "Filter results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			"Task",
@@ -237,8 +265,84 @@ func (model initWizardModel) pathSearchView() string {
 	}, searchableTextInputActions("Select"))
 }
 
+func (model initWizardModel) dotenvKeySelectView() string {
+	choices := append([]string(nil), model.selectedFile.dotenvKeys...)
+	choices = append(choices, manualDotenvKeyChoiceLabel)
+
+	workLines := model.choiceLines(choices, model.cursor, dotenvKeyChoiceWindowSize)
+	workLines = append(workLines, "", fmt.Sprintf("Showing %d dotenv key(s).", len(model.selectedFile.dotenvKeys)))
+
+	return model.initWizardShell(2, "Choose target dotenv key", []ui.Panel{
+		{Title: "Dotenv keys", Lines: workLines, Focused: true},
+		{Title: "Guidance", Lines: model.withErrorLines([]string{
+			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			"",
+			"Task",
+			"Choose one existing dotenv key.",
+		})},
+	}, []ui.Action{
+		{Key: "Enter", Label: "Select"},
+		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "m", Label: "Manual key"},
+		{Key: "Esc", Label: "Back"},
+		{Key: "q", Label: "Cancel"},
+	})
+}
+
+func (model initWizardModel) targetNameGuidanceLines() []string {
+	lines := []string{
+		ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+		ui.RenderKeyValue("Target type", string(model.selectedFile.targetType)),
+	}
+	selectorName, selector := targetSelectorLabel(config.Target{Type: model.selectedFile.targetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
+	lines = append(lines,
+		ui.RenderKeyValue(selectorName, selector),
+		"",
+		"Task",
+		"Choose the stable name profiles will use for this target.",
+	)
+
+	return lines
+}
+
+func (model initWizardModel) targetSummaryView() string {
+	choices := []string{"Continue to profiles", "Add another target", "Remove last target"}
+
+	return model.initWizardShell(2, "Target summary", []ui.Panel{
+		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Configured targets", Lines: model.configuredTargetLines()},
+	}, []ui.Action{
+		{Key: "Enter", Label: "Select"},
+		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "Esc", Label: "Back"},
+		{Key: "q", Label: "Cancel"},
+	})
+}
+
+func (model initWizardModel) profileTargetIncludeView() string {
+	target := model.currentDraftTarget()
+	choices := []string{"Include this target", "Omit this target"}
+
+	return model.initWizardShell(3, "Choose profile targets", []ui.Panel{
+		{Title: "Profile scope", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Guidance", Lines: model.withErrorLines([]string{
+			ui.RenderKeyValue("Profile", model.draftProfile.Name),
+			ui.RenderKeyValue("Target", target.Name),
+			ui.RenderKeyValue("Progress", fmt.Sprintf("%d of %d", model.draftProfile.TargetIndex+1, len(model.targets))),
+			"",
+			"Task",
+			"Include only targets this profile should modify.",
+		})},
+	}, []ui.Action{
+		{Key: "Enter", Label: "Select"},
+		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "Esc", Label: "Back"},
+		{Key: "q", Label: "Cancel"},
+	})
+}
+
 func (model initWizardModel) profileSummaryView() string {
-	choices := []string{"Review and create configuration", "Add another profile", "Remove last profile", "Back to target JSON path"}
+	choices := []string{"Review and create configuration", "Add another profile", "Remove last profile", "Back to targets"}
 
 	return model.initWizardShell(3, "Profile summary", []ui.Panel{
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
@@ -336,7 +440,12 @@ func (model initWizardModel) candidateListLines(candidates []editor.TargetFileCa
 			state = ui.RowSelected
 		}
 
-		rows = append(rows, ui.ListRow{Label: candidates[index].RelativePath, State: state})
+		badges := []ui.Badge(nil)
+		if candidates[index].Type != "" {
+			badges = []ui.Badge{{Label: string(candidates[index].Type)}}
+		}
+
+		rows = append(rows, ui.ListRow{Label: candidates[index].RelativePath, State: state, Badges: badges})
 	}
 
 	lines := ui.RenderListRows(rows)
@@ -373,8 +482,7 @@ func (model initWizardModel) choiceLines(choices []string, cursor int, windowSiz
 
 func (model initWizardModel) configuredProfileLines() []string {
 	lines := []string{
-		ui.RenderKeyValue("Target file", model.selectedFile.displayPath),
-		ui.RenderKeyValue("Target JSON path", model.selectedJSONPath),
+		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(model.targets))),
 		"",
 		"Profiles",
 	}
@@ -386,12 +494,41 @@ func (model initWizardModel) configuredProfileLines() []string {
 func (model initWizardModel) reviewSummaryLines() []string {
 	lines := []string{
 		ui.RenderKeyValue("Configuration file", filepath.Join(model.workingDirectory, ".switchlet.yaml")),
-		ui.RenderKeyValue("Target file", displayTargetPath(model.workingDirectory, model.selectedFile.path)),
-		ui.RenderKeyValue("Target JSON path", model.selectedJSONPath),
+		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(model.targets))),
+	}
+	lines = append(lines, model.targetRows()...)
+	lines = append(lines,
 		"",
 		"Profiles",
-	}
+	)
 	lines = append(lines, model.profileRows()...)
+
+	return lines
+}
+
+func (model initWizardModel) configuredTargetLines() []string {
+	lines := []string{ui.RenderKeyValue("Targets configured", fmt.Sprintf("%d", len(model.targets))), ""}
+	lines = append(lines, model.targetRows()...)
+
+	return lines
+}
+
+func (model initWizardModel) targetRows() []string {
+	if len(model.targets) == 0 {
+		return []string{"No targets configured."}
+	}
+
+	lines := make([]string, 0, len(model.targets)*3)
+	for _, target := range model.targets {
+		lines = append(lines, ui.RenderListRow(ui.ListRow{
+			Label:  target.Name,
+			State:  ui.RowNormal,
+			Badges: []ui.Badge{{Label: string(target.Type)}},
+		}))
+		lines = append(lines, ui.RenderKeyValue("  File", displayTargetPath(model.workingDirectory, target.File)))
+		selectorName, selector := targetSelectorLabel(target)
+		lines = append(lines, ui.RenderKeyValue("  "+selectorName, selector))
+	}
 
 	return lines
 }
@@ -401,15 +538,19 @@ func (model initWizardModel) profileRows() []string {
 		return []string{"No profiles configured."}
 	}
 
-	lines := make([]string, 0, len(model.profiles)*2)
+	lines := make([]string, 0, len(model.profiles)*3)
 	for _, profile := range model.profiles {
 		lines = append(lines, ui.RenderListRow(ui.ListRow{
 			Label:  profileReviewLabel(profile),
 			State:  ui.RowNormal,
 			Badges: profileReviewBadges(profile),
 		}))
-		if profile.ValueFromEnv != nil {
-			lines = append(lines, ui.RenderKeyValue("  Environment", *profile.ValueFromEnv))
+		for _, value := range profile.Values {
+			source := "literal"
+			if value.ValueFromEnv != nil {
+				source = "env " + *value.ValueFromEnv
+			}
+			lines = append(lines, ui.RenderKeyValue("  "+value.Target, source))
 		}
 	}
 
@@ -460,13 +601,42 @@ func profileReviewBadges(profile config.Profile) []ui.Badge {
 	if profile.Protected {
 		badges = append(badges, ui.Badge{Label: "protected"})
 	}
-	if profile.ValueFromEnv != nil {
+	if profileUsesMixedSources(profile) {
+		badges = append(badges, ui.Badge{Label: "mixed"})
+	} else if profileUsesEnvironment(profile) {
 		badges = append(badges, ui.Badge{Label: "env"})
 	} else {
 		badges = append(badges, ui.Badge{Label: "literal"})
 	}
 
 	return badges
+}
+
+func profileUsesEnvironment(profile config.Profile) bool {
+	if profile.ValueFromEnv != nil {
+		return true
+	}
+	for _, value := range profile.Values {
+		if value.ValueFromEnv != nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+func profileUsesMixedSources(profile config.Profile) bool {
+	literal := profile.Value != nil
+	environment := profile.ValueFromEnv != nil
+	for _, value := range profile.Values {
+		if value.ValueFromEnv != nil {
+			environment = true
+		} else {
+			literal = true
+		}
+	}
+
+	return literal && environment
 }
 
 func profileSourceSummary(useEnvironment bool) string {

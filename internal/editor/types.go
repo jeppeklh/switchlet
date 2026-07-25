@@ -1,10 +1,13 @@
 package editor
 
-// TargetFileCandidate describes one discovered JSON file that contains at
-// least one existing string-valued JSON path that Switchlet can manage.
+import "github.com/jeppeklh/switchlet/internal/config"
+
+// TargetFileCandidate describes one discovered target file that contains at
+// least one existing selector that Switchlet can manage.
 type TargetFileCandidate struct {
 	Path         string
 	RelativePath string
+	Type         config.TargetType
 }
 
 // StringTargetNode describes one browseable JSON property that either resolves

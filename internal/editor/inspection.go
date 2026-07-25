@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 var skippedDiscoveryDirectoryNames = map[string]struct{}{
@@ -16,8 +18,8 @@ var skippedDiscoveryDirectoryNames = map[string]struct{}{
 	"obj":          {},
 }
 
-// DiscoverTargetFileCandidates returns the JSON files under projectRoot that
-// contain at least one existing string-valued JSON path Switchlet can manage.
+// DiscoverTargetFileCandidates returns the files under projectRoot that contain
+// at least one existing selector Switchlet can manage.
 func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, error) {
 	if strings.TrimSpace(projectRoot) == "" {
 		return nil, fmt.Errorf("project root must be set")
@@ -53,7 +55,8 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 		if entry.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(entry.Name()), ".json") {
+		targetType, ok := config.InferTargetType(path)
+		if !ok {
 			return nil
 		}
 
@@ -62,8 +65,7 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 			return nil
 		}
 
-		nodes, err := inspectStringTargetsContents(contents)
-		if err != nil || len(nodes) == 0 {
+		if !hasInspectableTargetSelectors(contents, targetType) {
 			return nil
 		}
 
@@ -75,6 +77,7 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 		candidates = append(candidates, TargetFileCandidate{
 			Path:         filepath.Clean(path),
 			RelativePath: filepath.Clean(relativePath),
+			Type:         targetType,
 		})
 
 		return nil
@@ -115,6 +118,35 @@ func InspectStringTargets(targetPath string) ([]StringTargetNode, error) {
 	return nodes, nil
 }
 
+// InspectDotenvKeys returns the existing unambiguous dotenv keys inside
+// targetPath.
+func InspectDotenvKeys(targetPath string) ([]string, error) {
+	contents, _, err := readTargetFile(targetPath)
+	if err != nil {
+		return nil, err
+	}
+
+	keys, err := inspectDotenvKeysContents(contents)
+	if err != nil {
+		return nil, fmt.Errorf("inspect target file %q: %w", targetPath, err)
+	}
+
+	return keys, nil
+}
+
+func hasInspectableTargetSelectors(contents []byte, targetType config.TargetType) bool {
+	switch targetType {
+	case config.TargetTypeJSON:
+		nodes, err := inspectStringTargetsContents(contents)
+		return err == nil && len(nodes) > 0
+	case config.TargetTypeDotenv:
+		keys, err := inspectDotenvKeysContents(contents)
+		return err == nil && len(keys) > 0
+	default:
+		return false
+	}
+}
+
 func inspectStringTargetsContents(contents []byte) ([]StringTargetNode, error) {
 	rootObject, err := parseRootObject(contents)
 	if err != nil {
@@ -127,6 +159,28 @@ func inspectStringTargetsContents(contents []byte) ([]StringTargetNode, error) {
 	}
 
 	return nodes, nil
+}
+
+func inspectDotenvKeysContents(contents []byte) ([]string, error) {
+	lines := splitDotenvLines(contents)
+	assignments, err := parseDotenvAssignments(lines)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := make([]string, 0, len(assignments))
+	for key, lineIndexes := range assignments {
+		if len(lineIndexes) == 1 {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys)
+
+	if len(keys) == 0 {
+		return nil, fmt.Errorf("does not contain any unambiguous dotenv keys")
+	}
+
+	return keys, nil
 }
 
 func shouldSkipDiscoveryDirectory(entry fs.DirEntry) bool {
