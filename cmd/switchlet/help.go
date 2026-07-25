@@ -4,8 +4,8 @@ func usageText() string {
 	return `Usage:
 	  switchlet                                      Launch the profile switcher
 	  switchlet init                                 Guided setup for a new .switchlet.yaml in the current directory
-	  switchlet list [--json]                        List configured profiles without launching the TUI
-	  switchlet inspect <profile-name> [--json]      Inspect one configured profile by name
+	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
+	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
 	  switchlet help [command]                       Show help text
 
@@ -15,7 +15,7 @@ func usageText() string {
 
 	Non-interactive flags:
 	  --json               Write machine-readable JSON for list, inspect, or apply
-	  --dry-run            Validate apply without writing the target file
+	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 
 	Exit codes:
@@ -51,7 +51,7 @@ func listHelpText() string {
 	return `Usage:
 	  switchlet list [--json]
 
-	List configured profiles without launching the TUI.
+	List configured profiles, availability, and included target counts without launching the TUI.
 
 	Flags:
 	  --json   Write machine-readable JSON output
@@ -62,7 +62,7 @@ func inspectHelpText() string {
 	return `Usage:
 	  switchlet inspect <profile-name> [--json]
 
-	Inspect one configured profile by name.
+	Inspect one configured profile by name, including planned targets and safe display values.
 
 	Flags:
 	  --json   Write machine-readable JSON output
@@ -73,14 +73,14 @@ func applyHelpText() string {
 	return `Usage:
 	  switchlet apply <profile-name> [--json] [--dry-run] [--allow-protected]
 
-	Apply one configured profile by name.
+	Apply one configured profile by name. A profile may update one or more configured targets.
 
 	Protected profiles in the interactive TUI already prompt for confirmation.
 	Use --allow-protected only for non-interactive switchlet apply.
 
 	Flags:
 	  --json               Write machine-readable JSON output
-	  --dry-run            Validate the apply operation without writing the target file
+	  --dry-run            Validate the apply operation without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 `
 }
