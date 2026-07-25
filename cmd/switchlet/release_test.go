@@ -106,6 +106,123 @@ profiles:
 	}
 }
 
+func TestInstalledBinary_VersionThreeMultiTargetWorkflow(t *testing.T) {
+	_, binaryPath := installBinaryForReleaseTest(t)
+
+	projectRoot := t.TempDir()
+	databasePath := writeFile(t, projectRoot, "backend/appsettings.Development.json", strings.TrimSpace(`
+{
+  "database": {
+    "url": "postgres://old"
+  }
+}
+`)+"\n")
+	frontendPath := writeFile(t, projectRoot, "frontend/.env.local", strings.TrimSpace(`
+VITE_API_URL=http://localhost:5173
+VITE_FEATURES=local
+`)+"\n")
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: backend/appsettings.Development.json
+    type: json
+    jsonPath: database.url
+  - name: frontendApi
+    file: frontend/.env.local
+    type: dotenv
+    key: VITE_API_URL
+
+profiles:
+  - name: Database Only
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    protected: true
+    values:
+      - target: database
+        valueFromEnv: STAGING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	commandEnv := append(os.Environ(), "STAGING_DATABASE_URL=Server=staging;Database=App;Password=super-secret;")
+
+	listResult := runExternalCommand(t, projectRoot, commandEnv, binaryPath, "list")
+	if listResult.exitCode != 0 {
+		t.Fatalf("switchlet list exitCode = %d, want 0\nstdout: %q\nstderr: %q", listResult.exitCode, listResult.stdout, listResult.stderr)
+	}
+	for _, expected := range []string{"Database Only [1 target, partial]", "Staging [2 targets, protected]"} {
+		if !strings.Contains(listResult.stdout, expected) {
+			t.Fatalf("list stdout %q does not contain %q", listResult.stdout, expected)
+		}
+	}
+
+	inspectResult := runExternalCommand(t, projectRoot, commandEnv, binaryPath, "inspect", "Staging")
+	if inspectResult.exitCode != 0 {
+		t.Fatalf("switchlet inspect exitCode = %d, want 0\nstdout: %q\nstderr: %q", inspectResult.exitCode, inspectResult.stdout, inspectResult.stderr)
+	}
+	for _, expected := range []string{"- database [json]", "jsonPath: database.url", "Password=****", "- frontendApi [dotenv]", "key: VITE_API_URL"} {
+		if !strings.Contains(inspectResult.stdout, expected) {
+			t.Fatalf("inspect stdout %q does not contain %q", inspectResult.stdout, expected)
+		}
+	}
+	if strings.Contains(inspectResult.stdout, "super-secret") {
+		t.Fatalf("inspect stdout %q must not contain unmasked secret", inspectResult.stdout)
+	}
+
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+	dryRunResult := runExternalCommand(t, projectRoot, commandEnv, binaryPath, "apply", "Database Only", "--dry-run", "--json")
+	if dryRunResult.exitCode != 0 {
+		t.Fatalf("switchlet apply --dry-run --json exitCode = %d, want 0\nstdout: %q\nstderr: %q", dryRunResult.exitCode, dryRunResult.stdout, dryRunResult.stderr)
+	}
+	if !strings.Contains(dryRunResult.stdout, `"status":"dry_run"`) || !strings.Contains(dryRunResult.stdout, `"targetName":"database"`) {
+		t.Fatalf("dry-run JSON stdout %q does not contain target-aware dry-run result", dryRunResult.stdout)
+	}
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed during version 3 dry run")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed during version 3 dry run")
+	}
+
+	protectedResult := runExternalCommand(t, projectRoot, commandEnv, binaryPath, "apply", "Staging")
+	if protectedResult.exitCode != runtimeExitCode {
+		t.Fatalf("protected apply exitCode = %d, want %d\nstdout: %q\nstderr: %q", protectedResult.exitCode, runtimeExitCode, protectedResult.stdout, protectedResult.stderr)
+	}
+	if !strings.Contains(protectedResult.stderr, "protected profile requires explicit opt-in") {
+		t.Fatalf("protected apply stderr %q does not contain opt-in guidance", protectedResult.stderr)
+	}
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) || !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("targets changed after protected profile refusal")
+	}
+
+	applyResult := runExternalCommand(t, projectRoot, commandEnv, binaryPath, "apply", "Staging", "--allow-protected")
+	if applyResult.exitCode != 0 {
+		t.Fatalf("switchlet apply --allow-protected exitCode = %d, want 0\nstdout: %q\nstderr: %q", applyResult.exitCode, applyResult.stdout, applyResult.stderr)
+	}
+	for _, expected := range []string{"Applied profile: Staging", "Updated targets: 2", "database [json] -> " + databasePath, "frontendApi [dotenv] -> " + frontendPath} {
+		if !strings.Contains(applyResult.stdout, expected) {
+			t.Fatalf("apply stdout %q does not contain %q", applyResult.stdout, expected)
+		}
+	}
+	if strings.Contains(applyResult.stdout, "super-secret") {
+		t.Fatalf("apply stdout %q must not contain resolved secret", applyResult.stdout)
+	}
+	if !strings.Contains(string(readFileBytes(t, databasePath)), "Server=staging;Database=App;Password=super-secret;") {
+		t.Fatalf("database file %q was not updated by version 3 apply", string(readFileBytes(t, databasePath)))
+	}
+	if !strings.Contains(string(readFileBytes(t, frontendPath)), "VITE_API_URL=https://api.staging.example.test") {
+		t.Fatalf("frontend file %q was not updated by version 3 apply", string(readFileBytes(t, frontendPath)))
+	}
+	if !strings.Contains(string(readFileBytes(t, frontendPath)), "VITE_FEATURES=local") {
+		t.Fatalf("frontend file %q did not preserve unrelated dotenv entry", string(readFileBytes(t, frontendPath)))
+	}
+}
+
 func TestInstalledBinary_InitFallbackCreatesConfigurationAndGitignore(t *testing.T) {
 	_, binaryPath := installBinaryForReleaseTest(t)
 

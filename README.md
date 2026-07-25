@@ -1,24 +1,28 @@
 # Switchlet
 
 Switchlet is a terminal application for safely switching named
-configuration profiles in one existing JSON file.
+configuration profiles across explicitly configured targets.
 
-It updates one configured existing string value through a small workflow:
-configure the target once, choose a profile, apply it, and continue
-working.
+It updates existing JSON or dotenv values through a small workflow:
+configure targets once, choose a profile, apply it, and continue working.
 
 ## Supported Scope
 
 Switchlet currently supports:
 
-- one existing JSON file
-- one configured JSON path
-- one existing string value
+- Version `3` configurations with named targets
+- JSON targets selected by `jsonPath`
+- dotenv targets selected by `key`
+- one or more targets across one or more files
+- profiles that update one or more targets
+- partial profiles that leave omitted targets unchanged
 - literal profile values and environment-backed profile values
 - interactive and non-interactive profile application
+- compatibility loading for Version `1` and Version `2` configurations
 
-Switchlet does not create missing JSON values, manage multiple targets,
-or create backup files.
+Switchlet does not create missing JSON values or dotenv keys, manage
+YAML/TOML/XML files, create backup files, run applications, or manage
+secrets.
 
 ## Installation
 
@@ -57,22 +61,23 @@ go build -o switchlet ./cmd/switchlet
 2. When stdin and stdout are interactive terminals, follow the terminal-
    native setup wizard. Otherwise, use the line-oriented fallback
    prompts.
-3. Choose one of the discovered JSON files, narrow large file lists by
-   name or path when needed, or enter a file path manually.
-4. Browse or search for an existing string-valued JSON path, or enter a
-   JSON path manually.
-5. Add one or more profiles.
-6. Review the generated configuration summary and press Enter to create
+3. Choose one of the discovered JSON or dotenv files, narrow large file
+   lists by name or path when needed, or enter a file path manually.
+4. Browse or search for an existing string-valued JSON path, select an
+   existing dotenv key, or enter the selector manually.
+5. Name the target and optionally add more targets.
+6. Add one or more profiles with values for the targets each profile
+   should modify.
+7. Review the generated configuration summary and press Enter to create
    `.switchlet.yaml`.
-7. If any profile uses a literal value, keep `.switchlet.yaml`
+8. If any profile uses a literal value, keep `.switchlet.yaml`
    protection enabled in the review step or let the fallback prompt add
    it to the project `.gitignore`.
-8. Run `switchlet` for the interactive workflow, or use a non-interactive
+9. Run `switchlet` for the interactive workflow, or use a non-interactive
    command.
 
-`switchlet init` validates the file-selection step and the JSON-path step
-separately, so correcting a bad JSON path does not force you to re-enter
-the file choice.
+`switchlet init` validates file selection, target selector selection, and
+the generated configuration before reporting success.
 
 The interactive init wizard and the main profile picker run as a
 full-screen terminal UI.
@@ -95,7 +100,9 @@ switchlet apply Production --dry-run --allow-protected
 ```
 
 Use `--json` on `list`, `inspect`, and `apply` for machine-readable
-output.
+target-aware output. JSON output includes profile names, target names,
+files, selectors, availability, and safe errors. It does not include
+unmasked resolved secret values.
 
 Protected profiles in the interactive TUI are confirmed in place. When a
 protected profile is selected, Enter changes from `Apply` to `Continue`,
@@ -126,23 +133,44 @@ Exit behavior for non-interactive commands:
 ## Example Configuration
 
 ```yaml
-version: 2
+version: 3
 
-target:
-  file: config/development.json
-  jsonPath: database.primary.url
+targets:
+  - name: database
+    file: backend/appsettings.Development.json
+    type: json
+    jsonPath: ConnectionStrings.DefaultConnection
+
+  - name: frontendApi
+    file: frontend/.env.local
+    type: dotenv
+    key: VITE_API_URL
 
 profiles:
   - name: Local
-    value: postgres://localhost:5432/myapp
+    values:
+      - target: database
+        value: Server=localhost;Database=App;Trusted_Connection=True;
+      - target: frontendApi
+        value: http://localhost:5173
 
-  - name: Test
-    valueFromEnv: MYAPP_TEST_DATABASE_URL
-
-  - name: Production
-    valueFromEnv: MYAPP_PRODUCTION_DATABASE_URL
+  - name: Staging
     protected: true
+    values:
+      - target: database
+        valueFromEnv: STAGING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.com
+
+  - name: Local Database Only
+    values:
+      - target: database
+        value: Server=localhost;Database=App;Trusted_Connection=True;
 ```
 
-Version `1` ASP.NET `target.connectionName` configurations are still
-supported for existing projects.
+`Local Database Only` is a partial profile. Applying it updates only the
+`database` target and leaves `frontendApi` unchanged.
+
+Version `1` ASP.NET `target.connectionName` configurations and Version
+`2` `target.jsonPath` configurations are still supported for existing
+projects where they can be normalized safely.
