@@ -48,8 +48,14 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `Status: Selected "Production"`) {
-		t.Fatalf("View() = %q, want neutral protected status copy", view)
+	if !strings.Contains(view, `Profile: Production`) {
+		t.Fatalf("View() = %q, want selected profile context", view)
+	}
+	if !strings.Contains(view, `State: Ready to apply`) {
+		t.Fatalf("View() = %q, want actionable selected profile state", view)
+	}
+	if !strings.Contains(view, `Enter: Open confirmation.`) {
+		t.Fatalf("View() = %q, want Enter outcome before confirmation", view)
 	}
 	if strings.Contains(view, `requires confirmation`) {
 		t.Fatalf("View() = %q, must not show premature confirmation status copy", view)
@@ -166,8 +172,11 @@ func TestUpdate_ShowsRecoverableErrorForUnavailableProfile(t *testing.T) {
 	if !strings.Contains(model.errorMessage, "MISSING_CONNECTION_STRING") {
 		t.Fatalf("errorMessage = %q, want unavailable reason", model.errorMessage)
 	}
-	if !strings.Contains(model.View(), "Error") {
-		t.Fatalf("View() = %q, want error view", model.View())
+	view := model.View()
+	for _, expected := range []string{"Error", "Action could not continue.", "Recovery", "MISSING_CONNECTION_STRING"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want recoverable error detail %q", view, expected)
+		}
 	}
 }
 

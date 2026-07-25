@@ -134,6 +134,7 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.View(), "Updated target:") || !strings.Contains(model.View(), "service.baseUrl") {
 		t.Fatalf("View() = %q, want updated target path", model.View())
 	}
+	assertVisibleWidth(t, model.View(), 80)
 	if !strings.Contains(model.FinalMessage(), "Applied profile: Local") {
 		t.Fatalf("FinalMessage() = %q, want applied profile summary", model.FinalMessage())
 	}
@@ -185,6 +186,7 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	if !strings.Contains(model.View(), "Press any key to return") {
 		t.Fatalf("View() = %q, want recoverable error guidance", model.View())
 	}
+	assertVisibleWidth(t, model.View(), 80)
 }
 
 func TestUpdate_CtrlCQuitsFromErrorView(t *testing.T) {

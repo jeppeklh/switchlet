@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func writeTargetFile(t *testing.T, rootDir string, relativePath string, contents string) string {
@@ -58,4 +59,14 @@ func lineContains(view string, values ...string) bool {
 	}
 
 	return false
+}
+
+func assertVisibleWidth(t *testing.T, view string, width int) {
+	t.Helper()
+
+	for _, line := range strings.Split(view, "\n") {
+		if lipgloss.Width(line) > width {
+			t.Fatalf("line %q has width %d, want at most %d", line, lipgloss.Width(line), width)
+		}
+	}
 }

@@ -201,3 +201,39 @@ func TestView_InspectionUsesContinueHelpForProtectedProfiles(t *testing.T) {
 		t.Fatalf("View() = %q, want protected inspection help text that matches Enter behavior", model.View())
 	}
 }
+
+func TestView_InspectionAndConfirmationStayWithinTerminalWidth(t *testing.T) {
+	t.Setenv("LONG_PROTECTED_PROFILE_VALUE", "Server=prod.example.test;Database=Application;Password=super-secret;")
+
+	model := New(app.New(
+		config.Target{
+			File:     "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json",
+			JSONPath: "services.database.primary.connectionStrings.defaultConnection.value",
+		},
+		[]config.Profile{{
+			Name:         "Production profile with a long display name",
+			ValueFromEnv: stringPointer("LONG_PROTECTED_PROFILE_VALUE"),
+			Protected:    true,
+		}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	assertVisibleWidth(t, model.View(), 80)
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+	assertVisibleWidth(t, model.View(), 80)
+}
