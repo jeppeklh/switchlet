@@ -7,18 +7,23 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
+	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
 // View renders the current init-wizard state.
 func (model initWizardModel) View() string {
 	if model.isTerminalTooSmall() {
-		return fmt.Sprintf(
-			"Switchlet init\n\nTerminal too small.\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nResize the terminal to continue.\nq Cancel\nCtrl+C cancels immediately.\n",
-			initWizardMinimumTerminalWidth,
-			initWizardMinimumTerminalHeight,
-			model.width,
-			model.height,
-		)
+		return ui.RenderShell(ui.Shell{
+			Title:    "Switchlet init",
+			Subtitle: "Terminal too small.",
+			Panels: []ui.Panel{{Title: "Resize required", Lines: []string{
+				fmt.Sprintf("Minimum size: %dx%d", initWizardMinimumTerminalWidth, initWizardMinimumTerminalHeight),
+				fmt.Sprintf("Current size: %dx%d", model.width, model.height),
+				"Resize the terminal to continue.",
+			}}},
+			Actions: []ui.Action{{Key: "q", Label: "Cancel"}, {Key: "Ctrl+C", Label: "Cancel immediately"}},
+			Width:   model.width,
+		})
 	}
 
 	switch model.step {
@@ -279,8 +284,9 @@ func (model initWizardModel) textInputView(stepNumber int, title string, details
 }
 
 func (model initWizardModel) writeStepHeader(builder *strings.Builder, stepNumber int, title string, details ...string) {
-	builder.WriteString("Switchlet init\n\n")
-	builder.WriteString(fmt.Sprintf("Step %d of %d\n", stepNumber, initStepCount))
+	builder.WriteString(ui.RenderHeader("Switchlet init", fmt.Sprintf("Step %d of %d", stepNumber, initStepCount)))
+	builder.WriteString(ui.RenderStepProgress(stepNumber, []string{"Target", "Path", "Profiles", "Review"}))
+	builder.WriteString("\n\n")
 	builder.WriteString(title)
 	builder.WriteString("\n")
 	builder.WriteString(strings.Repeat("-", len(title)))
@@ -299,14 +305,18 @@ func (model initWizardModel) writeCandidateList(builder *strings.Builder, candid
 	}
 
 	start, end := windowRange(cursor, len(candidates), windowSize)
+	rows := make([]ui.ListRow, 0, end-start)
 	for index := start; index < end; index++ {
-		prefix := "  "
+		state := ui.RowNormal
 		if index == cursor {
-			prefix = "> "
+			state = ui.RowSelected
 		}
 
-		builder.WriteString(prefix)
-		builder.WriteString(candidates[index].RelativePath)
+		rows = append(rows, ui.ListRow{Label: candidates[index].RelativePath, State: state})
+	}
+
+	for _, row := range ui.RenderListRows(rows) {
+		builder.WriteString(row)
 		builder.WriteString("\n")
 	}
 
@@ -323,14 +333,18 @@ func (model initWizardModel) writeStringChoices(builder *strings.Builder, choice
 	}
 
 	start, end := windowRange(cursor, len(choices), windowSize)
+	rows := make([]ui.ListRow, 0, end-start)
 	for index := start; index < end; index++ {
-		prefix := "  "
+		state := ui.RowNormal
 		if index == cursor {
-			prefix = "> "
+			state = ui.RowSelected
 		}
 
-		builder.WriteString(prefix)
-		builder.WriteString(choices[index])
+		rows = append(rows, ui.ListRow{Label: choices[index], State: state})
+	}
+
+	for _, row := range ui.RenderListRows(rows) {
+		builder.WriteString(row)
 		builder.WriteString("\n")
 	}
 
@@ -347,26 +361,14 @@ func (model initWizardModel) writeErrorAndHelp(builder *strings.Builder, helpLin
 		builder.WriteString(model.errorMessage)
 		builder.WriteString("\n\n")
 	}
-	builder.WriteString("----------------------------------------\n")
+	builder.WriteString(ui.Separator(model.width))
+	builder.WriteString("\n")
 	builder.WriteString(helpLine)
 	builder.WriteString("\n")
 }
 
 func (model initWizardModel) writeInputLine(builder *strings.Builder, label string, value string) {
-	runes := []rune(value)
-	cursor := model.inputCursor
-	if cursor < 0 {
-		cursor = 0
-	}
-	if cursor > len(runes) {
-		cursor = len(runes)
-	}
-
-	builder.WriteString(label)
-	builder.WriteString(": ")
-	builder.WriteString(string(runes[:cursor]))
-	builder.WriteString("_")
-	builder.WriteString(string(runes[cursor:]))
+	builder.WriteString(ui.RenderInput(label, value, model.inputCursor))
 	builder.WriteString("\n")
 }
 

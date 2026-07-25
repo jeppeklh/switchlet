@@ -33,48 +33,21 @@ func (model Model) View() string {
 }
 
 func (model Model) listView() string {
-	var builder strings.Builder
-
-	builder.WriteString("Switchlet\n\n")
-	builder.WriteString("Select a profile\n\n")
-
-	if len(model.profiles) == 0 {
-		builder.WriteString("No profiles available.\n")
-	} else {
-		for index, item := range model.profiles {
-			cursor := "  "
-			if index == model.cursor {
-				cursor = "> "
-			}
-
-			builder.WriteString(cursor)
-			builder.WriteString(item.Name)
-
-			indicators := make([]string, 0, 2)
-			if item.Protected {
-				indicators = append(indicators, "[protected]")
-			}
-			if !item.Available {
-				indicators = append(indicators, "[unavailable]")
-			}
-
-			if len(indicators) > 0 {
-				builder.WriteString(" ")
-				builder.WriteString(strings.Join(indicators, " "))
-			}
-
-			builder.WriteString("\n")
-		}
+	profileLines := []string{"No profiles available."}
+	if len(model.profiles) > 0 {
+		profileLines = RenderListRows(model.profileRows(RowSelected))
 	}
 
-	builder.WriteString("\n")
-	builder.WriteString(model.statusLine())
-	builder.WriteString("\n\n")
-	builder.WriteString("----------------------------------------\n")
-	builder.WriteString(model.listHelpLine())
-	builder.WriteString("\n")
-
-	return builder.String()
+	return RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Select a profile",
+		Panels: []Panel{
+			{Title: "Profiles", Lines: profileLines},
+			{Title: "Selected", Lines: model.selectionSummaryLines()},
+		},
+		Actions: model.listActions(),
+		Width:   model.width,
+	})
 }
 
 func (model Model) statusLine() string {
@@ -89,13 +62,79 @@ func (model Model) statusLine() string {
 	return fmt.Sprintf("Status: Selected %q", selectedProfile.Name)
 }
 
-func (model Model) listHelpLine() string {
+func (model Model) listActions() []Action {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
-		return "q Quit"
+		return []Action{{Key: "q", Label: "Quit"}}
 	}
 
-	return fmt.Sprintf("↑/↓ or j/k Move  Enter %s  i Inspect  q Quit", enterActionLabel(selectedProfile))
+	return []Action{
+		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "Enter", Label: enterActionLabel(selectedProfile)},
+		{Key: "i", Label: "Inspect"},
+		{Key: "q", Label: "Quit"},
+	}
+}
+
+func (model Model) profileRows(selectedState RowState) []ListRow {
+	rows := make([]ListRow, 0, len(model.profiles))
+	for index, item := range model.profiles {
+		state := RowNormal
+		if index == model.cursor {
+			state = selectedState
+		}
+
+		rows = append(rows, ListRow{
+			Label:  item.Name,
+			State:  state,
+			Badges: profileBadges(item),
+		})
+	}
+
+	return rows
+}
+
+func (model Model) selectionSummaryLines() []string {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return []string{"Status: No profile selected"}
+	}
+
+	lines := []string{
+		RenderKeyValue("Profile", selectedProfile.Name),
+		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
+		model.statusLine(),
+	}
+	if selectedProfile.Protected {
+		lines = append(lines, RenderKeyValue("Protection", "Protected"))
+	}
+	if model.application.TargetFile() != "" {
+		lines = append(lines, RenderKeyValue("Target file", model.application.TargetFile()))
+	}
+	if model.application.TargetPath() != "" {
+		lines = append(lines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
+	}
+	lines = append(lines, fmt.Sprintf("Enter %s.", strings.ToLower(enterActionLabel(selectedProfile))))
+
+	return lines
+}
+
+func profileBadges(profile app.ProfileItem) []Badge {
+	badges := make([]Badge, 0, 3)
+	if profile.Protected {
+		badges = append(badges, Badge{Label: "protected"})
+	}
+	if !profile.Available {
+		badges = append(badges, Badge{Label: "unavailable"})
+	}
+	switch profile.Source {
+	case app.ProfileSourceEnvironment:
+		badges = append(badges, Badge{Label: "env"})
+	case app.ProfileSourceLiteral:
+		badges = append(badges, Badge{Label: "literal"})
+	}
+
+	return badges
 }
 
 func (model Model) isTerminalTooSmall() bool {
@@ -107,13 +146,17 @@ func (model Model) isTerminalTooSmall() bool {
 }
 
 func (model Model) tooSmallTerminalView() string {
-	return fmt.Sprintf(
-		"Switchlet\n\nTerminal too small.\nMinimum size: %dx%d\nCurrent size: %dx%d\n\nResize the terminal to continue.\nq Quit\nCtrl+C exits immediately.\n",
-		minimumTerminalWidth,
-		minimumTerminalHeight,
-		model.width,
-		model.height,
-	)
+	return RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Terminal too small.",
+		Panels: []Panel{{Title: "Resize required", Lines: []string{
+			fmt.Sprintf("Minimum size: %dx%d", minimumTerminalWidth, minimumTerminalHeight),
+			fmt.Sprintf("Current size: %dx%d", model.width, model.height),
+			"Resize the terminal to continue.",
+		}}},
+		Actions: []Action{{Key: "q", Label: "Quit"}, {Key: "Ctrl+C", Label: "Exit immediately"}},
+		Width:   model.width,
+	})
 }
 
 func (model Model) inspectionView() string {
@@ -122,36 +165,30 @@ func (model Model) inspectionView() string {
 		return model.listView()
 	}
 
-	var builder strings.Builder
-
-	builder.WriteString("Inspect Profile\n\n")
-	builder.WriteString("Profile: ")
-	builder.WriteString(selectedProfile.Name)
-	builder.WriteString("\n")
-	builder.WriteString("Source: ")
-	builder.WriteString(sourceLabel(selectedProfile.Source))
-	builder.WriteString("\n")
+	profileLines := []string{
+		RenderKeyValue("Profile", selectedProfile.Name),
+		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
+	}
 	if selectedProfile.EnvironmentVariableName != "" {
-		builder.WriteString("Environment variable: ")
-		builder.WriteString(selectedProfile.EnvironmentVariableName)
-		builder.WriteString("\n")
+		profileLines = append(profileLines, RenderKeyValue("Environment variable", selectedProfile.EnvironmentVariableName))
 	}
-	builder.WriteString("Protection: ")
-	builder.WriteString(protectionLabel(selectedProfile))
-	builder.WriteString("\n\n")
-	builder.WriteString("Masked value:\n")
-	builder.WriteString(maskedValueLabel(selectedProfile))
-	builder.WriteString("\n")
+	profileLines = append(profileLines, RenderKeyValue("Protection", protectionLabel(selectedProfile)))
+
+	valueLines := []string{"Masked value:", maskedValueLabel(selectedProfile)}
 	if selectedProfile.UnavailableReason != "" {
-		builder.WriteString("\nResolution error:\n")
-		builder.WriteString(selectedProfile.UnavailableReason)
-		builder.WriteString("\n")
+		valueLines = append(valueLines, "", "Resolution error:", selectedProfile.UnavailableReason)
 	}
 
-	builder.WriteString("\n----------------------------------------\n")
-	builder.WriteString(fmt.Sprintf("Enter %s  i/Esc/q Return\n", enterActionLabel(selectedProfile)))
-
-	return builder.String()
+	return RenderShell(Shell{
+		Title:    "Inspect Profile",
+		Subtitle: "Review the selected profile before applying it.",
+		Panels: []Panel{
+			{Title: "Profile", Lines: profileLines},
+			{Title: "Value", Lines: valueLines},
+		},
+		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}},
+		Width:   model.width,
+	})
 }
 
 func (model Model) confirmationView() string {
@@ -160,28 +197,21 @@ func (model Model) confirmationView() string {
 		return model.listView()
 	}
 
-	var builder strings.Builder
-
-	builder.WriteString("Apply protected profile?\n\n")
-	builder.WriteString("Profile: ")
-	builder.WriteString(selectedProfile.Name)
-	builder.WriteString("\n\n")
+	lines := []string{RenderKeyValue("Profile", selectedProfile.Name)}
 	if model.application.TargetFile() != "" {
-		builder.WriteString("Target file: ")
-		builder.WriteString(model.application.TargetFile())
-		builder.WriteString("\n")
+		lines = append(lines, RenderKeyValue("Target file", model.application.TargetFile()))
 	}
 	if model.application.TargetPath() != "" {
-		builder.WriteString("Target JSON path: ")
-		builder.WriteString(model.application.TargetPath())
-		builder.WriteString("\n\n")
+		lines = append(lines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
 	}
-	builder.WriteString("This will modify the configured target value.\n")
-	builder.WriteString("Press Enter or y to confirm.\n\n")
-	builder.WriteString("----------------------------------------\n")
-	builder.WriteString("Enter/y Confirm  n/Esc/q Cancel\n")
+	lines = append(lines, "", "This will modify the configured target value.", "Press Enter or y to confirm.")
 
-	return builder.String()
+	return RenderShell(Shell{
+		Title:   "Apply protected profile?",
+		Panels:  []Panel{{Title: "Confirmation", Lines: lines}},
+		Actions: []Action{{Key: "Enter/y", Label: "Confirm"}, {Key: "n/Esc/q", Label: "Cancel"}},
+		Width:   model.width,
+	})
 }
 
 func enterActionLabel(profile app.ProfileItem) string {
@@ -196,10 +226,16 @@ func enterActionLabel(profile app.ProfileItem) string {
 }
 
 func (model Model) errorView() string {
-	return fmt.Sprintf(
-		"Error\n\n%s\n\nPress any key to return\nq Quit\n",
-		model.errorMessage,
-	)
+	return RenderShell(Shell{
+		Title: "Error",
+		Panels: []Panel{{Title: "Recoverable error", Lines: []string{
+			model.errorMessage,
+			"",
+			"Press any key to return",
+		}}},
+		Actions: []Action{{Key: "q", Label: "Quit"}},
+		Width:   model.width,
+	})
 }
 
 func (model Model) successView() string {
@@ -207,11 +243,15 @@ func (model Model) successView() string {
 		return "Applied profile successfully.\n"
 	}
 
-	return fmt.Sprintf(
-		"Applied profile: %s\n\nUpdated target:\n%s\n",
-		model.successResult.ProfileName,
-		model.successResult.TargetPath,
-	)
+	return RenderShell(Shell{
+		Title: "Applied profile successfully.",
+		Panels: []Panel{{Title: "Result", Lines: []string{
+			RenderKeyValue("Applied profile", model.successResult.ProfileName),
+			"Updated target:",
+			model.successResult.TargetPath,
+		}}},
+		Width: model.width,
+	})
 }
 
 func sourceLabel(source app.ProfileSource) string {
