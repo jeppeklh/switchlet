@@ -53,6 +53,9 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if strings.Contains(view, "super-secret") {
 		t.Fatalf("View() = %q, must not contain unmasked secret", view)
 	}
+	if !strings.Contains(view, "~ Test [env]") {
+		t.Fatalf("View() = %q, want inactive selected profile context", view)
+	}
 
 	updatedModel, command = model.Update(runeKey('q'))
 	model = updatedModel.(Model)
@@ -63,7 +66,7 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if model.state != listState {
 		t.Fatalf("state = %d, want listState", model.state)
 	}
-	if !strings.Contains(model.View(), "Select a profile") {
+	if !strings.Contains(model.View(), "Switch a named profile safely") {
 		t.Fatalf("View() = %q, want profile list view", model.View())
 	}
 }
@@ -143,6 +146,9 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	}
 	if strings.Contains(view, "Password=****") {
 		t.Fatalf("View() = %q, must not contain masked connection string in confirmation", view)
+	}
+	if !strings.Contains(view, "~ Production [protected] [literal]") {
+		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 
 	updatedModel, command = model.Update(runeKey('n'))

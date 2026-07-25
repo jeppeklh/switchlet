@@ -5,7 +5,12 @@ import (
 	"strings"
 )
 
-const defaultShellWidth = 40
+const (
+	defaultShellWidth = 80
+	splitShellWidth   = 100
+	panelGapWidth     = 3
+	textEllipsis      = "..."
+)
 
 // Badge describes compact metadata attached to a row or status line.
 type Badge struct {
@@ -37,14 +42,16 @@ type ListRow struct {
 
 // Panel is one titled content region inside a terminal shell.
 type Panel struct {
-	Title string
-	Lines []string
+	Title   string
+	Lines   []string
+	Focused bool
 }
 
 // Shell describes the common application surface used by Switchlet screens.
 type Shell struct {
 	Title    string
 	Subtitle string
+	Metadata []string
 	Panels   []Panel
 	Actions  []Action
 	Width    int
@@ -52,28 +59,21 @@ type Shell struct {
 
 // RenderShell renders a compact application shell with titled content regions.
 func RenderShell(shell Shell) string {
+	width := normalizedWidth(shell.Width)
+
 	var builder strings.Builder
+	writeShellHeader(&builder, shell, width)
 
-	builder.WriteString(shell.Title)
-	builder.WriteString("\n")
-	if shell.Subtitle != "" {
-		builder.WriteString(shell.Subtitle)
+	if len(shell.Panels) > 0 {
+		builder.WriteString(Separator(width))
 		builder.WriteString("\n")
-	}
-	builder.WriteString("\n")
-
-	for index, panel := range shell.Panels {
-		writePanel(&builder, panel)
-		if index != len(shell.Panels)-1 {
-			builder.WriteString("\n")
-		}
+		writeShellPanels(&builder, shell.Panels, width)
 	}
 
 	if len(shell.Actions) > 0 {
+		builder.WriteString(Separator(width))
 		builder.WriteString("\n")
-		builder.WriteString(Separator(shell.Width))
-		builder.WriteString("\n")
-		builder.WriteString(RenderCommandBar(shell.Actions))
+		builder.WriteString(fitLine(RenderCommandBar(shell.Actions), width))
 		builder.WriteString("\n")
 	}
 
@@ -188,28 +188,172 @@ func RenderKeyValue(label string, value string) string {
 
 // Separator renders the shared command-bar separator.
 func Separator(width int) string {
-	if width <= 0 {
-		width = defaultShellWidth
-	}
-	if width < defaultShellWidth {
-		width = defaultShellWidth
-	}
-
-	return strings.Repeat("-", width)
+	return strings.Repeat("-", normalizedWidth(width))
 }
 
-func writePanel(builder *strings.Builder, panel Panel) {
+func writeShellHeader(builder *strings.Builder, shell Shell, width int) {
+	leftLines := []string{shell.Title}
+	if shell.Subtitle != "" {
+		leftLines = append(leftLines, shell.Subtitle)
+	}
+
+	lineCount := len(leftLines)
+	if len(shell.Metadata) > lineCount {
+		lineCount = len(shell.Metadata)
+	}
+
+	for index := 0; index < lineCount; index++ {
+		left := ""
+		if index < len(leftLines) {
+			left = leftLines[index]
+		}
+		right := ""
+		if index < len(shell.Metadata) {
+			right = shell.Metadata[index]
+		}
+
+		builder.WriteString(joinHeaderLine(left, right, width))
+		builder.WriteString("\n")
+	}
+}
+
+func writeShellPanels(builder *strings.Builder, panels []Panel, width int) {
+	if shouldUseSplitLayout(panels, width) {
+		writeSplitPanels(builder, panels[0], panels[1], width)
+		return
+	}
+
+	writeStackedPanels(builder, panels, width)
+}
+
+func shouldUseSplitLayout(panels []Panel, width int) bool {
+	return len(panels) == 2 && width >= splitShellWidth
+}
+
+func writeStackedPanels(builder *strings.Builder, panels []Panel, width int) {
+	for index, panel := range panels {
+		for _, line := range renderPanel(panel, width) {
+			builder.WriteString(line)
+			builder.WriteString("\n")
+		}
+		if index != len(panels)-1 {
+			builder.WriteString("\n")
+		}
+	}
+}
+
+func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Panel, width int) {
+	gap := strings.Repeat(" ", panelGapWidth)
+	leftWidth := width * 55 / 100
+	rightWidth := width - leftWidth - panelGapWidth
+	leftLines := renderPanel(leftPanel, leftWidth)
+	rightLines := renderPanel(rightPanel, rightWidth)
+	lineCount := len(leftLines)
+	if len(rightLines) > lineCount {
+		lineCount = len(rightLines)
+	}
+
+	for index := 0; index < lineCount; index++ {
+		leftLine := ""
+		if index < len(leftLines) {
+			leftLine = leftLines[index]
+		}
+		rightLine := ""
+		if index < len(rightLines) {
+			rightLine = rightLines[index]
+		}
+
+		builder.WriteString(padLine(leftLine, leftWidth))
+		builder.WriteString(gap)
+		builder.WriteString(fitLine(rightLine, rightWidth))
+		builder.WriteString("\n")
+	}
+}
+
+func renderPanel(panel Panel, width int) []string {
+	lines := make([]string, 0, len(panel.Lines)+2)
 	if panel.Title != "" {
-		builder.WriteString(panel.Title)
-		builder.WriteString("\n")
-		builder.WriteString(strings.Repeat("-", len([]rune(panel.Title))))
-		builder.WriteString("\n")
+		title := panel.Title
+		if panel.Focused {
+			title = "* " + title
+		}
+		lines = append(lines, fitLine(title, width))
+		lines = append(lines, strings.Repeat("-", limitedRuneCount(title, width)))
 	}
 
 	for _, line := range panel.Lines {
-		builder.WriteString(line)
-		builder.WriteString("\n")
+		lines = append(lines, fitLine(line, width))
 	}
+
+	return lines
+}
+
+func joinHeaderLine(left string, right string, width int) string {
+	if right == "" {
+		return fitLine(left, width)
+	}
+
+	rightRunes := []rune(right)
+	if len(rightRunes) > width/2 {
+		right = fitLine(right, width/2)
+		rightRunes = []rune(right)
+	}
+
+	availableLeftWidth := width - len(rightRunes) - 1
+	if availableLeftWidth <= 0 {
+		return fitLine(right, width)
+	}
+
+	left = fitLine(left, availableLeftWidth)
+	spaceCount := width - len([]rune(left)) - len(rightRunes)
+	if spaceCount < 1 {
+		spaceCount = 1
+	}
+
+	return left + strings.Repeat(" ", spaceCount) + right
+}
+
+func padLine(line string, width int) string {
+	line = fitLine(line, width)
+	padding := width - len([]rune(line))
+	if padding <= 0 {
+		return line
+	}
+
+	return line + strings.Repeat(" ", padding)
+}
+
+func fitLine(line string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
+	runes := []rune(line)
+	if len(runes) <= width {
+		return line
+	}
+	if width <= len([]rune(textEllipsis)) {
+		return string(runes[:width])
+	}
+
+	return string(runes[:width-len([]rune(textEllipsis))]) + textEllipsis
+}
+
+func limitedRuneCount(value string, limit int) int {
+	runeCount := len([]rune(value))
+	if runeCount > limit {
+		return limit
+	}
+
+	return runeCount
+}
+
+func normalizedWidth(width int) int {
+	if width <= 0 {
+		return defaultShellWidth
+	}
+
+	return width
 }
 
 func rowMarker(state RowState) string {

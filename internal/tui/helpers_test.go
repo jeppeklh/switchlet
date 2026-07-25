@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -40,4 +41,21 @@ func stringPointer(value string) *string {
 
 func runeKey(value rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
+}
+
+func lineContains(view string, values ...string) bool {
+	for _, line := range strings.Split(view, "\n") {
+		matched := true
+		for _, value := range values {
+			if !strings.Contains(line, value) {
+				matched = false
+				break
+			}
+		}
+		if matched {
+			return true
+		}
+	}
+
+	return false
 }

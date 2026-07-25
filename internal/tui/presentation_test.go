@@ -100,3 +100,55 @@ func TestRenderShell_RendersPanelsAndCommandBar(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderShell_RendersSplitLayoutAtComfortableWidth(t *testing.T) {
+	got := RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Switch a named profile safely",
+		Panels: []Panel{
+			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
+			{Title: "Selected", Lines: []string{"Local"}},
+		},
+		Width: 120,
+	})
+
+	if !lineContains(got, "* Profiles", "Selected") {
+		t.Fatalf("RenderShell() = %q, want split panel titles on one line", got)
+	}
+}
+
+func TestRenderShell_RendersStackedLayoutAtMinimumWidth(t *testing.T) {
+	got := RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Switch a named profile safely",
+		Panels: []Panel{
+			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
+			{Title: "Selected", Lines: []string{"Local"}},
+		},
+		Width: 80,
+	})
+
+	if lineContains(got, "* Profiles", "Selected") {
+		t.Fatalf("RenderShell() = %q, want stacked panel titles at minimum width", got)
+	}
+}
+
+func TestRenderShell_TruncatesLongLinesToShellWidth(t *testing.T) {
+	got := RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Switch a named profile safely",
+		Metadata: []string{"/very/long/path/to/appsettings.Development.json"},
+		Panels: []Panel{{Title: "Selected", Lines: []string{
+			"Target file: /very/long/path/to/appsettings.Development.json",
+			"Target JSON path: services.database.primary.connectionStrings.defaultConnection.value",
+		}}},
+		Actions: []Action{{Key: "Enter", Label: "Apply selected profile with a deliberately long action label"}},
+		Width:   40,
+	})
+
+	for _, line := range strings.Split(got, "\n") {
+		if len([]rune(line)) > 40 {
+			t.Fatalf("line %q has width %d, want at most 40", line, len([]rune(line)))
+		}
+	}
+}

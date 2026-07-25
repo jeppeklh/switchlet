@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -40,26 +39,15 @@ func (model Model) listView() string {
 
 	return RenderShell(Shell{
 		Title:    "Switchlet",
-		Subtitle: "Select a profile",
+		Subtitle: "Switch a named profile safely",
+		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profiles", Lines: profileLines},
+			{Title: "Profiles", Lines: profileLines, Focused: true},
 			{Title: "Selected", Lines: model.selectionSummaryLines()},
 		},
 		Actions: model.listActions(),
 		Width:   model.width,
 	})
-}
-
-func (model Model) statusLine() string {
-	selectedProfile, ok := model.selectedProfile()
-	if !ok {
-		return "Status: No profile selected"
-	}
-	if !selectedProfile.Available {
-		return "Status: " + selectedProfile.UnavailableReason
-	}
-
-	return fmt.Sprintf("Status: Selected %q", selectedProfile.Name)
 }
 
 func (model Model) listActions() []Action {
@@ -80,6 +68,9 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 	rows := make([]ListRow, 0, len(model.profiles))
 	for index, item := range model.profiles {
 		state := RowNormal
+		if !item.Available {
+			state = RowDisabled
+		}
 		if index == model.cursor {
 			state = selectedState
 		}
@@ -101,12 +92,11 @@ func (model Model) selectionSummaryLines() []string {
 	}
 
 	lines := []string{
-		RenderKeyValue("Profile", selectedProfile.Name),
+		selectedProfileTitle(selectedProfile),
+		RenderKeyValue("Status", selectedStatusLabel(selectedProfile)),
 		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
-		model.statusLine(),
-	}
-	if selectedProfile.Protected {
-		lines = append(lines, RenderKeyValue("Protection", "Protected"))
+		RenderKeyValue("Availability", availabilityLabel(selectedProfile)),
+		RenderKeyValue("Protection", protectionLabel(selectedProfile)),
 	}
 	if model.application.TargetFile() != "" {
 		lines = append(lines, RenderKeyValue("Target file", model.application.TargetFile()))
@@ -114,9 +104,18 @@ func (model Model) selectionSummaryLines() []string {
 	if model.application.TargetPath() != "" {
 		lines = append(lines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
 	}
-	lines = append(lines, fmt.Sprintf("Enter %s.", strings.ToLower(enterActionLabel(selectedProfile))))
+	lines = append(lines, RenderKeyValue("Action", actionDescription(selectedProfile)))
 
 	return lines
+}
+
+func selectedProfileTitle(profile app.ProfileItem) string {
+	badges := RenderBadges(profileBadges(profile))
+	if badges == "" {
+		return profile.Name
+	}
+
+	return profile.Name + " " + badges
 }
 
 func profileBadges(profile app.ProfileItem) []Badge {
@@ -173,18 +172,28 @@ func (model Model) inspectionView() string {
 		profileLines = append(profileLines, RenderKeyValue("Environment variable", selectedProfile.EnvironmentVariableName))
 	}
 	profileLines = append(profileLines, RenderKeyValue("Protection", protectionLabel(selectedProfile)))
+	profileLines = append(profileLines, RenderKeyValue("Availability", availabilityLabel(selectedProfile)))
+	if model.application.TargetFile() != "" {
+		profileLines = append(profileLines, RenderKeyValue("Target file", model.application.TargetFile()))
+	}
+	if model.application.TargetPath() != "" {
+		profileLines = append(profileLines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
+	}
 
 	valueLines := []string{"Masked value:", maskedValueLabel(selectedProfile)}
 	if selectedProfile.UnavailableReason != "" {
 		valueLines = append(valueLines, "", "Resolution error:", selectedProfile.UnavailableReason)
 	}
+	profileLines = append(profileLines, "")
+	profileLines = append(profileLines, valueLines...)
 
 	return RenderShell(Shell{
-		Title:    "Inspect Profile",
-		Subtitle: "Review the selected profile before applying it.",
+		Title:    "Switchlet",
+		Subtitle: "Inspect Profile",
+		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profile", Lines: profileLines},
-			{Title: "Value", Lines: valueLines},
+			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			{Title: "Profile detail", Lines: profileLines, Focused: true},
 		},
 		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}},
 		Width:   model.width,
@@ -204,11 +213,15 @@ func (model Model) confirmationView() string {
 	if model.application.TargetPath() != "" {
 		lines = append(lines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
 	}
-	lines = append(lines, "", "This will modify the configured target value.", "Press Enter or y to confirm.")
+	lines = append(lines, "", "This will modify the configured target value.", "The resolved value is not shown here.", "Press Enter or y to confirm.")
 
 	return RenderShell(Shell{
-		Title:   "Apply protected profile?",
-		Panels:  []Panel{{Title: "Confirmation", Lines: lines}},
+		Title:    "Apply protected profile?",
+		Metadata: model.targetMetadata(),
+		Panels: []Panel{
+			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			{Title: "Confirmation", Lines: lines, Focused: true},
+		},
 		Actions: []Action{{Key: "Enter/y", Label: "Confirm"}, {Key: "n/Esc/q", Label: "Cancel"}},
 		Width:   model.width,
 	})
@@ -227,13 +240,18 @@ func enterActionLabel(profile app.ProfileItem) string {
 
 func (model Model) errorView() string {
 	return RenderShell(Shell{
-		Title: "Error",
-		Panels: []Panel{{Title: "Recoverable error", Lines: []string{
-			model.errorMessage,
-			"",
-			"Press any key to return",
-		}}},
-		Actions: []Action{{Key: "q", Label: "Quit"}},
+		Title:    "Switchlet",
+		Subtitle: "Recoverable error",
+		Metadata: model.targetMetadata(),
+		Panels: []Panel{
+			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			{Title: "Error", Lines: []string{
+				model.errorMessage,
+				"",
+				"Press any key to return",
+			}, Focused: true},
+		},
+		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
 		Width:   model.width,
 	})
 }
@@ -244,14 +262,27 @@ func (model Model) successView() string {
 	}
 
 	return RenderShell(Shell{
-		Title: "Applied profile successfully.",
+		Title:    "Switchlet",
+		Subtitle: "Applied profile successfully.",
 		Panels: []Panel{{Title: "Result", Lines: []string{
 			RenderKeyValue("Applied profile", model.successResult.ProfileName),
 			"Updated target:",
 			model.successResult.TargetPath,
-		}}},
+		}, Focused: true}},
 		Width: model.width,
 	})
+}
+
+func (model Model) targetMetadata() []string {
+	metadata := make([]string, 0, 2)
+	if model.application.TargetFile() != "" {
+		metadata = append(metadata, model.application.TargetFile())
+	}
+	if model.application.TargetPath() != "" {
+		metadata = append(metadata, model.application.TargetPath())
+	}
+
+	return metadata
 }
 
 func sourceLabel(source app.ProfileSource) string {
@@ -267,10 +298,37 @@ func sourceLabel(source app.ProfileSource) string {
 
 func protectionLabel(profile app.ProfileItem) string {
 	if profile.Protected {
-		return "Protected"
+		return "Required"
 	}
 
-	return "Not protected"
+	return "Not required"
+}
+
+func selectedStatusLabel(profile app.ProfileItem) string {
+	if !profile.Available {
+		return profile.UnavailableReason
+	}
+
+	return fmt.Sprintf("Selected %q", profile.Name)
+}
+
+func availabilityLabel(profile app.ProfileItem) string {
+	if !profile.Available {
+		return "Unavailable"
+	}
+
+	return "Ready to apply"
+}
+
+func actionDescription(profile app.ProfileItem) string {
+	switch {
+	case !profile.Available:
+		return "Enter shows the recoverable error."
+	case profile.Protected:
+		return "Enter opens confirmation."
+	default:
+		return "Enter applies this profile."
+	}
 }
 
 func maskedValueLabel(profile app.ProfileItem) string {

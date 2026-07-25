@@ -34,6 +34,22 @@ func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 	}
 }
 
+func TestView_TooSmallTerminalMessageStaysWithinReportedWidth(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 10})
+	model = updatedModel.(Model)
+
+	for _, line := range strings.Split(model.View(), "\n") {
+		if len([]rune(line)) > 20 {
+			t.Fatalf("line %q has width %d, want at most 20", line, len([]rune(line)))
+		}
+	}
+}
+
 func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`

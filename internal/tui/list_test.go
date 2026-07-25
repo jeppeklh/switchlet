@@ -32,8 +32,11 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	if !strings.Contains(view, "> Local") {
 		t.Fatalf("View() = %q, want selected Local profile", view)
 	}
-	if !strings.Contains(view, "Production [protected] [unavailable]") {
+	if !strings.Contains(view, "x Production [protected] [unavailable]") {
 		t.Fatalf("View() = %q, want protected and unavailable indicators", view)
+	}
+	if !strings.Contains(view, "* Profiles") {
+		t.Fatalf("View() = %q, want focused profiles panel", view)
 	}
 }
 
@@ -52,6 +55,67 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	}
 	if !strings.Contains(view, "Enter Continue") {
 		t.Fatalf("View() = %q, want Enter help text that matches the protected flow", view)
+	}
+}
+
+func TestView_ListViewUsesSplitLayoutAtComfortableWidth(t *testing.T) {
+	model := New(app.New(
+		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("postgres://local")},
+			{Name: "Production", ValueFromEnv: stringPointer("MISSING_CONNECTION_STRING"), Protected: true},
+		},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	if !lineContains(view, "* Profiles", "Selected") {
+		t.Fatalf("View() = %q, want wide split layout with profile list and selected context on the same row", view)
+	}
+	if !strings.Contains(view, "config/development.json") {
+		t.Fatalf("View() = %q, want target file context in header or details", view)
+	}
+	if !strings.Contains(view, "database.primary.url") {
+		t.Fatalf("View() = %q, want target JSON path context in header or details", view)
+	}
+}
+
+func TestView_ListViewStacksBeforeLayoutBecomesCramped(t *testing.T) {
+	model := New(app.New(
+		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://local")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	if lineContains(view, "* Profiles", "Selected") {
+		t.Fatalf("View() = %q, want stacked layout at minimum supported width", view)
+	}
+	if !strings.Contains(view, "* Profiles") || !strings.Contains(view, "Selected") {
+		t.Fatalf("View() = %q, want both stacked main regions", view)
+	}
+}
+
+func TestView_LongMainScreenContentStaysWithinTerminalWidth(t *testing.T) {
+	model := New(app.New(
+		config.Target{
+			File:     "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json",
+			JSONPath: "services.database.primary.connectionStrings.defaultConnection.value",
+		},
+		[]config.Profile{{Name: "A profile with a very long name that should not break the shell", Value: stringPointer("postgres://local")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	for _, line := range strings.Split(model.View(), "\n") {
+		if len([]rune(line)) > 80 {
+			t.Fatalf("line %q has width %d, want at most 80", line, len([]rune(line)))
+		}
 	}
 }
 
