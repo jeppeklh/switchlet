@@ -7,8 +7,9 @@ import (
 )
 
 type applyCompletedMsg struct {
-	result app.Result
-	err    error
+	requestID int
+	result    app.Result
+	err       error
 }
 
 // Update handles user input and application results.
@@ -26,6 +27,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.isTerminalTooSmall() {
 			return model.handleTooSmallTerminalKey(message)
+		}
+		if model.isApplying() {
+			return model, nil
 		}
 
 		switch model.state {
@@ -72,6 +76,11 @@ func (model Model) handleTooSmallTerminalKey(message tea.KeyMsg) (tea.Model, tea
 }
 
 func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, tea.Cmd) {
+	if message.requestID != model.applyRequestID || !model.isApplying() {
+		return model, nil
+	}
+
+	model.applyingProfile = ""
 	if message.err != nil {
 		model.state = errorState
 		model.errorMessage = message.err.Error()
@@ -155,7 +164,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 
-		return model, applySelectedProfile(model.application, selectedProfile.Name)
+		return model.startApplyingSelectedProfile(selectedProfile)
 	default:
 		return model, nil
 	}
@@ -188,12 +197,26 @@ func (model Model) applyOrConfirmSelectedProfile() (tea.Model, tea.Cmd) {
 		return model, nil
 	}
 
-	return model, applySelectedProfile(model.application, selectedProfile.Name)
+	return model.startApplyingSelectedProfile(selectedProfile)
 }
 
-func applySelectedProfile(application app.Application, profileName string) tea.Cmd {
+func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem) (tea.Model, tea.Cmd) {
+	model.applyingProfile = selectedProfile.Name
+	model.applyRequestID++
+	model.errorMessage = ""
+	model.successResult = nil
+	model.state = listState
+
+	return model, applySelectedProfile(model.application, selectedProfile.Name, model.applyRequestID)
+}
+
+func (model Model) isApplying() bool {
+	return model.applyingProfile != ""
+}
+
+func applySelectedProfile(application app.Application, profileName string, requestID int) tea.Cmd {
 	return func() tea.Msg {
 		result, err := application.ApplyProfileByName(profileName)
-		return applyCompletedMsg{result: result, err: err}
+		return applyCompletedMsg{requestID: requestID, result: result, err: err}
 	}
 }

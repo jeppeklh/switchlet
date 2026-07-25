@@ -1,0 +1,361 @@
+package tui
+
+import (
+	"strings"
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/config"
+)
+
+func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{
+			{
+				Name: "Database Only",
+				Values: []config.ProfileValue{
+					{Target: "database", Value: stringPointer("postgres://local")},
+				},
+			},
+			{
+				Name:      "Staging",
+				Protected: true,
+				Values: []config.ProfileValue{
+					{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")},
+					{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+				},
+			},
+		},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	for _, expected := range []string{
+		"2 configured targets",
+		"Selected: 1 of 2 targets",
+		"> Database Only [1 target] [partial]",
+		"Changes: 1 of 2 targets",
+		"Affected targets",
+		"database",
+		"Enter: Apply this profile.",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want target-aware list detail %q", view, expected)
+		}
+	}
+}
+
+func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
+	t.Setenv("STAGING_DATABASE_URL", "Server=staging;Database=App;Password=super-secret;")
+
+	databasePath := "/workspace/backend/appsettings.Development.json"
+	frontendPath := "/workspace/frontend/.env.local"
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name:      "Staging",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Inspect Profile",
+		"Changes: 2 targets",
+		databasePath,
+		"database [json] -> database.url",
+		"Environment variable: STAGING_DATABASE_URL",
+		"Value: Server=staging;Database=App;Password=****;",
+		frontendPath,
+		"frontendApi [dotenv] -> VITE_API_URL",
+		"Value: https://api.staging.example.test",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want multi-target inspection detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "super-secret") {
+		t.Fatalf("View() = %q, must not include unmasked secret", view)
+	}
+}
+
+func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
+	databasePath := "/workspace/backend/appsettings.Development.json"
+	frontendPath := "/workspace/frontend/.env.local"
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name:      "Production",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("Server=prod;Database=App;Password=super-secret;")},
+				{Target: "frontendApi", Value: stringPointer("https://api.production.example.test")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Apply protected profile?",
+		"Changes: 2 targets",
+		"This will update configured targets only.",
+		"Resolved values are intentionally hidden.",
+		databasePath,
+		"database [json] -> database.url",
+		frontendPath,
+		"frontendApi [dotenv] -> VITE_API_URL",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want confirmation detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{"super-secret", "Password=****", "https://api.production.example.test"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain resolved value %q", view, forbidden)
+		}
+	}
+}
+
+func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\nVITE_FEATURES=local\n")
+
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://staging")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want apply command")
+	}
+
+	message := command()
+	updatedModel, quitCommand := updatedModel.Update(message)
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want success quit command")
+	}
+	if model.state != successState {
+		t.Fatalf("state = %d, want successState", model.state)
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Applied profile: Staging",
+		"Updated targets: 2",
+		"database [json] ->",
+		"jsonPath: database.url",
+		"frontendApi [dotenv] ->",
+		"key: VITE_API_URL",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want target-aware success detail %q", view, expected)
+		}
+	}
+
+	finalMessage := model.FinalMessage()
+	for _, expected := range []string{
+		"Applied profile: Staging",
+		"Updated targets: 2",
+		"database -> " + databasePath,
+		"frontendApi -> " + frontendPath,
+	} {
+		if !strings.Contains(finalMessage, expected) {
+			t.Fatalf("FinalMessage() = %q, want target-aware final detail %q", finalMessage, expected)
+		}
+	}
+	if !strings.Contains(string(readFile(t, databasePath)), "postgres://staging") {
+		t.Fatalf("database file was not updated")
+	}
+	if !strings.Contains(string(readFile(t, frontendPath)), "VITE_API_URL=https://api.staging.example.test") {
+		t.Fatalf("frontend file was not updated")
+	}
+}
+
+func TestUpdate_UnavailableMultiTargetProfileIdentifiesFailingTarget(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no apply command for unavailable profile")
+	}
+	if model.state != errorState {
+		t.Fatalf("state = %d, want errorState", model.state)
+	}
+
+	view := model.View()
+	for _, expected := range []string{"Unavailable target: database", "Environment variable: STAGING_DATABASE_URL", "Target reason:"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want unavailable target detail %q", view, expected)
+		}
+	}
+}
+
+func TestUpdate_StartsApplyThroughCommandAndShowsImmediateFeedback(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command")
+	}
+	if model.applyingProfile != "Local" {
+		t.Fatalf("applyingProfile = %q, want Local", model.applyingProfile)
+	}
+	if strings.Contains(string(readFile(t, targetPath)), "https://new.example.test") {
+		t.Fatal("target changed before returned apply command was executed")
+	}
+
+	view := model.View()
+	for _, expected := range []string{"State: Applying", "Enter: Applying now.", "Ctrl+C Exit immediately"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want immediate apply feedback %q", view, expected)
+		}
+	}
+}
+
+func TestUpdate_IgnoresStaleApplyResult(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command")
+	}
+
+	staleMessage := applyCompletedMsg{
+		requestID: model.applyRequestID - 1,
+		result:    app.Result{ProfileName: "Stale", TargetPath: "stale.path"},
+	}
+	updatedModel, staleCommand := model.Update(staleMessage)
+	model = updatedModel.(Model)
+	if staleCommand != nil {
+		t.Fatal("staleCommand is not nil, want ignored stale result")
+	}
+	if model.state != listState || model.successResult != nil || model.applyingProfile != "Local" {
+		t.Fatalf("model after stale result = %#v, want in-progress Local apply", model)
+	}
+
+	message := command()
+	updatedModel, quitCommand := model.Update(message)
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want success quit command")
+	}
+	if model.state != successState || model.successResult == nil || model.successResult.ProfileName != "Local" {
+		t.Fatalf("model after current result = %#v, want Local success", model)
+	}
+}
+
+func TestView_MultiTargetViewsFitHostileDimensions(t *testing.T) {
+	t.Setenv("LONG_DATABASE_URL", "Server=very-long-hostname.example.test;Database=Application;Password=super-secret;")
+
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database-with-a-very-long-target-name", File: "/very/long/project/path/backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
+			{Name: "frontend-api-with-a-very-long-target-name", File: "/very/long/project/path/frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
+		},
+		[]config.Profile{{
+			Name:      "Production profile with a very long display name",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database-with-a-very-long-target-name", ValueFromEnv: stringPointer("LONG_DATABASE_URL")},
+				{Target: "frontend-api-with-a-very-long-target-name", Value: stringPointer("https://api.production.example.test/with/a/long/path")},
+			},
+		}},
+	))
+
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 120, height: 40},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+		{width: 40, height: 15},
+	} {
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+		resizedModel := updatedModel.(Model)
+		assertVisibleWidth(t, resizedModel.View(), size.width)
+
+		if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
+			continue
+		}
+
+		updatedModel, _ = resizedModel.Update(runeKey('i'))
+		inspectionModel := updatedModel.(Model)
+		assertVisibleWidth(t, inspectionModel.View(), size.width)
+
+		updatedModel, _ = inspectionModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		confirmationModel := updatedModel.(Model)
+		assertVisibleWidth(t, confirmationModel.View(), size.width)
+	}
+}

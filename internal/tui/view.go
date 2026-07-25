@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -51,6 +52,10 @@ func (model Model) listView() string {
 }
 
 func (model Model) listActions() []Action {
+	if model.isApplying() {
+		return []Action{{Key: "Ctrl+C", Label: "Exit immediately"}}
+	}
+
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
 		return []Action{{Key: "q", Label: "Quit"}}
@@ -64,27 +69,6 @@ func (model Model) listActions() []Action {
 	}
 }
 
-func (model Model) profileRows(selectedState RowState) []ListRow {
-	rows := make([]ListRow, 0, len(model.profiles))
-	for index, item := range model.profiles {
-		state := RowNormal
-		if !item.Available {
-			state = RowDisabled
-		}
-		if index == model.cursor {
-			state = selectedState
-		}
-
-		rows = append(rows, ListRow{
-			Label:  item.Name,
-			State:  state,
-			Badges: profileBadges(item),
-		})
-	}
-
-	return rows
-}
-
 func (model Model) selectionSummaryLines() []string {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
@@ -96,61 +80,68 @@ func (model Model) selectionSummaryLines() []string {
 
 	lines := []string{
 		RenderKeyValue("Profile", selectedProfileTitle(selectedProfile)),
-		RenderKeyValue("State", availabilityLabel(selectedProfile)),
+		RenderKeyValue("State", model.profileStateLabel(selectedProfile)),
+	}
+	if selectedProfile.TargetCount > 0 {
+		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
+	}
+	lines = append(lines,
 		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
 		RenderKeyValue("Protection", protectionLabel(selectedProfile)),
-		RenderKeyValue("Enter", actionDescription(selectedProfile)),
-	}
+		RenderKeyValue("Enter", model.actionDescription(selectedProfile)),
+	)
 	if !selectedProfile.Available && selectedProfile.UnavailableReason != "" {
 		lines = append(lines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
 	}
 
-	lines = appendTargetContextLines(lines, model)
+	if shouldShowTargetCount(selectedProfile) {
+		lines = append(lines, "", "Affected targets")
+		lines = append(lines, targetNamePreviewLines(selectedProfile.Values, 4)...)
+	} else {
+		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
+	}
 
 	return lines
 }
 
-func appendTargetContextLines(lines []string, model Model) []string {
-	if model.application.TargetFile() == "" && model.application.TargetPath() == "" {
+func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, model Model) []string {
+	targetFile := model.application.TargetFile()
+	selectorName := "jsonPath"
+	selector := model.application.TargetPath()
+
+	if valueItem, ok := singleProfileValue(profile); ok {
+		if valueItem.TargetFile != "" {
+			targetFile = valueItem.TargetFile
+		}
+		if valueItem.SelectorName != "" {
+			selectorName = valueItem.SelectorName
+		}
+		if valueItem.Selector != "" {
+			selector = valueItem.Selector
+		}
+	}
+
+	if targetFile == "" && selector == "" {
 		return lines
 	}
 
 	lines = append(lines, "", "Target")
-	if model.application.TargetFile() != "" {
-		lines = append(lines, RenderKeyValue("Target file", model.application.TargetFile()))
+	if targetFile != "" {
+		lines = append(lines, RenderKeyValue("Target file", targetFile))
 	}
-	if model.application.TargetPath() != "" {
-		lines = append(lines, RenderKeyValue("Target JSON path", model.application.TargetPath()))
+	if selector != "" {
+		lines = append(lines, RenderKeyValue(targetSelectorDisplayLabel(selectorName), selector))
 	}
 
 	return lines
 }
 
-func selectedProfileTitle(profile app.ProfileItem) string {
-	badges := RenderBadges(profileBadges(profile))
-	if badges == "" {
-		return profile.Name
+func singleProfileValue(profile app.ProfileItem) (app.ProfileValueItem, bool) {
+	if len(profile.Values) != 1 {
+		return app.ProfileValueItem{}, false
 	}
 
-	return profile.Name + " " + badges
-}
-
-func profileBadges(profile app.ProfileItem) []Badge {
-	badges := make([]Badge, 0, 3)
-	if profile.Protected {
-		badges = append(badges, Badge{Label: "protected"})
-	}
-	if !profile.Available {
-		badges = append(badges, Badge{Label: "unavailable"})
-	}
-	switch profile.Source {
-	case app.ProfileSourceEnvironment:
-		badges = append(badges, Badge{Label: "env"})
-	case app.ProfileSourceLiteral:
-		badges = append(badges, Badge{Label: "literal"})
-	}
-
-	return badges
+	return profile.Values[0], true
 }
 
 func (model Model) isTerminalTooSmall() bool {
@@ -186,6 +177,9 @@ func (model Model) inspectionView() string {
 		RenderKeyValue("State", availabilityLabel(selectedProfile)),
 		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
 	}
+	if selectedProfile.TargetCount > 0 {
+		profileLines = append(profileLines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
+	}
 	if selectedProfile.EnvironmentVariableName != "" {
 		profileLines = append(profileLines, RenderKeyValue("Environment variable", selectedProfile.EnvironmentVariableName))
 	}
@@ -194,13 +188,18 @@ func (model Model) inspectionView() string {
 		profileLines = append(profileLines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
 	}
 
-	profileLines = appendTargetContextLines(profileLines, model)
+	if shouldShowTargetCount(selectedProfile) {
+		profileLines = append(profileLines, "", "Planned changes")
+		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values)...)
+	} else {
+		profileLines = appendSingleTargetContextLines(profileLines, selectedProfile, model)
 
-	valueLines := []string{"", "Value preview", RenderKeyValue("Masked value", maskedValueLabel(selectedProfile))}
-	if selectedProfile.UnavailableReason != "" {
-		valueLines = append(valueLines, "", "Resolution error:", selectedProfile.UnavailableReason)
+		valueLines := []string{"", "Value preview", RenderKeyValue("Masked value", maskedValueLabel(selectedProfile))}
+		if selectedProfile.UnavailableReason != "" {
+			valueLines = append(valueLines, "", "Resolution error:", selectedProfile.UnavailableReason)
+		}
+		profileLines = append(profileLines, valueLines...)
 	}
-	profileLines = append(profileLines, valueLines...)
 
 	return RenderShell(Shell{
 		Title:    "Switchlet",
@@ -225,13 +224,26 @@ func (model Model) confirmationView() string {
 		RenderKeyValue("Profile", selectedProfile.Name),
 		RenderKeyValue("Protection", "Required"),
 	}
-	lines = appendTargetContextLines(lines, model)
-	lines = append(lines,
-		"",
-		"This will update only the configured target value.",
-		"The resolved value is intentionally hidden.",
-		"Press Enter or y to confirm.",
-	)
+	if shouldShowTargetCount(selectedProfile) {
+		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
+		lines = append(lines,
+			"",
+			"This will update configured targets only.",
+			"Resolved values are intentionally hidden.",
+			"",
+			"Affected targets",
+		)
+		lines = append(lines, profileValueTargetLines(selectedProfile.Values)...)
+		lines = append(lines, "", "Press Enter or y to confirm.")
+	} else {
+		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
+		lines = append(lines,
+			"",
+			"This will update only the configured target value.",
+			"The resolved value is intentionally hidden.",
+			"Press Enter or y to confirm.",
+		)
+	}
 
 	return RenderShell(Shell{
 		Title:    "Apply protected profile?",
@@ -283,8 +295,8 @@ func (model Model) recoverableErrorLines(errorMessage string) []string {
 		"",
 		"Recovery",
 	}
-	if selectedProfile, ok := model.selectedProfile(); ok && !selectedProfile.Available && selectedProfile.EnvironmentVariableName != "" {
-		lines = append(lines, RenderKeyValue("Environment variable", selectedProfile.EnvironmentVariableName))
+	if selectedProfile, ok := model.selectedProfile(); ok {
+		lines = append(lines, recoverableProfileContextLines(selectedProfile)...)
 	}
 	lines = append(lines,
 		"Fix the selected profile or target, then try again.",
@@ -311,10 +323,18 @@ func successLines(result *app.Result) []string {
 	lines := []string{
 		RenderKeyValue("Applied profile", result.ProfileName),
 	}
-	if result.TargetFile != "" {
-		lines = append(lines, RenderKeyValue("Target file", result.TargetFile))
+	if isSingleTargetResult(*result) {
+		if singleResultTargetFile(*result) != "" {
+			lines = append(lines, RenderKeyValue("Target file", singleResultTargetFile(*result)))
+		}
+		lines = append(lines, "Updated target:", singleResultSelector(*result), "", "Switchlet will now exit.")
+
+		return lines
 	}
-	lines = append(lines, "Updated target:", result.TargetPath, "", "Switchlet will now exit.")
+
+	lines = append(lines, RenderKeyValue("Updated targets", fmt.Sprintf("%d", len(result.Changes))))
+	lines = append(lines, resultChangeLines(result.Changes)...)
+	lines = append(lines, "", "Switchlet will now exit.")
 
 	return lines
 }
@@ -325,10 +345,27 @@ func (model Model) FinalMessage() string {
 		return ""
 	}
 
-	return fmt.Sprintf("Applied profile: %s\n\nUpdated target:\n%s\n", model.successResult.ProfileName, model.successResult.TargetPath)
+	if isSingleTargetResult(*model.successResult) {
+		return fmt.Sprintf("Applied profile: %s\n\nUpdated target:\n%s\n", model.successResult.ProfileName, singleResultSelector(*model.successResult))
+	}
+
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Applied profile: %s\n\nUpdated targets: %d\n", model.successResult.ProfileName, len(model.successResult.Changes))
+	for _, change := range model.successResult.Changes {
+		fmt.Fprintf(&builder, "%s -> %s\n", targetNameLabel(change.TargetName), change.TargetFile)
+	}
+
+	return builder.String()
 }
 
 func (model Model) targetMetadata() []string {
+	if selectedProfile, ok := model.selectedProfile(); ok && selectedProfile.TotalTargets > 1 {
+		return []string{
+			fmt.Sprintf("%d configured targets", selectedProfile.TotalTargets),
+			"Selected: " + changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets),
+		}
+	}
+
 	metadata := make([]string, 0, 2)
 	if model.application.TargetFile() != "" {
 		metadata = append(metadata, model.application.TargetFile())
@@ -369,7 +406,19 @@ func availabilityLabel(profile app.ProfileItem) string {
 	return "Ready to apply"
 }
 
-func actionDescription(profile app.ProfileItem) string {
+func (model Model) profileStateLabel(profile app.ProfileItem) string {
+	if model.isApplyingSelectedProfile(profile) {
+		return "Applying"
+	}
+
+	return availabilityLabel(profile)
+}
+
+func (model Model) actionDescription(profile app.ProfileItem) string {
+	if model.isApplyingSelectedProfile(profile) {
+		return "Applying now."
+	}
+
 	switch {
 	case !profile.Available:
 		return "Show recovery details."
