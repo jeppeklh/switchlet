@@ -19,6 +19,43 @@ func replaceStringValue(contents []byte, jsonPath string, replacementValue strin
 
 	targetObject[targetKey] = replacementValue
 
+	return serializeJSONRoot(rootObject)
+}
+
+func replaceJSONTargetValues(contents []byte, changes []TargetChange) ([]byte, error) {
+	rootObject, err := parseRootObject(contents)
+	if err != nil {
+		return nil, targetError(changes[0].Target, err)
+	}
+
+	updates := make([]jsonStringValueUpdate, 0, len(changes))
+	for _, change := range changes {
+		targetObject, targetKey, err := findStringTarget(rootObject, change.Target.JSONPath)
+		if err != nil {
+			return nil, targetError(change.Target, err)
+		}
+
+		updates = append(updates, jsonStringValueUpdate{
+			targetObject:     targetObject,
+			targetKey:        targetKey,
+			replacementValue: change.Value,
+		})
+	}
+
+	for _, update := range updates {
+		update.targetObject[update.targetKey] = update.replacementValue
+	}
+
+	return serializeJSONRoot(rootObject)
+}
+
+type jsonStringValueUpdate struct {
+	targetObject     map[string]any
+	targetKey        string
+	replacementValue string
+}
+
+func serializeJSONRoot(rootObject map[string]any) ([]byte, error) {
 	updatedContents, err := json.MarshalIndent(rootObject, "", "  ")
 	if err != nil {
 		return nil, fmt.Errorf("serialize updated JSON: %w", err)
@@ -28,26 +65,35 @@ func replaceStringValue(contents []byte, jsonPath string, replacementValue strin
 }
 
 func parseStringTarget(contents []byte, jsonPath string) (map[string]any, map[string]any, string, error) {
-	pathSegments, err := config.ParseJSONPath(jsonPath)
-	if err != nil {
-		return nil, nil, "", fmt.Errorf("invalid JSON path %q: %w", jsonPath, err)
-	}
-
 	rootObject, err := parseRootObject(contents)
 	if err != nil {
 		return nil, nil, "", err
+	}
+
+	targetObject, targetKey, err := findStringTarget(rootObject, jsonPath)
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	return rootObject, targetObject, targetKey, nil
+}
+
+func findStringTarget(rootObject map[string]any, jsonPath string) (map[string]any, string, error) {
+	pathSegments, err := config.ParseJSONPath(jsonPath)
+	if err != nil {
+		return nil, "", fmt.Errorf("invalid JSON path %q: %w", jsonPath, err)
 	}
 
 	currentObject := rootObject
 	for index, segment := range pathSegments[:len(pathSegments)-1] {
 		nextValue, ok := currentObject[segment]
 		if !ok {
-			return nil, nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, segment)
+			return nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, segment)
 		}
 
 		nextObject, ok := nextValue.(map[string]any)
 		if !ok {
-			return nil, nil, "", fmt.Errorf("JSON path %q cannot continue through %q because it is not an object", jsonPath, strings.Join(pathSegments[:index+1], "."))
+			return nil, "", fmt.Errorf("JSON path %q cannot continue through %q because it is not an object", jsonPath, strings.Join(pathSegments[:index+1], "."))
 		}
 
 		currentObject = nextObject
@@ -56,13 +102,13 @@ func parseStringTarget(contents []byte, jsonPath string) (map[string]any, map[st
 	targetKey := pathSegments[len(pathSegments)-1]
 	targetValue, ok := currentObject[targetKey]
 	if !ok {
-		return nil, nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, targetKey)
+		return nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, targetKey)
 	}
 	if _, ok := targetValue.(string); !ok {
-		return nil, nil, "", fmt.Errorf("JSON path %q must resolve to a string", jsonPath)
+		return nil, "", fmt.Errorf("JSON path %q must resolve to a string", jsonPath)
 	}
 
-	return rootObject, currentObject, targetKey, nil
+	return currentObject, targetKey, nil
 }
 
 func parseConnectionStringsObject(contents []byte) (map[string]any, map[string]any, error) {

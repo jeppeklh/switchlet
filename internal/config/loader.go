@@ -12,20 +12,31 @@ import (
 type fileConfig struct {
 	Version  *int          `yaml:"version"`
 	Target   fileTarget    `yaml:"target"`
+	Targets  []fileTarget  `yaml:"targets"`
 	Profiles []fileProfile `yaml:"profiles"`
 }
 
 type fileTarget struct {
+	Name           string `yaml:"name,omitempty"`
 	File           string `yaml:"file"`
+	Type           string `yaml:"type,omitempty"`
 	JSONPath       string `yaml:"jsonPath,omitempty"`
+	Key            string `yaml:"key,omitempty"`
 	ConnectionName string `yaml:"connectionName,omitempty"`
 }
 
 type fileProfile struct {
-	Name         string  `yaml:"name"`
+	Name         string             `yaml:"name"`
+	Values       []fileProfileValue `yaml:"values,omitempty"`
+	Value        *string            `yaml:"value,omitempty"`
+	ValueFromEnv *string            `yaml:"valueFromEnv,omitempty"`
+	Protected    bool               `yaml:"protected,omitempty"`
+}
+
+type fileProfileValue struct {
+	Target       string  `yaml:"target"`
 	Value        *string `yaml:"value,omitempty"`
 	ValueFromEnv *string `yaml:"valueFromEnv,omitempty"`
-	Protected    bool    `yaml:"protected,omitempty"`
 }
 
 // Load reads, validates, and resolves a Switchlet configuration file.

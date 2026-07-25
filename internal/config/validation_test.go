@@ -29,9 +29,9 @@ profiles:
 		},
 		{
 			name: "unsupported version",
-			configContent: versionTwoConfigWithVersion(3, "appsettings.Development.json", "database.primary.url", `  - name: Local
+			configContent: versionTwoConfigWithVersion(4, "appsettings.Development.json", "database.primary.url", `  - name: Local
     value: postgres://localhost:5432/myapp`),
-			wantError: "unsupported version 3",
+			wantError: "unsupported version 4",
 		},
 		{
 			name: "missing target file",
@@ -172,6 +172,249 @@ profiles: []
 	}
 }
 
+func TestLoad_ReturnsErrorForInvalidVersionThreeConfiguration(t *testing.T) {
+	tests := []struct {
+		name          string
+		configContent string
+		wantError     string
+	}{
+		{
+			name: "empty target list",
+			configContent: strings.TrimSpace(`
+version: 3
+
+targets: []
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+`) + "\n",
+			wantError: "at least one target must be configured",
+		},
+		{
+			name: "empty target name",
+			configContent: versionThreeConfig(`  - name: ""
+    file: config.json
+    type: json
+    jsonPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].name must be set",
+		},
+		{
+			name: "target name has leading whitespace",
+			configContent: versionThreeConfig(`  - name: " database"
+    file: config.json
+    type: json
+    jsonPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].name must not contain leading or trailing whitespace",
+		},
+		{
+			name: "duplicate target names",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.replicaUrl`, validVersionThreeProfiles()),
+			wantError: `duplicate target name "database"`,
+		},
+		{
+			name: "missing target file",
+			configContent: versionThreeConfig(`  - name: database
+    type: json
+    jsonPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].file must be set",
+		},
+		{
+			name: "unsupported target type",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.yaml
+    type: yaml
+    jsonPath: database.url`, validVersionThreeProfiles()),
+			wantError: `targets[0].type "yaml" is not supported`,
+		},
+		{
+			name: "ambiguous target type inference",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.local
+    jsonPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].type must be set because target type cannot be inferred",
+		},
+		{
+			name: "json target missing json path",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.json
+    type: json`, validVersionThreeProfiles()),
+			wantError: "targets[0].jsonPath must be set for json targets",
+		},
+		{
+			name: "json target rejects key",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+    key: DATABASE_URL`, validVersionThreeProfiles()),
+			wantError: "targets[0].key is only supported for dotenv targets",
+		},
+		{
+			name: "dotenv target missing key",
+			configContent: versionThreeConfig(`  - name: frontendApi
+    file: .env
+    type: dotenv
+    key: ""`, `  - name: Local
+    values:
+      - target: frontendApi
+        value: http://localhost:5173`),
+			wantError: "targets[0].key must be set for dotenv targets",
+		},
+		{
+			name: "dotenv target rejects invalid key syntax",
+			configContent: versionThreeConfig(`  - name: frontendApi
+    file: .env
+    type: dotenv
+    key: 1INVALID`, `  - name: Local
+    values:
+      - target: frontendApi
+        value: http://localhost:5173`),
+			wantError: "targets[0].key is invalid",
+		},
+		{
+			name: "dotenv target rejects json path",
+			configContent: versionThreeConfig(`  - name: frontendApi
+    file: .env
+    type: dotenv
+    key: VITE_API_URL
+    jsonPath: services.api.url`, `  - name: Local
+    values:
+      - target: frontendApi
+        value: http://localhost:5173`),
+			wantError: "targets[0].jsonPath is only supported for json targets",
+		},
+		{
+			name: "duplicate target location",
+			configContent: versionThreeConfig(`  - name: primaryDatabase
+    file: config.json
+    type: json
+    jsonPath: database.url
+  - name: replicaDatabase
+    file: config.json
+    type: json
+    jsonPath: database.url`, `  - name: Local
+    values:
+      - target: primaryDatabase
+        value: postgres://localhost:5432/myapp`),
+			wantError: "duplicates target location",
+		},
+		{
+			name:          "profile values required",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local`),
+			wantError:     `profile "Local" must include at least one value`,
+		},
+		{
+			name: "unknown profile target reference",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    values:
+      - target: missing
+        value: postgres://localhost:5432/myapp`),
+			wantError: `profile "Local" values[0].target "missing" is not configured`,
+		},
+		{
+			name: "duplicate profile target values",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+      - target: database
+        value: postgres://localhost:5433/myapp`),
+			wantError: `profile "Local" has duplicate value for target "database"`,
+		},
+		{
+			name: "profile value with both value fields",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+        valueFromEnv: MYAPP_DATABASE_URL`),
+			wantError: `profile "Local" value for target "database" must define exactly one of value or valueFromEnv`,
+		},
+		{
+			name: "profile value with neither value field",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    values:
+      - target: database`),
+			wantError: `profile "Local" value for target "database" must define exactly one of value or valueFromEnv`,
+		},
+		{
+			name: "profile value empty environment variable name",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    values:
+      - target: database
+        valueFromEnv: "   "`),
+			wantError: `profile "Local" value for target "database" valueFromEnv must be set`,
+		},
+		{
+			name: "version three rejects top-level profile value",
+			configContent: versionThreeConfig(validVersionThreeTargets(), `  - name: Local
+    value: postgres://localhost:5432/myapp`),
+			wantError: `profile "Local" must define target values under values in version 3`,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			configPath := writeFile(t, projectRoot, ".switchlet.yaml", testCase.configContent)
+
+			_, err := config.Load(configPath)
+			if err == nil {
+				t.Fatal("Load returned nil error, want validation error")
+			}
+
+			if !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("Load returned error %q, want substring %q", err, testCase.wantError)
+			}
+		})
+	}
+}
+
+func TestLoad_InfersVersionThreeTargetTypesFromUnambiguousFileNames(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config/appsettings.json
+    jsonPath: ConnectionStrings.DefaultConnection
+  - name: frontendApi
+    file: frontend/.env.local
+    key: VITE_API_URL
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: Server=localhost;Database=App;
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Targets[0].Type != config.TargetTypeJSON {
+		t.Fatalf("Targets[0].Type = %q, want %q", loadedConfig.Targets[0].Type, config.TargetTypeJSON)
+	}
+	if loadedConfig.Targets[1].Type != config.TargetTypeDotenv {
+		t.Fatalf("Targets[1].Type = %q, want %q", loadedConfig.Targets[1].Type, config.TargetTypeDotenv)
+	}
+}
+
 func legacyConfig(version int, targetFile string, connectionName string, profilesBlock string) string {
 	return fmt.Sprintf(strings.TrimSpace(`
 version: %d
@@ -200,4 +443,30 @@ target:
 profiles:
 %s
 `)+"\n", version, targetFile, jsonPath, profilesBlock)
+}
+
+func versionThreeConfig(targetsBlock string, profilesBlock string) string {
+	return fmt.Sprintf(strings.TrimSpace(`
+version: 3
+
+targets:
+%s
+
+profiles:
+%s
+`)+"\n", targetsBlock, profilesBlock)
+}
+
+func validVersionThreeTargets() string {
+	return `  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url`
+}
+
+func validVersionThreeProfiles() string {
+	return `  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp`
 }
