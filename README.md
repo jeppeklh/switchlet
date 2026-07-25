@@ -74,8 +74,8 @@ go build -o switchlet ./cmd/switchlet
 separately, so correcting a bad JSON path does not force you to re-enter
 the file choice.
 
-The interactive init wizard and the main profile picker are designed to
-work the same in a normal terminal and a Neovim terminal buffer.
+The interactive init wizard and the main profile picker run as a
+full-screen terminal UI.
 
 ## Commands
 
@@ -123,18 +123,6 @@ Exit behavior for non-interactive commands:
 - `q` quits from the list or closes a secondary view
 - `Ctrl+C` exits immediately from every view
 
-## Neovim Terminal
-
-Switchlet stays editor-independent. You can launch the same terminal UI
-from a Neovim terminal buffer without a separate plugin:
-
-```vim
-:terminal switchlet
-```
-
-The same inspection, protected confirmation, and key bindings apply in a
-shell terminal and a Neovim terminal buffer.
-
 ## Example Configuration
 
 ```yaml
@@ -158,21 +146,3 @@ profiles:
 
 Version `1` ASP.NET `target.connectionName` configurations are still
 supported for existing projects.
-
-## Example Output
-
-Short `--json` examples:
-
-```json
-{"profiles":[{"name":"Local","protected":false,"available":true,"source":"literal","environmentVariableName":"","maskedValue":"postgres://localhost:5432/myapp","unavailableReason":""}]}
-{"profile":{"name":"Production","protected":true,"available":true,"source":"environment","environmentVariableName":"MYAPP_PRODUCTION_DATABASE_URL","maskedValue":"Server=prod;Password=****;","unavailableReason":""}}
-{"result":{"profileName":"Production","targetPath":"database.primary.url","targetFile":"/path/to/config/development.json","protected":true,"dryRun":true}}
-```
-
-## Verification
-
-```bash
-gofmt -w .
-go test ./...
-go vet ./...
-```

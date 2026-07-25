@@ -37,7 +37,7 @@ func main() {
 		os.Exit(runtimeExitCode)
 	}
 
-	if err := runCommand(os.Args[1:], workingDirectory, startProgram, os.Stdin, os.Stdout); err != nil {
+	if err := runCommand(os.Args[1:], workingDirectory, startFullScreenProgram(os.Stdout), os.Stdin, os.Stdout); err != nil {
 		if writeErr := writeCommandError(err, os.Stdout, os.Stderr); writeErr != nil {
 			fmt.Fprintln(os.Stderr, writeErr)
 			os.Exit(runtimeExitCode)
@@ -141,9 +141,31 @@ func loadApplication(workingDirectory string) (app.Application, error) {
 	return application, nil
 }
 
-func startProgram(model tea.Model) error {
-	_, err := tea.NewProgram(model).Run()
-	return err
+func startFullScreenProgram(output io.Writer) func(tea.Model) error {
+	return func(model tea.Model) error {
+		finalModel, err := runFullScreenTerminalProgram(model)
+		if err != nil {
+			return err
+		}
+
+		if model, ok := finalModel.(tui.Model); ok {
+			if finalMessage := model.FinalMessage(); finalMessage != "" {
+				if _, err := fmt.Fprint(output, finalMessage); err != nil {
+					return fmt.Errorf("write final terminal message: %w", err)
+				}
+			}
+		}
+
+		return nil
+	}
+}
+
+func runFullScreenTerminalProgram(model tea.Model, options ...tea.ProgramOption) (tea.Model, error) {
+	programOptions := make([]tea.ProgramOption, 0, len(options)+1)
+	programOptions = append(programOptions, options...)
+	programOptions = append(programOptions, tea.WithAltScreen())
+
+	return tea.NewProgram(model, programOptions...).Run()
 }
 
 func runListCommand(workingDirectory string, args []string, output io.Writer) error {

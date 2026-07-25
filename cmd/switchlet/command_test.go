@@ -605,6 +605,7 @@ func TestREADME_ContainsInstallationAndCommandExamples(t *testing.T) {
 		"switchlet apply Production --dry-run --allow-protected",
 		"Use `--json` on `list`, `inspect`, and `apply`",
 		"No changes were written.",
+		"full-screen terminal UI",
 	} {
 		if !strings.Contains(readme, expected) {
 			t.Fatalf("README %q does not contain %q", readmePath, expected)

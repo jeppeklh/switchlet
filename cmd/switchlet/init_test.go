@@ -51,8 +51,8 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "--json") {
 		t.Fatalf("help output %q does not mention --json", output.String())
 	}
-	if !strings.Contains(output.String(), "Neovim terminal buffer") {
-		t.Fatalf("help output %q does not mention terminal-buffer support", output.String())
+	if !strings.Contains(output.String(), "full-screen terminal UI") {
+		t.Fatalf("help output %q does not mention full-screen terminal UI behavior", output.String())
 	}
 	if !strings.Contains(output.String(), "Enter/y to confirm") {
 		t.Fatalf("help output %q does not document the protected confirmation keys", output.String())
@@ -102,8 +102,8 @@ func TestRunCommand_HelpTopicInitWritesGuidedUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "project .gitignore") {
 		t.Fatalf("help output %q does not mention literal-value gitignore protection", output.String())
 	}
-	if !strings.Contains(output.String(), "Neovim terminal buffer") {
-		t.Fatalf("help output %q does not mention terminal-buffer wizard support", output.String())
+	if !strings.Contains(output.String(), "full-screen terminal UI") {
+		t.Fatalf("help output %q does not mention full-screen wizard behavior", output.String())
 	}
 }
 

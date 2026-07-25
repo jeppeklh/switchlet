@@ -134,10 +134,27 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.View(), "Updated target:\nservice.baseUrl") {
 		t.Fatalf("View() = %q, want updated target path", model.View())
 	}
+	if !strings.Contains(model.FinalMessage(), "Applied profile: Local") {
+		t.Fatalf("FinalMessage() = %q, want applied profile summary", model.FinalMessage())
+	}
+	if !strings.Contains(model.FinalMessage(), "Updated target:\nservice.baseUrl") {
+		t.Fatalf("FinalMessage() = %q, want updated target path", model.FinalMessage())
+	}
 
 	updatedContents := readFile(t, targetPath)
 	if !strings.Contains(string(updatedContents), "https://new.example.test") {
 		t.Fatalf("updated target = %q, want applied profile value", string(updatedContents))
+	}
+}
+
+func TestFinalMessage_IsEmptyUnlessApplicationSucceeded(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://local.example.test")}},
+	))
+
+	if got := model.FinalMessage(); got != "" {
+		t.Fatalf("FinalMessage() = %q, want empty message before success", got)
 	}
 }
 

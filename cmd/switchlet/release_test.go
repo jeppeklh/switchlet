@@ -23,8 +23,8 @@ func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
 	if !strings.Contains(helpResult.stdout, "switchlet list [--json]") {
 		t.Fatalf("help stdout %q does not mention list usage", helpResult.stdout)
 	}
-	if !strings.Contains(helpResult.stdout, "Neovim terminal buffer") {
-		t.Fatalf("help stdout %q does not mention terminal-buffer support", helpResult.stdout)
+	if !strings.Contains(helpResult.stdout, "full-screen terminal UI") {
+		t.Fatalf("help stdout %q does not mention full-screen terminal UI", helpResult.stdout)
 	}
 	if !strings.Contains(helpResult.stdout, "Enter/y to confirm") {
 		t.Fatalf("help stdout %q does not mention the protected confirmation keys", helpResult.stdout)

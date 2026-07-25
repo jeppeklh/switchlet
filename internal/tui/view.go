@@ -273,6 +273,15 @@ func (model Model) successView() string {
 	})
 }
 
+// FinalMessage returns the concise summary shown after the full-screen UI exits.
+func (model Model) FinalMessage() string {
+	if model.state != successState || model.successResult == nil {
+		return ""
+	}
+
+	return fmt.Sprintf("Applied profile: %s\n\nUpdated target:\n%s\n", model.successResult.ProfileName, model.successResult.TargetPath)
+}
+
 func (model Model) targetMetadata() []string {
 	metadata := make([]string, 0, 2)
 	if model.application.TargetFile() != "" {

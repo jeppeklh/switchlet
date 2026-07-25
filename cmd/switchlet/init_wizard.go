@@ -90,7 +90,7 @@ func runInitWizard(workingDirectory string, input io.Reader, output io.Writer, d
 		return initWizardResult{}, err
 	}
 
-	finalModel, err := tea.NewProgram(model, tea.WithInput(input), tea.WithOutput(output)).Run()
+	finalModel, err := runFullScreenTerminalProgram(model, tea.WithInput(input), tea.WithOutput(output))
 	if err != nil {
 		return initWizardResult{}, fmt.Errorf("run init wizard: %w", err)
 	}

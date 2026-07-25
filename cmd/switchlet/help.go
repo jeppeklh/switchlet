@@ -10,7 +10,7 @@ func usageText() string {
 	  switchlet help [command]                       Show help text
 
 	Interactive workflow:
-	  Launches the same terminal UI in a normal terminal or a Neovim terminal buffer.
+	  Launches a full-screen terminal UI for selecting and applying profiles.
 	  Protected profiles show Continue first, then require Enter/y to confirm and n/Esc/q to cancel.
 
 	Non-interactive flags:
@@ -39,8 +39,8 @@ func initHelpText() string {
 	literal profiles are configured, and validates each step before writing the
 	configuration.
 
-	The same terminal-native wizard is intended to work in a normal terminal and a
-	Neovim terminal buffer.
+	The terminal-native wizard runs as a full-screen terminal UI when standard
+	terminal interaction is available.
 
 	When standard terminal interaction is unavailable, init falls back to
 	the existing line-oriented prompt flow.
