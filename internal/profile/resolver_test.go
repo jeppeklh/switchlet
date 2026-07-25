@@ -2,6 +2,7 @@ package profile_test
 
 import (
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -74,6 +75,59 @@ func TestResolveProfile_ResolvesEnvironmentVariable(t *testing.T) {
 	}
 }
 
+func TestResolveProfile_ReturnsValuesForMultipleTargets(t *testing.T) {
+	t.Setenv("STAGING_FRONTEND_API", "https://api.staging.example.test")
+
+	configuredProfile := config.Profile{
+		Name:      "Staging",
+		Protected: true,
+		Values: []config.ProfileValue{
+			{Target: "database", Value: stringPointer("Server=db;Database=App;Password=secret;")},
+			{Target: "frontendApi", ValueFromEnv: stringPointer("STAGING_FRONTEND_API")},
+		},
+	}
+
+	resolvedProfile := profile.ResolveProfile(configuredProfile)
+
+	if !resolvedProfile.IsAvailable() {
+		t.Fatalf("IsAvailable() = false, want true (error: %v)", resolvedProfile.ResolutionError)
+	}
+	if resolvedProfile.Source != profile.ValueSourceMixed {
+		t.Fatalf("Source = %q, want %q", resolvedProfile.Source, profile.ValueSourceMixed)
+	}
+	if !resolvedProfile.Protected {
+		t.Fatal("Protected = false, want true")
+	}
+	if len(resolvedProfile.Values) != 2 {
+		t.Fatalf("len(Values) = %d, want 2", len(resolvedProfile.Values))
+	}
+
+	databaseValue := resolvedProfile.Values[0]
+	if databaseValue.Target != "database" {
+		t.Fatalf("Values[0].Target = %q, want %q", databaseValue.Target, "database")
+	}
+	if databaseValue.Source != profile.ValueSourceLiteral {
+		t.Fatalf("Values[0].Source = %q, want %q", databaseValue.Source, profile.ValueSourceLiteral)
+	}
+	if databaseValue.MaskedValue != "Server=db;Database=App;Password=****;" {
+		t.Fatalf("Values[0].MaskedValue = %q, want masked database value", databaseValue.MaskedValue)
+	}
+
+	frontendValue := resolvedProfile.Values[1]
+	if frontendValue.Target != "frontendApi" {
+		t.Fatalf("Values[1].Target = %q, want %q", frontendValue.Target, "frontendApi")
+	}
+	if frontendValue.Source != profile.ValueSourceEnvironment {
+		t.Fatalf("Values[1].Source = %q, want %q", frontendValue.Source, profile.ValueSourceEnvironment)
+	}
+	if frontendValue.EnvironmentVariableName != "STAGING_FRONTEND_API" {
+		t.Fatalf("Values[1].EnvironmentVariableName = %q, want %q", frontendValue.EnvironmentVariableName, "STAGING_FRONTEND_API")
+	}
+	if frontendValue.Value != "https://api.staging.example.test" {
+		t.Fatalf("Values[1].Value = %q, want resolved environment value", frontendValue.Value)
+	}
+}
+
 func TestResolveProfile_ReturnsUnavailableForEmptyLiteralValue(t *testing.T) {
 	configuredProfile := config.Profile{
 		Name:  "Local",
@@ -121,6 +175,45 @@ func TestResolveProfile_ReturnsUnavailableForMissingEnvironmentVariable(t *testi
 	}
 	if resolvedProfile.MaskedValue != "" {
 		t.Fatalf("MaskedValue = %q, want empty string", resolvedProfile.MaskedValue)
+	}
+}
+
+func TestResolveProfile_ReturnsUnavailableForOneMissingTargetValue(t *testing.T) {
+	t.Setenv("SWITCHLET_TEST_STAGING_FRONTEND_API", "placeholder")
+	if err := os.Unsetenv("SWITCHLET_TEST_STAGING_FRONTEND_API"); err != nil {
+		t.Fatalf("unset test environment variable: %v", err)
+	}
+
+	configuredProfile := config.Profile{
+		Name: "Staging",
+		Values: []config.ProfileValue{
+			{Target: "database", Value: stringPointer("Server=db;Database=App;Password=secret;")},
+			{Target: "frontendApi", ValueFromEnv: stringPointer("SWITCHLET_TEST_STAGING_FRONTEND_API")},
+		},
+	}
+
+	resolvedProfile := profile.ResolveProfile(configuredProfile)
+
+	if resolvedProfile.IsAvailable() {
+		t.Fatal("IsAvailable() = true, want false")
+	}
+	if !errors.Is(resolvedProfile.ResolutionError, profile.ErrEnvironmentVariableNotSet) {
+		t.Fatalf("ResolutionError = %v, want ErrEnvironmentVariableNotSet", resolvedProfile.ResolutionError)
+	}
+	if len(resolvedProfile.Values) != 2 {
+		t.Fatalf("len(Values) = %d, want 2", len(resolvedProfile.Values))
+	}
+	if resolvedProfile.Values[0].ResolutionError != nil {
+		t.Fatalf("database ResolutionError = %v, want nil", resolvedProfile.Values[0].ResolutionError)
+	}
+	if !errors.Is(resolvedProfile.Values[1].ResolutionError, profile.ErrEnvironmentVariableNotSet) {
+		t.Fatalf("frontend ResolutionError = %v, want ErrEnvironmentVariableNotSet", resolvedProfile.Values[1].ResolutionError)
+	}
+	if !strings.Contains(resolvedProfile.Values[1].ResolutionError.Error(), `target "frontendApi"`) {
+		t.Fatalf("frontend ResolutionError = %q, want target context", resolvedProfile.Values[1].ResolutionError)
+	}
+	if strings.Contains(resolvedProfile.ResolutionError.Error(), "secret") {
+		t.Fatalf("ResolutionError = %q, must not contain resolved literal secrets", resolvedProfile.ResolutionError)
 	}
 }
 

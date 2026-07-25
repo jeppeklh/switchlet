@@ -1,6 +1,10 @@
 package app
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/jeppeklh/switchlet/internal/config"
+)
 
 var (
 	// ErrProfileNotFound indicates that a requested profile name does not exist.
@@ -26,6 +30,8 @@ const (
 	ProfileSourceLiteral ProfileSource = "literal"
 	// ProfileSourceEnvironment indicates that the profile value comes from an environment variable.
 	ProfileSourceEnvironment ProfileSource = "environment"
+	// ProfileSourceMixed indicates that the profile contains literal and environment-backed values.
+	ProfileSourceMixed ProfileSource = "mixed"
 )
 
 // ProfileItem describes one configured profile for TUI and CLI callers.
@@ -37,6 +43,24 @@ type ProfileItem struct {
 	EnvironmentVariableName string
 	MaskedValue             string
 	UnavailableReason       string
+	Values                  []ProfileValueItem
+	TargetCount             int
+	TotalTargets            int
+	Partial                 bool
+}
+
+// ProfileValueItem describes one target value included by a profile.
+type ProfileValueItem struct {
+	TargetName              string
+	TargetFile              string
+	TargetType              config.TargetType
+	SelectorName            string
+	Selector                string
+	Source                  ProfileSource
+	EnvironmentVariableName string
+	MaskedValue             string
+	Available               bool
+	UnavailableReason       string
 }
 
 // Result describes a successful profile application or dry run.
@@ -46,4 +70,14 @@ type Result struct {
 	TargetFile  string
 	Protected   bool
 	DryRun      bool
+	Changes     []PlannedChange
+}
+
+// PlannedChange describes one target location included in a successful plan.
+type PlannedChange struct {
+	TargetName   string
+	TargetFile   string
+	TargetType   config.TargetType
+	SelectorName string
+	Selector     string
 }

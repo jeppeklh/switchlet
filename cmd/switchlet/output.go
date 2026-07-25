@@ -132,6 +132,8 @@ func sourceLabel(source app.ProfileSource) string {
 		return "Environment variable"
 	case app.ProfileSourceLiteral:
 		return "Literal"
+	case app.ProfileSourceMixed:
+		return "Mixed"
 	default:
 		return "Unknown"
 	}

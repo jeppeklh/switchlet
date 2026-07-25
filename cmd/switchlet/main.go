@@ -133,7 +133,7 @@ func loadApplication(workingDirectory string) (app.Application, error) {
 		return app.Application{}, err
 	}
 
-	application := app.New(loadedConfig.Target, loadedConfig.Profiles)
+	application := app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles)
 	if err := application.ValidateStartup(); err != nil {
 		return app.Application{}, err
 	}

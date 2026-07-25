@@ -43,7 +43,7 @@ func defaultInitDependencies() initDependencies {
 		createConfig:                 config.Create,
 		ensureConfigIgnored:          config.EnsureConfigIgnored,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
-			return app.New(loadedConfig.Target, loadedConfig.Profiles).ValidateStartup()
+			return app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles).ValidateStartup()
 		},
 		removeFile: os.Remove,
 	}

@@ -10,6 +10,8 @@ const (
 	ValueSourceLiteral ValueSource = "literal"
 	// ValueSourceEnvironment indicates that the profile value comes from an environment variable.
 	ValueSourceEnvironment ValueSource = "environment"
+	// ValueSourceMixed indicates that a profile contains both literal and environment-backed values.
+	ValueSourceMixed ValueSource = "mixed"
 )
 
 var (
@@ -25,6 +27,17 @@ var (
 type ResolvedProfile struct {
 	Name                    string
 	Protected               bool
+	Source                  ValueSource
+	EnvironmentVariableName string
+	Value                   string
+	MaskedValue             string
+	Values                  []ResolvedValue
+	ResolutionError         error
+}
+
+// ResolvedValue contains the resolved value for one target entry in a profile.
+type ResolvedValue struct {
+	Target                  string
 	Source                  ValueSource
 	EnvironmentVariableName string
 	Value                   string

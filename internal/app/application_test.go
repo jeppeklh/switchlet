@@ -227,6 +227,197 @@ func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 	}
 }
 
+func TestApplication_ApplyProfile_AppliesMultipleTargetProfile(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", strings.TrimSpace(`
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=old;Database=App;"
+  }
+}
+`)+"\n")
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", strings.TrimSpace(`
+VITE_API_URL=http://localhost:5173
+VITE_FEATURES=local
+`)+"\n")
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name:      "Staging",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("Server=staging;Database=App;")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	)
+
+	result, err := application.ApplyProfileByName("Staging")
+	if err != nil {
+		t.Fatalf("ApplyProfileByName returned error: %v", err)
+	}
+
+	if result.ProfileName != "Staging" {
+		t.Fatalf("ProfileName = %q, want %q", result.ProfileName, "Staging")
+	}
+	if !result.Protected {
+		t.Fatal("Protected = false, want true")
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("len(Changes) = %d, want 2", len(result.Changes))
+	}
+	if result.Changes[0].TargetName != "database" || result.Changes[0].Selector != "ConnectionStrings.DefaultConnection" {
+		t.Fatalf("Changes[0] = %#v, want database target", result.Changes[0])
+	}
+	if result.Changes[1].TargetName != "frontendApi" || result.Changes[1].SelectorName != "key" || result.Changes[1].Selector != "VITE_API_URL" {
+		t.Fatalf("Changes[1] = %#v, want frontend dotenv target", result.Changes[1])
+	}
+
+	databaseRoot := decodeJSONRoot(t, readFile(t, databasePath))
+	connectionStrings := databaseRoot["ConnectionStrings"].(map[string]any)
+	if connectionStrings["DefaultConnection"] != "Server=staging;Database=App;" {
+		t.Fatalf("DefaultConnection = %q, want updated database value", connectionStrings["DefaultConnection"])
+	}
+	if got := string(readFile(t, frontendPath)); !strings.Contains(got, "VITE_API_URL=https://api.staging.example.test") {
+		t.Fatalf("dotenv contents = %q, want updated API URL", got)
+	}
+	if got := string(readFile(t, frontendPath)); !strings.Contains(got, "VITE_FEATURES=local") {
+		t.Fatalf("dotenv contents = %q, want unrelated entry preserved", got)
+	}
+}
+
+func TestApplication_ApplyProfile_OnlyUpdatesIncludedTargetsForPartialProfile(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+	originalFrontendContents := readFile(t, frontendPath)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Database Only",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://new")},
+			},
+		}},
+	)
+
+	profileItems := application.Profiles()
+	if len(profileItems) != 1 {
+		t.Fatalf("len(Profiles()) = %d, want 1", len(profileItems))
+	}
+	if !profileItems[0].Partial {
+		t.Fatal("Profiles()[0].Partial = false, want true")
+	}
+	if profileItems[0].TargetCount != 1 || profileItems[0].TotalTargets != 2 {
+		t.Fatalf("TargetCount/TotalTargets = %d/%d, want 1/2", profileItems[0].TargetCount, profileItems[0].TotalTargets)
+	}
+
+	result, err := application.ApplyProfileByName("Database Only")
+	if err != nil {
+		t.Fatalf("ApplyProfileByName returned error: %v", err)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].TargetName != "database" {
+		t.Fatalf("Changes = %#v, want only database target", result.Changes)
+	}
+
+	databaseRoot := decodeJSONRoot(t, readFile(t, databasePath))
+	database := databaseRoot["database"].(map[string]any)
+	if database["url"] != "postgres://new" {
+		t.Fatalf("database.url = %q, want updated value", database["url"])
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("omitted frontend target changed after applying partial profile")
+	}
+}
+
+func TestApplication_ApplyProfileWithOptions_DryRunValidatesMultipleTargetsWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+	originalDatabaseContents := readFile(t, databasePath)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://new")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	)
+
+	result, err := application.ApplyProfileByNameWithOptions("Staging", app.ApplyOptions{DryRun: true})
+	if err != nil {
+		t.Fatalf("ApplyProfileByNameWithOptions returned error: %v", err)
+	}
+	if !result.DryRun {
+		t.Fatal("DryRun = false, want true")
+	}
+	if len(result.Changes) != 2 {
+		t.Fatalf("len(Changes) = %d, want 2", len(result.Changes))
+	}
+	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed during dry run")
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed during dry run")
+	}
+}
+
+func TestApplication_ApplyProfile_PreparationFailureLeavesAllTargetsUnchangedAndHidesSecrets(t *testing.T) {
+	t.Setenv("STAGING_DATABASE_URL", "postgres://user:super-secret@example.test/app")
+
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+	originalDatabaseContents := readFile(t, databasePath)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "MISSING_KEY"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	)
+
+	_, err := application.ApplyProfileByName("Staging")
+	if err == nil {
+		t.Fatal("ApplyProfileByName returned nil error, want preparation failure")
+	}
+	if !strings.Contains(err.Error(), `target "frontendApi"`) || !strings.Contains(err.Error(), `key "MISSING_KEY"`) {
+		t.Fatalf("ApplyProfileByName returned error %q, want frontend target and key context", err)
+	}
+	if strings.Contains(err.Error(), "super-secret") {
+		t.Fatalf("ApplyProfileByName returned error %q, must not contain resolved secrets", err)
+	}
+	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed after another target failed preparation")
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed after preparation failure")
+	}
+}
+
 func TestApplication_ApplyProfile_ReturnsErrorForMissingEnvironmentVariable(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"serviceUrl":"https://old.example.test"}`)
