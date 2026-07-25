@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jeppeklh/switchlet/internal/editor"
 )
@@ -537,8 +538,8 @@ func assertWizardViewWidth(t *testing.T, view string, width int) {
 	t.Helper()
 
 	for _, line := range strings.Split(view, "\n") {
-		if len([]rune(line)) > width {
-			t.Fatalf("line %q has width %d, want at most %d", line, len([]rune(line)), width)
+		if lipgloss.Width(line) > width {
+			t.Fatalf("line %q has width %d, want at most %d", line, lipgloss.Width(line), width)
 		}
 	}
 }

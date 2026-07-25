@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -113,8 +114,8 @@ func TestView_LongMainScreenContentStaysWithinTerminalWidth(t *testing.T) {
 	model = updatedModel.(Model)
 
 	for _, line := range strings.Split(model.View(), "\n") {
-		if len([]rune(line)) > 80 {
-			t.Fatalf("line %q has width %d, want at most 80", line, len([]rune(line)))
+		if lipgloss.Width(line) > 80 {
+			t.Fatalf("line %q has width %d, want at most 80", line, lipgloss.Width(line))
 		}
 	}
 }

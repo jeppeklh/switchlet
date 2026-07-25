@@ -88,7 +88,7 @@ func TestUpdate_InspectionShowsResolutionErrorForUnavailableProfile(t *testing.T
 	}
 
 	view := model.View()
-	if !strings.Contains(view, "Masked value:\nUnavailable") {
+	if !strings.Contains(view, "Masked value:") || !strings.Contains(view, "Unavailable") {
 		t.Fatalf("View() = %q, want unavailable masked value message", view)
 	}
 	if !strings.Contains(view, "Resolution error:") {

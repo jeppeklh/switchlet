@@ -131,7 +131,7 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.View(), "Applied profile: Local") {
 		t.Fatalf("View() = %q, want success message", model.View())
 	}
-	if !strings.Contains(model.View(), "Updated target:\nservice.baseUrl") {
+	if !strings.Contains(model.View(), "Updated target:") || !strings.Contains(model.View(), "service.baseUrl") {
 		t.Fatalf("View() = %q, want updated target path", model.View())
 	}
 	if !strings.Contains(model.FinalMessage(), "Applied profile: Local") {

@@ -3,6 +3,8 @@ package tui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 const (
@@ -60,14 +62,14 @@ type Shell struct {
 // RenderShell renders a compact application shell with titled content regions.
 func RenderShell(shell Shell) string {
 	width := normalizedWidth(shell.Width)
+	styles := defaultStyles()
 
 	var builder strings.Builder
-	writeShellHeader(&builder, shell, width)
+	writeShellHeader(&builder, shell, width, styles)
 
 	if len(shell.Panels) > 0 {
-		builder.WriteString(Separator(width))
 		builder.WriteString("\n")
-		writeShellPanels(&builder, shell.Panels, width)
+		writeShellPanels(&builder, shell.Panels, width, styles)
 	}
 
 	if len(shell.Actions) > 0 {
@@ -82,11 +84,12 @@ func RenderShell(shell Shell) string {
 
 // RenderHeader renders only the title block used by partial wizard screens.
 func RenderHeader(title string, subtitle string) string {
+	styles := defaultStyles()
 	if subtitle == "" {
-		return title + "\n\n"
+		return styles.title.Render(title) + "\n\n"
 	}
 
-	return title + "\n" + subtitle + "\n\n"
+	return styles.title.Render(title) + "\n" + styles.subtitle.Render(subtitle) + "\n\n"
 }
 
 // RenderStepProgress renders compact progress for wizard-style flows.
@@ -117,7 +120,8 @@ func RenderListRows(rows []ListRow) []string {
 
 // RenderListRow renders one list row.
 func RenderListRow(row ListRow) string {
-	line := rowMarker(row.State) + row.Label
+	styles := defaultStyles()
+	line := rowStyle(row.State, styles).Render(rowMarker(row.State) + row.Label)
 	if badgeText := RenderBadges(row.Badges); badgeText != "" {
 		line += " " + badgeText
 	}
@@ -131,12 +135,13 @@ func RenderBadges(badges []Badge) string {
 		return ""
 	}
 
+	styles := defaultStyles()
 	renderedBadges := make([]string, 0, len(badges))
 	for _, badge := range badges {
 		if badge.Label == "" {
 			continue
 		}
-		renderedBadges = append(renderedBadges, "["+badge.Label+"]")
+		renderedBadges = append(renderedBadges, styles.badge.Render("["+badge.Label+"]"))
 	}
 
 	return strings.Join(renderedBadges, " ")
@@ -144,6 +149,7 @@ func RenderBadges(badges []Badge) string {
 
 // RenderCommandBar renders grouped keyboard actions.
 func RenderCommandBar(actions []Action) string {
+	styles := defaultStyles()
 	parts := make([]string, 0, len(actions))
 	for _, action := range actions {
 		if action.Key == "" && action.Label == "" {
@@ -154,18 +160,22 @@ func RenderCommandBar(actions []Action) string {
 			continue
 		}
 		if action.Label == "" {
-			parts = append(parts, action.Key)
+			parts = append(parts, styles.commandKey.Render(action.Key))
 			continue
 		}
 
-		parts = append(parts, action.Key+" "+action.Label)
+		parts = append(parts, styles.commandKey.Render(action.Key)+" "+action.Label)
 	}
 
-	return strings.Join(parts, "  ")
+	return styles.commandBar.Render(strings.Join(parts, "  "))
 }
 
 // RenderInput renders a text input with an explicit cursor marker.
 func RenderInput(label string, value string, cursor int) string {
+	return defaultStyles().input.Render(rawInputLine(label, value, cursor))
+}
+
+func rawInputLine(label string, value string, cursor int) string {
 	runes := []rune(value)
 	if cursor < 0 {
 		cursor = 0
@@ -179,17 +189,18 @@ func RenderInput(label string, value string, cursor int) string {
 
 // RenderInputWithinWidth renders a text input while keeping the cursor visible.
 func RenderInputWithinWidth(label string, value string, cursor int, width int) string {
-	line := RenderInput(label, value, cursor)
+	line := rawInputLine(label, value, cursor)
 	width = normalizedWidth(width)
-	if len([]rune(line)) <= width {
-		return line
+	styles := defaultStyles()
+	if lipgloss.Width(line) <= width {
+		return styles.input.Render(line)
 	}
 
 	prefix := label + ": "
-	ellipsisWidth := len([]rune(textEllipsis))
-	availableInputWidth := width - len([]rune(prefix))
+	ellipsisWidth := lipgloss.Width(textEllipsis)
+	availableInputWidth := width - lipgloss.Width(prefix)
 	if availableInputWidth <= ellipsisWidth {
-		return fitLine(line, width)
+		return styles.input.Render(fitLine(line, width))
 	}
 
 	valueRunes := []rune(value)
@@ -201,7 +212,7 @@ func RenderInputWithinWidth(label string, value string, cursor int, width int) s
 
 	cursorMarkerIndex := cursor
 	if cursorMarkerIndex < availableInputWidth-ellipsisWidth {
-		return prefix + string(markedRunes[:availableInputWidth-ellipsisWidth]) + textEllipsis
+		return styles.input.Render(prefix + string(markedRunes[:availableInputWidth-ellipsisWidth]) + textEllipsis)
 	}
 
 	windowWidth := availableInputWidth - ellipsisWidth
@@ -218,17 +229,18 @@ func RenderInputWithinWidth(label string, value string, cursor int, width int) s
 		}
 	}
 
-	return prefix + textEllipsis + string(markedRunes[start:end])
+	return styles.input.Render(prefix + textEllipsis + string(markedRunes[start:end]))
 }
 
 // PrimaryPanelWidth returns the line width for the dominant panel in RenderShell.
 func PrimaryPanelWidth(shellWidth int, panelCount int) int {
 	width := normalizedWidth(shellWidth)
+	panelWidth := width
 	if panelCount == 2 && width >= splitShellWidth {
-		return width * 55 / 100
+		panelWidth = width * 55 / 100
 	}
 
-	return width
+	return panelContentWidth(panelWidth, defaultStyles())
 }
 
 // RenderKeyValue renders one metadata line.
@@ -242,13 +254,14 @@ func RenderKeyValue(label string, value string) string {
 
 // Separator renders the shared command-bar separator.
 func Separator(width int) string {
-	return strings.Repeat("-", normalizedWidth(width))
+	border := lipgloss.NormalBorder()
+	return defaultStyles().muted.Render(strings.Repeat(border.Top, normalizedWidth(width)))
 }
 
-func writeShellHeader(builder *strings.Builder, shell Shell, width int) {
-	leftLines := []string{shell.Title}
+func writeShellHeader(builder *strings.Builder, shell Shell, width int, styles styleSet) {
+	leftLines := []string{styles.title.Render(shell.Title)}
 	if shell.Subtitle != "" {
-		leftLines = append(leftLines, shell.Subtitle)
+		leftLines = append(leftLines, styles.subtitle.Render(shell.Subtitle))
 	}
 
 	lineCount := len(leftLines)
@@ -263,7 +276,7 @@ func writeShellHeader(builder *strings.Builder, shell Shell, width int) {
 		}
 		right := ""
 		if index < len(shell.Metadata) {
-			right = shell.Metadata[index]
+			right = styles.muted.Render(shell.Metadata[index])
 		}
 
 		builder.WriteString(joinHeaderLine(left, right, width))
@@ -271,22 +284,22 @@ func writeShellHeader(builder *strings.Builder, shell Shell, width int) {
 	}
 }
 
-func writeShellPanels(builder *strings.Builder, panels []Panel, width int) {
+func writeShellPanels(builder *strings.Builder, panels []Panel, width int, styles styleSet) {
 	if shouldUseSplitLayout(panels, width) {
-		writeSplitPanels(builder, panels[0], panels[1], width)
+		writeSplitPanels(builder, panels[0], panels[1], width, styles)
 		return
 	}
 
-	writeStackedPanels(builder, panels, width)
+	writeStackedPanels(builder, panels, width, styles)
 }
 
 func shouldUseSplitLayout(panels []Panel, width int) bool {
 	return len(panels) == 2 && width >= splitShellWidth
 }
 
-func writeStackedPanels(builder *strings.Builder, panels []Panel, width int) {
+func writeStackedPanels(builder *strings.Builder, panels []Panel, width int, styles styleSet) {
 	for index, panel := range panels {
-		for _, line := range renderPanel(panel, width) {
+		for _, line := range renderPanel(panel, width, styles) {
 			builder.WriteString(line)
 			builder.WriteString("\n")
 		}
@@ -296,12 +309,12 @@ func writeStackedPanels(builder *strings.Builder, panels []Panel, width int) {
 	}
 }
 
-func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Panel, width int) {
+func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Panel, width int, styles styleSet) {
 	gap := strings.Repeat(" ", panelGapWidth)
 	leftWidth := width * 55 / 100
 	rightWidth := width - leftWidth - panelGapWidth
-	leftLines := renderPanel(leftPanel, leftWidth)
-	rightLines := renderPanel(rightPanel, rightWidth)
+	leftLines := renderPanel(leftPanel, leftWidth, styles)
+	rightLines := renderPanel(rightPanel, rightWidth, styles)
 	lineCount := len(leftLines)
 	if len(rightLines) > lineCount {
 		lineCount = len(rightLines)
@@ -324,22 +337,35 @@ func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Pane
 	}
 }
 
-func renderPanel(panel Panel, width int) []string {
-	lines := make([]string, 0, len(panel.Lines)+2)
-	if panel.Title != "" {
-		title := panel.Title
-		if panel.Focused {
+func renderPanel(panel Panel, width int, styles styleSet) []string {
+	style := styles.panel
+	titleStyle := styles.panelTitle
+	title := panel.Title
+	if panel.Focused {
+		style = styles.focusedPanel
+		titleStyle = styles.focusedTitle
+		if title != "" {
 			title = "* " + title
 		}
-		lines = append(lines, fitLine(title, width))
-		lines = append(lines, strings.Repeat("-", limitedRuneCount(title, width)))
+	}
+
+	contentWidth := panelContentWidth(width, styles)
+	lines := make([]string, 0, len(panel.Lines)+2)
+	if title != "" {
+		lines = append(lines, titleStyle.Render(fitLine(title, contentWidth)))
 	}
 
 	for _, line := range panel.Lines {
-		lines = append(lines, fitLine(line, width))
+		lines = append(lines, fitLine(line, contentWidth))
 	}
 
-	return lines
+	panelBlock := style.Width(contentWidth).Render(strings.Join(lines, "\n"))
+	panelLines := strings.Split(panelBlock, "\n")
+	for index, line := range panelLines {
+		panelLines[index] = fitLine(line, width)
+	}
+
+	return panelLines
 }
 
 func joinHeaderLine(left string, right string, width int) string {
@@ -347,19 +373,17 @@ func joinHeaderLine(left string, right string, width int) string {
 		return fitLine(left, width)
 	}
 
-	rightRunes := []rune(right)
-	if len(rightRunes) > width/2 {
+	if lipgloss.Width(right) > width/2 {
 		right = fitLine(right, width/2)
-		rightRunes = []rune(right)
 	}
 
-	availableLeftWidth := width - len(rightRunes) - 1
+	availableLeftWidth := width - lipgloss.Width(right) - 1
 	if availableLeftWidth <= 0 {
 		return fitLine(right, width)
 	}
 
 	left = fitLine(left, availableLeftWidth)
-	spaceCount := width - len([]rune(left)) - len(rightRunes)
+	spaceCount := width - lipgloss.Width(left) - lipgloss.Width(right)
 	if spaceCount < 1 {
 		spaceCount = 1
 	}
@@ -369,7 +393,7 @@ func joinHeaderLine(left string, right string, width int) string {
 
 func padLine(line string, width int) string {
 	line = fitLine(line, width)
-	padding := width - len([]rune(line))
+	padding := width - lipgloss.Width(line)
 	if padding <= 0 {
 		return line
 	}
@@ -382,24 +406,15 @@ func fitLine(line string, width int) string {
 		return ""
 	}
 
-	runes := []rune(line)
-	if len(runes) <= width {
+	if lipgloss.Width(line) <= width {
 		return line
 	}
-	if width <= len([]rune(textEllipsis)) {
-		return string(runes[:width])
+	ellipsisWidth := lipgloss.Width(textEllipsis)
+	if width <= ellipsisWidth {
+		return lipgloss.NewStyle().MaxWidth(width).Render(line)
 	}
 
-	return string(runes[:width-len([]rune(textEllipsis))]) + textEllipsis
-}
-
-func limitedRuneCount(value string, limit int) int {
-	runeCount := len([]rune(value))
-	if runeCount > limit {
-		return limit
-	}
-
-	return runeCount
+	return lipgloss.NewStyle().MaxWidth(width-ellipsisWidth).Render(line) + textEllipsis
 }
 
 func normalizedWidth(width int) int {
@@ -408,6 +423,28 @@ func normalizedWidth(width int) int {
 	}
 
 	return width
+}
+
+func panelContentWidth(panelWidth int, styles styleSet) int {
+	contentWidth := panelWidth - styles.panel.GetHorizontalFrameSize()
+	if contentWidth < 1 {
+		return 1
+	}
+
+	return contentWidth
+}
+
+func rowStyle(state RowState, styles styleSet) lipgloss.Style {
+	switch state {
+	case RowSelected:
+		return styles.selectedRow
+	case RowInactiveSelected:
+		return styles.inactiveRow
+	case RowDisabled:
+		return styles.disabledRow
+	default:
+		return lipgloss.NewStyle()
+	}
 }
 
 func clampRuneIndex(index int, runeCount int) int {
