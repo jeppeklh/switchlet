@@ -267,26 +267,43 @@ func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testin
 	view := model.View()
 	for _, expected := range []string{
 		"Applied profile: Staging",
-		"Updated targets: 2",
-		"database [json] ->",
-		"jsonPath: database.url",
-		"frontendApi [dotenv] ->",
-		"key: VITE_API_URL",
+		"Updated targets:",
+		"updated",
+		"appsettings.Development.json",
+		"database [json]",
+		"database.url",
+		".env.local",
+		"frontendApi [dotenv]",
+		"VITE_API_URL",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want target-aware success detail %q", view, expected)
 		}
 	}
+	for _, forbidden := range []string{"postgres://staging", "https://api.staging.example.test"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain resolved value %q", view, forbidden)
+		}
+	}
 
 	finalMessage := model.FinalMessage()
 	for _, expected := range []string{
-		"Applied profile: Staging",
-		"Updated targets: 2",
-		"database -> " + databasePath,
-		"frontendApi -> " + frontendPath,
+		"Applied profile \"Staging\"",
+		"Updated targets:",
+		"updated " + databasePath,
+		"database [json]",
+		"database.url",
+		"updated " + frontendPath,
+		"frontendApi [dotenv]",
+		"VITE_API_URL",
 	} {
 		if !strings.Contains(finalMessage, expected) {
 			t.Fatalf("FinalMessage() = %q, want target-aware final detail %q", finalMessage, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres://staging", "https://api.staging.example.test"} {
+		if strings.Contains(finalMessage, forbidden) {
+			t.Fatalf("FinalMessage() = %q, must not contain resolved value %q", finalMessage, forbidden)
 		}
 	}
 	if !strings.Contains(string(readFile(t, databasePath)), "postgres://staging") {

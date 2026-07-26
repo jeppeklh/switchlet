@@ -135,11 +135,13 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 		t.Fatalf("View() = %q, want updated target path", model.View())
 	}
 	assertVisibleWidth(t, model.View(), 80)
-	if !strings.Contains(model.FinalMessage(), "Applied profile: Local") {
+	if !strings.Contains(model.FinalMessage(), "Applied profile \"Local\"") {
 		t.Fatalf("FinalMessage() = %q, want applied profile summary", model.FinalMessage())
 	}
-	if !strings.Contains(model.FinalMessage(), "Updated target:\nservice.baseUrl") {
-		t.Fatalf("FinalMessage() = %q, want updated target path", model.FinalMessage())
+	for _, expected := range []string{"Updated target:", "updated " + targetPath, "default [json]", "service.baseUrl"} {
+		if !strings.Contains(model.FinalMessage(), expected) {
+			t.Fatalf("FinalMessage() = %q, want updated target detail %q", model.FinalMessage(), expected)
+		}
 	}
 
 	updatedContents := readFile(t, targetPath)
@@ -183,7 +185,15 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	if !strings.Contains(model.errorMessage, "contains invalid JSON") {
 		t.Fatalf("errorMessage = %q, want editor error", model.errorMessage)
 	}
-	if !strings.Contains(model.View(), "Press any key to return") {
+	for _, expected := range []string{"Context:", "Affected targets", "config.json", "service.baseUrl", "Reason:", "contains invalid JSON", "Recovery:", "Press any key to return."} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("View() = %q, want recoverable error detail %q", model.View(), expected)
+		}
+	}
+	if strings.Contains(model.View(), "https://new.example.test") {
+		t.Fatalf("View() = %q, must not contain resolved replacement value", model.View())
+	}
+	if !strings.Contains(model.View(), "Press any key to return.") {
 		t.Fatalf("View() = %q, want recoverable error guidance", model.View())
 	}
 	assertVisibleWidth(t, model.View(), 80)

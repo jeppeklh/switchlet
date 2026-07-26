@@ -417,6 +417,74 @@ func fitLine(line string, width int) string {
 	return lipgloss.NewStyle().MaxWidth(width-ellipsisWidth).Render(line) + textEllipsis
 }
 
+func wrapText(text string, width int) []string {
+	if width <= 0 || lipgloss.Width(text) <= width {
+		return []string{text}
+	}
+
+	words := strings.Fields(text)
+	if len(words) == 0 {
+		return []string{text}
+	}
+
+	lines := make([]string, 0, lipgloss.Width(text)/width+1)
+	currentLine := ""
+	for _, word := range words {
+		if currentLine == "" {
+			if lipgloss.Width(word) > width {
+				lines = append(lines, splitLongText(word, width)...)
+				continue
+			}
+
+			currentLine = word
+			continue
+		}
+
+		candidate := currentLine + " " + word
+		if lipgloss.Width(candidate) <= width {
+			currentLine = candidate
+			continue
+		}
+
+		lines = append(lines, currentLine)
+		currentLine = ""
+		if lipgloss.Width(word) > width {
+			lines = append(lines, splitLongText(word, width)...)
+			continue
+		}
+
+		currentLine = word
+	}
+	if currentLine != "" {
+		lines = append(lines, currentLine)
+	}
+
+	return lines
+}
+
+func splitLongText(text string, width int) []string {
+	if width <= 0 {
+		return []string{text}
+	}
+
+	lines := make([]string, 0)
+	currentRunes := make([]rune, 0, width)
+	for _, value := range text {
+		candidate := string(append(currentRunes, value))
+		if len(currentRunes) > 0 && lipgloss.Width(candidate) > width {
+			lines = append(lines, string(currentRunes))
+			currentRunes = currentRunes[:0]
+		}
+
+		currentRunes = append(currentRunes, value)
+	}
+	if len(currentRunes) > 0 {
+		lines = append(lines, string(currentRunes))
+	}
+
+	return lines
+}
+
 func normalizedWidth(width int) int {
 	if width <= 0 {
 		return defaultShellWidth

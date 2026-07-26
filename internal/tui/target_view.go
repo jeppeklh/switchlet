@@ -109,16 +109,51 @@ func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 		return []string{"No target changes."}
 	}
 
-	lines := make([]string, 0, len(changes)*2)
-	for _, change := range changes {
-		prefix := fmt.Sprintf("%s%s -> ", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType)))
-		lines = append(lines, prefix+compactPathForDisplay(change.TargetFile, valueWidthAfterPrefix(maxLineWidth, prefix)))
+	lines := make([]string, 0, len(changes)*3)
+	for index, change := range changes {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		prefix := "updated "
+		lines = append(lines, prefix+targetFileForResultLine(change.TargetFile, valueWidthAfterPrefix(maxLineWidth, prefix)))
+		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
 		if change.Selector != "" {
-			lines = append(lines, "  "+RenderKeyValue(selectorFieldName(change.SelectorName), change.Selector))
+			lines = append(lines, "  "+change.Selector)
 		}
 	}
 
 	return lines
+}
+
+func finalResultChangeLines(changes []app.PlannedChange) []string {
+	if len(changes) == 0 {
+		return []string{"No target changes."}
+	}
+
+	lines := make([]string, 0, len(changes)*4)
+	for index, change := range changes {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, "updated "+targetFileForResultLine(change.TargetFile, 0))
+		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
+		if change.Selector != "" {
+			lines = append(lines, "  "+change.Selector)
+		}
+	}
+
+	return lines
+}
+
+func targetFileForResultLine(targetFile string, maxLineWidth int) string {
+	if targetFile == "" {
+		return "target file"
+	}
+	if maxLineWidth <= 0 {
+		return normalizedDisplayPath(targetFile)
+	}
+
+	return compactPathForDisplay(targetFile, maxLineWidth)
 }
 
 type profileValueGroup struct {
@@ -175,12 +210,17 @@ func profileValueMaskedValueLabel(valueItem app.ProfileValueItem) string {
 	return valueItem.MaskedValue
 }
 
-func recoverableProfileContextLines(profile app.ProfileItem) []string {
+func recoverableProfileContextLines(profile app.ProfileItem, maxLineWidth int) []string {
+	lines := []string{RenderKeyValue("Profile", selectedProfileTitle(profile))}
+	if len(profile.Values) > 0 {
+		lines = append(lines, "", "Affected targets")
+		lines = append(lines, profileValueTargetLines(profile.Values, maxLineWidth)...)
+	}
 	if profile.Available {
-		return nil
+		return lines
 	}
 
-	lines := make([]string, 0, len(profile.Values)*3)
+	lines = append(lines, "", "Unavailable values")
 	if profile.EnvironmentVariableName != "" {
 		lines = append(lines, RenderKeyValue("Environment variable", profile.EnvironmentVariableName))
 	}
@@ -238,15 +278,16 @@ func selectorFieldName(selectorName string) string {
 }
 
 func isSingleTargetResult(result app.Result) bool {
-	return len(result.Changes) <= 1
+	return len(resultPlannedChanges(result)) <= 1
 }
 
 func singleResultTargetFile(result app.Result) string {
 	if result.TargetFile != "" {
 		return result.TargetFile
 	}
-	if len(result.Changes) == 1 {
-		return result.Changes[0].TargetFile
+	changes := resultPlannedChanges(result)
+	if len(changes) == 1 {
+		return changes[0].TargetFile
 	}
 
 	return ""
@@ -256,11 +297,26 @@ func singleResultSelector(result app.Result) string {
 	if result.TargetPath != "" {
 		return result.TargetPath
 	}
-	if len(result.Changes) == 1 {
-		return result.Changes[0].Selector
+	changes := resultPlannedChanges(result)
+	if len(changes) == 1 {
+		return changes[0].Selector
 	}
 
 	return ""
+}
+
+func resultPlannedChanges(result app.Result) []app.PlannedChange {
+	if len(result.Changes) > 0 {
+		return result.Changes
+	}
+	if result.TargetFile == "" && result.TargetPath == "" {
+		return nil
+	}
+
+	return []app.PlannedChange{{
+		TargetFile: result.TargetFile,
+		Selector:   result.TargetPath,
+	}}
 }
 
 func (model Model) isApplyingSelectedProfile(profile app.ProfileItem) bool {

@@ -286,17 +286,21 @@ func (model Model) errorView() string {
 func (model Model) recoverableErrorLines(errorMessage string) []string {
 	lines := []string{
 		"Action could not continue.",
-		"Reason",
-		errorMessage,
-		"",
-		"Recovery",
 	}
 	if selectedProfile, ok := model.selectedProfile(); ok {
-		lines = append(lines, recoverableProfileContextLines(selectedProfile)...)
+		lines = append(lines, "", "Context:")
+		lines = append(lines, recoverableProfileContextLines(selectedProfile, secondaryPanelContentWidth(model.width))...)
 	}
 	lines = append(lines,
+		"",
+		"Reason:",
+	)
+	lines = append(lines, wrapText(errorMessage, secondaryPanelContentWidth(model.width))...)
+	lines = append(lines,
+		"",
+		"Recovery:",
 		"Fix the selected profile or target, then try again.",
-		"Press any key to return",
+		"Press any key to return.",
 	)
 
 	return lines
@@ -316,20 +320,13 @@ func (model Model) successView() string {
 }
 
 func successLines(result *app.Result, maxLineWidth int) []string {
+	changes := resultPlannedChanges(*result)
 	lines := []string{
 		RenderKeyValue("Applied profile", result.ProfileName),
+		"",
+		targetListHeading("Updated target", changes) + ":",
 	}
-	if isSingleTargetResult(*result) {
-		if singleResultTargetFile(*result) != "" {
-			lines = append(lines, RenderKeyValue("Target file", compactPathForDisplay(singleResultTargetFile(*result), valueWidthForLabel(maxLineWidth, "Target file"))))
-		}
-		lines = append(lines, "Updated target:", singleResultSelector(*result), "", "Switchlet will now exit.")
-
-		return lines
-	}
-
-	lines = append(lines, RenderKeyValue("Updated targets", fmt.Sprintf("%d", len(result.Changes))))
-	lines = append(lines, resultChangeLines(result.Changes, maxLineWidth)...)
+	lines = append(lines, resultChangeLines(changes, maxLineWidth)...)
 	lines = append(lines, "", "Switchlet will now exit.")
 
 	return lines
@@ -341,17 +338,23 @@ func (model Model) FinalMessage() string {
 		return ""
 	}
 
-	if isSingleTargetResult(*model.successResult) {
-		return fmt.Sprintf("Applied profile: %s\n\nUpdated target:\n%s\n", model.successResult.ProfileName, singleResultSelector(*model.successResult))
-	}
-
 	var builder strings.Builder
-	fmt.Fprintf(&builder, "Applied profile: %s\n\nUpdated targets: %d\n", model.successResult.ProfileName, len(model.successResult.Changes))
-	for _, change := range model.successResult.Changes {
-		fmt.Fprintf(&builder, "%s -> %s\n", targetNameLabel(change.TargetName), change.TargetFile)
+	changes := resultPlannedChanges(*model.successResult)
+	fmt.Fprintf(&builder, "Applied profile %q\n\n%s:\n", model.successResult.ProfileName, targetListHeading("Updated target", changes))
+	for _, line := range finalResultChangeLines(changes) {
+		builder.WriteString(line)
+		builder.WriteString("\n")
 	}
 
 	return builder.String()
+}
+
+func targetListHeading(singular string, changes []app.PlannedChange) string {
+	if len(changes) == 1 {
+		return singular
+	}
+
+	return singular + "s"
 }
 
 func (model Model) targetMetadata() []string {
