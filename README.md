@@ -129,6 +129,97 @@ Exit behavior for non-interactive commands:
 - `1` runtime or validation failure
 - `2` command-usage failure
 
+## Command Output Examples
+
+In real command output, file paths are the resolved target file paths for
+the current project. The examples below use short project paths for
+readability.
+
+Successful apply output lists the profile and affected target context. It
+does not print replacement values.
+
+```text
+Applied profile "Staging"
+
+Updated targets:
+updated backend/appsettings.Development.json
+  database [json]
+  ConnectionStrings.DefaultConnection
+
+updated frontend/.env.local
+  frontendApi [dotenv]
+  VITE_API_URL
+```
+
+Dry-run output mirrors the same target plan and states that nothing was
+written.
+
+```text
+Dry run successful for profile "Staging"
+
+Planned targets:
+would update backend/appsettings.Development.json
+  database [json]
+  ConnectionStrings.DefaultConnection
+
+would update frontend/.env.local
+  frontendApi [dotenv]
+  VITE_API_URL
+
+No changes were written.
+```
+
+Common command mistakes include recovery guidance when the project
+configuration can be loaded.
+
+```text
+No profile specified.
+
+Available profiles:
+- Local
+- Staging [protected]
+- Database Only [partial]
+
+Try:
+switchlet apply Local --dry-run
+```
+
+Missing-profile diagnostics list configured profiles and include a
+suggestion only when the match is deterministic.
+
+```text
+Profile "Stagng" does not exist.
+
+Available profiles:
+- Local
+- Staging
+- Production
+
+Did you mean "Staging"?
+```
+
+Target-preparation errors identify the affected target without exposing the
+replacement value.
+
+```text
+Could not prepare target "frontendApi".
+
+File:
+frontend/.env.local
+
+Type:
+dotenv
+
+Selector:
+VITE_API_URL
+
+Reason:
+replacement value must not contain newline characters
+
+Hint:
+Run `switchlet inspect Staging` to review planned targets.
+```
+
 ## Key Bindings
 
 - `↑/↓` or `j/k` move between profiles
