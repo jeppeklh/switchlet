@@ -151,8 +151,26 @@ func TestUpdate_TooSmallTerminalStillAllowsDocumentedQuitAndCancelKeys(t *testin
 
 	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
 	model = updatedModel.(Model)
+	if !strings.Contains(model.View(), "q Quit") {
+		t.Fatalf("View() = %q, want q quit command-bar copy", model.View())
+	}
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	updatedModel, command := model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want q to quit from too-small terminal state")
+	}
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
+	))
+	updatedModel, _ = model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	model = updatedModel.(Model)
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updatedModel.(Model)
 	if command != nil {
 		t.Fatal("command is not nil, want no command when cancelling inspection from too-small terminal")

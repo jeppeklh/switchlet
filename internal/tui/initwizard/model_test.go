@@ -885,6 +885,128 @@ func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *test
 	}
 }
 
+func TestInitWizardModel_TextEntryScreensPreserveLiteralQAndOmitQCancel(t *testing.T) {
+	tests := []struct {
+		name         string
+		model        initWizardModel
+		wantInput    string
+		wantViewText string
+	}{
+		{
+			name: "manual file",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepManualFile,
+				width:            120,
+				height:           32,
+			},
+			wantInput:    "q",
+			wantViewText: "Configuration file: q_",
+		},
+		{
+			name: "profile value",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepProfileValue,
+				width:            120,
+				height:           32,
+				targets:          []app.InitTarget{{Name: "database"}},
+				draftProfile:     initWizardProfileDraft{Name: "Local", TargetIndex: 0},
+			},
+			wantInput:    "q",
+			wantViewText: "Literal value: q_",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			updatedModel, command := testCase.model.Update(runeKey('q'))
+			model := updatedModel.(initWizardModel)
+
+			if command != nil {
+				t.Fatal("command is not nil, want literal q input without cancellation")
+			}
+			if model.result != nil {
+				t.Fatalf("result = %#v, want no cancelled result after literal q input", model.result)
+			}
+			if model.inputValue != testCase.wantInput {
+				t.Fatalf("inputValue = %q, want %q", model.inputValue, testCase.wantInput)
+			}
+
+			view := model.View()
+			if !strings.Contains(view, testCase.wantViewText) {
+				t.Fatalf("View() = %q, want literal q input %q", view, testCase.wantViewText)
+			}
+			if strings.Contains(view, "q Cancel") {
+				t.Fatalf("View() = %q, text-entry command bar must not advertise q Cancel", view)
+			}
+			if !strings.Contains(view, "Ctrl+C Cancel") {
+				t.Fatalf("View() = %q, want Ctrl+C cancellation guidance", view)
+			}
+		})
+	}
+}
+
+func TestInitWizardModel_CommandBarsDescribeActualEscDestinations(t *testing.T) {
+	projectRoot := t.TempDir()
+	literalValue := "postgres://local"
+	model := initWizardModel{
+		workingDirectory: projectRoot,
+		step:             initWizardStepManagedValueCheckpoint,
+		width:            120,
+		height:           32,
+		targets: []app.InitTarget{{
+			Name:     "database",
+			File:     filepath.Join(projectRoot, "config.json"),
+			Type:     app.InitTargetTypeJSON,
+			JSONPath: "database.url",
+		}},
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "Esc Profiles") || strings.Contains(view, "Esc Back") {
+		t.Fatalf("managed-value checkpoint View() = %q, want Esc Profiles copy", view)
+	}
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(initWizardModel)
+	if command != nil {
+		t.Fatal("command is not nil, want no command for Esc profile transition")
+	}
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after Esc Profiles", model.step)
+	}
+
+	model.step = initWizardStepProfileSummary
+	model.profiles = []app.InitProfile{{Name: "Local", Values: []app.InitProfileValue{{Target: "database", Value: &literalValue}}}}
+	view = model.View()
+	if !strings.Contains(view, "Esc Profiles") || strings.Contains(view, "Esc Back") {
+		t.Fatalf("profile summary View() = %q, want Esc Profiles copy", view)
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(initWizardModel)
+	if command != nil {
+		t.Fatal("command is not nil, want no command for Esc profile transition")
+	}
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after Esc Profiles", model.step)
+	}
+
+	model.step = initWizardStepReview
+	model.profiles = []app.InitProfile{{Name: "Local", Values: []app.InitProfileValue{{Target: "database", Value: &literalValue}}}}
+	view = model.View()
+	if !strings.Contains(view, "Esc Profiles") || strings.Contains(view, "Esc Back") {
+		t.Fatalf("review View() = %q, want Esc Profiles copy", view)
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(initWizardModel)
+	if command != nil {
+		t.Fatal("command is not nil, want no command for Esc profile transition")
+	}
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added summary after Esc Profiles", model.step)
+	}
+}
+
 func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *testing.T) {
 	projectRoot := t.TempDir()
 	jsonCandidate := app.InitTargetFileCandidate{

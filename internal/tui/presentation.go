@@ -284,7 +284,7 @@ func resolvedActionPriority(action Action) ActionPriority {
 	switch {
 	case strings.Contains(actionText, "ctrl+c") || strings.Contains(actionText, "quit") || strings.Contains(actionText, "cancel"):
 		return ActionPriorityCritical
-	case strings.Contains(actionText, "apply") || strings.Contains(actionText, "confirm") || strings.Contains(actionText, "continue") || strings.Contains(actionText, "select") || strings.Contains(actionText, "save") || strings.Contains(actionText, "create") || strings.Contains(actionText, "return") || strings.Contains(actionText, "back"):
+	case strings.Contains(actionText, "apply") || strings.Contains(actionText, "confirm") || strings.Contains(actionText, "continue") || strings.Contains(actionText, "select") || strings.Contains(actionText, "save") || strings.Contains(actionText, "create") || strings.Contains(actionText, "return") || strings.Contains(actionText, "back") || strings.Contains(actionText, "source") || strings.Contains(actionText, "profiles") || strings.Contains(actionText, "managed values"):
 		return ActionPriorityPrimary
 	default:
 		return ActionPriorityNormal

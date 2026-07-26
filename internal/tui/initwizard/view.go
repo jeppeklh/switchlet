@@ -368,7 +368,7 @@ func (model initWizardModel) managedValueCheckpointView() string {
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
-		{Key: "Esc", Label: "Back"},
+		{Key: "Esc", Label: "Profiles"},
 		{Key: "q", Label: "Cancel"},
 	})
 }
@@ -437,7 +437,7 @@ func (model initWizardModel) profileSummaryView() string {
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
-		{Key: "Esc", Label: "Back"},
+		{Key: "Esc", Label: "Profiles"},
 		{Key: "q", Label: "Cancel"},
 	})
 }
@@ -476,7 +476,7 @@ func (model initWizardModel) reviewView() string {
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
-		{Key: "Esc", Label: "Back"},
+		{Key: "Esc", Label: "Profiles"},
 		{Key: "q", Label: "Cancel"},
 	})
 }

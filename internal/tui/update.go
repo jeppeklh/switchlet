@@ -56,15 +56,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 func (model Model) handleTooSmallTerminalKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case matchesKey(message, keyQuit):
-		switch model.state {
-		case inspectState, confirmState:
-			model.state = listState
-			return model, nil
-		case errorState, listState, successState:
-			return model, tea.Quit
-		default:
-			return model, nil
-		}
+		return model, tea.Quit
 	case matchesKey(message, keyEscape):
 		switch model.state {
 		case inspectState, confirmState:

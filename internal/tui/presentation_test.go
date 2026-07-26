@@ -95,6 +95,37 @@ func TestRenderShell_PrioritizesEssentialCommandBarActionsAtConstrainedWidth(t *
 	}
 }
 
+func TestRenderShell_PrioritizesModeSpecificReturnActionsAtConstrainedWidth(t *testing.T) {
+	got := RenderShell(Shell{
+		Title: "Switchlet init",
+		Panels: []Panel{{
+			Title:   "Value",
+			Lines:   []string{"Literal value: local_"},
+			Focused: true,
+		}},
+		Actions: []Action{
+			{Key: "Enter", Label: "Save"},
+			{Key: "←/→", Label: "Move"},
+			{Key: "Bksp/Del", Label: "Edit"},
+			{Key: "Esc", Label: "Source"},
+			{Key: "Ctrl+C", Label: "Cancel"},
+		},
+		Width: 40,
+	})
+
+	commandLine := visibleLines(got)[len(visibleLines(got))-1]
+	for _, expected := range []string{"Enter Save", "Esc Source", "Ctrl+C Cancel"} {
+		if !strings.Contains(commandLine, expected) {
+			t.Fatalf("command line = %q, want essential action %q", commandLine, expected)
+		}
+	}
+	for _, omitted := range []string{"Move", "Edit"} {
+		if strings.Contains(commandLine, omitted) {
+			t.Fatalf("command line = %q, want editing action %q omitted first", commandLine, omitted)
+		}
+	}
+}
+
 func TestRenderInput_ClampsCursorAndShowsInsertionPoint(t *testing.T) {
 	tests := []struct {
 		name   string
