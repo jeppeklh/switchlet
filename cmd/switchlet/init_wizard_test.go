@@ -747,8 +747,8 @@ func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testi
 	if model.step != initWizardStepReview {
 		t.Fatalf("step = %d, want review step", model.step)
 	}
-	if strings.Contains(model.View(), ".gitignore protection") {
-		t.Fatalf("View() = %q, want no gitignore protection block for env-only profiles", model.View())
+	if strings.Contains(model.View(), ".gitignore") {
+		t.Fatalf("View() = %q, want no gitignore block for env-only profiles", model.View())
 	}
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -1059,15 +1059,71 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 
 	model.step = initWizardStepReview
 	reviewView := model.View()
-	if !wizardLineContains(reviewView, "* Create", "Configuration summary") {
+	if !wizardLineContains(reviewView, "* Create", "Setup summary") {
 		t.Fatalf("review View() = %q, want focused create decision as the primary panel", reviewView)
 	}
-	for _, expected := range []string{"Step 5 of 5", "1 File", "2 Value", "3 Name", "4 Profiles", "[5 Review]", ".gitignore protection: Enabled", "Create .switchlet.yaml"} {
+	for _, expected := range []string{"Step 5 of 5", "1 File", "2 Value", "3 Name", "4 Profiles", "[5 Review]", ".gitignore protection: Enabled", "Create .switchlet.yaml", "Toggle ignore"} {
 		if !strings.Contains(reviewView, expected) {
 			t.Fatalf("review View() = %q, want %q", reviewView, expected)
 		}
 	}
+	for _, unexpected := range []string{"Configuration summary", "Back to profiles"} {
+		if strings.Contains(reviewView, unexpected) {
+			t.Fatalf("review View() = %q, want no %q", reviewView, unexpected)
+		}
+	}
 	assertWizardViewWidth(t, reviewView, 120)
+}
+
+func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	databaseValue := "Server=db;Database=App;Password=secret;"
+	frontendValue := "https://api.staging.example.test/token-secret"
+	environmentVariableName := "STAGING_DATABASE_URL"
+	model := initWizardModel{
+		workingDirectory:   projectRoot,
+		step:               initWizardStepReview,
+		width:              80,
+		height:             24,
+		shouldIgnoreConfig: true,
+		targets: []config.Target{
+			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
+			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		profiles: []config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: &databaseValue}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: &environmentVariableName}, {Target: "frontendApi", Value: &frontendValue}}, Protected: true},
+		},
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Managed values",
+		"database [json]",
+		"File: backend/appsettings.Development.json",
+		"JSON path: ConnectionStrings.DefaultConnection",
+		"frontendApi [dotenv]",
+		"File: frontend/.env.local",
+		"Key: VITE_API_URL",
+		"Profiles",
+		"Local [partial] [literal]",
+		"Scope: 1 of 2 managed values",
+		"database: literal",
+		"Staging [protected] [mixed]",
+		"Scope: 2 of 2 managed values",
+		"database: env STAGING_DATABASE_URL",
+		"frontendApi: literal",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("review View() = %q, want %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{databaseValue, frontendValue, "Password=secret", "token-secret", "Back to profiles", "Configuration summary"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("review View() = %q, want no %q", view, forbidden)
+		}
+	}
+	assertWizardViewWidth(t, view, 80)
 }
 
 func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) {

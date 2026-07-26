@@ -654,7 +654,7 @@ func (model initWizardModel) handleProfileSummaryKey(message tea.KeyMsg) (tea.Mo
 }
 
 func (model initWizardModel) handleReviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	choiceCount := 2
+	choiceCount := 1
 	if hasLiteralProfiles(model.profiles) {
 		choiceCount++
 	}
@@ -685,7 +685,6 @@ func (model initWizardModel) handleReviewKey(message tea.KeyMsg) (tea.Model, tea
 			return model, nil
 		}
 
-		model.returnToProfilesFromReview()
 	}
 
 	return model, nil

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -409,32 +408,36 @@ func (model initWizardModel) profileSummaryView() string {
 }
 
 func (model initWizardModel) reviewView() string {
+	hasLiteralValues := hasLiteralProfiles(model.profiles)
 	choices := []string{"Create .switchlet.yaml"}
-	if hasLiteralProfiles(model.profiles) {
-		choices = append(choices, "Toggle .gitignore protection")
+	if hasLiteralValues {
+		choices = append(choices, "Toggle ignore")
 	}
-	choices = append(choices, "Back to profiles")
 
 	decisionLines := make([]string, 0)
-	if hasLiteralProfiles(model.profiles) {
+	if hasLiteralValues {
 		status := "Enabled"
 		if !model.shouldIgnoreConfig {
 			status = "Disabled"
 		}
 		decisionLines = append(decisionLines,
 			ui.RenderKeyValue(".gitignore protection", status),
-			"Literal values will be stored directly in .switchlet.yaml.",
-			"For more sensitive setups, prefer environment-backed profiles.",
+			"Literal values will be stored in .switchlet.yaml.",
+			"Use environment-backed profiles for sensitive values.",
 			"",
 		)
 	} else {
-		decisionLines = append(decisionLines, "No literal values configured.", "No ignore-file update is needed.", "")
+		decisionLines = append(decisionLines,
+			"Ready to create .switchlet.yaml.",
+			"All profile values use environment variables.",
+			"",
+		)
 	}
 	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
-	return model.initWizardShell(5, "Review and create configuration", []ui.Panel{
+	return model.initWizardShell(5, "Review", []ui.Panel{
 		{Title: "Create", Lines: model.withErrorLines(decisionLines), Focused: true},
-		{Title: "Configuration summary", Lines: model.reviewSummaryLines()},
+		{Title: "Setup summary", Lines: model.reviewSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
@@ -552,10 +555,7 @@ func (model initWizardModel) configuredProfileLines() []string {
 }
 
 func (model initWizardModel) reviewSummaryLines() []string {
-	lines := []string{
-		ui.RenderKeyValue("Configuration file", filepath.Join(model.workingDirectory, ".switchlet.yaml")),
-		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.targets))),
-	}
+	lines := []string{"Managed values"}
 	lines = append(lines, model.targetRows()...)
 	lines = append(lines,
 		"",
@@ -603,14 +603,13 @@ func (model initWizardModel) profileRows() []string {
 		lines = append(lines, ui.RenderListRow(ui.ListRow{
 			Label:  profileReviewLabel(profile),
 			State:  ui.RowNormal,
-			Badges: profileReviewBadges(profile),
+			Badges: model.profileReviewBadges(profile),
 		}))
+		if len(model.targets) > 1 {
+			lines = append(lines, ui.RenderKeyValue("  Scope", managedValueScopeLabel(len(profile.Values), len(model.targets))))
+		}
 		for _, value := range profile.Values {
-			source := "literal"
-			if value.ValueFromEnv != nil {
-				source = "env " + *value.ValueFromEnv
-			}
-			lines = append(lines, ui.RenderKeyValue("  "+value.Target, source))
+			lines = append(lines, ui.RenderKeyValue("  "+value.Target, profileValueSourceReviewLabel(value)))
 		}
 	}
 
@@ -668,8 +667,11 @@ func profileReviewLabel(profile config.Profile) string {
 	return profile.Name
 }
 
-func profileReviewBadges(profile config.Profile) []ui.Badge {
-	badges := make([]ui.Badge, 0, 2)
+func (model initWizardModel) profileReviewBadges(profile config.Profile) []ui.Badge {
+	badges := make([]ui.Badge, 0, 3)
+	if len(model.targets) > 1 && len(profile.Values) < len(model.targets) {
+		badges = append(badges, ui.Badge{Label: "partial"})
+	}
 	if profile.Protected {
 		badges = append(badges, ui.Badge{Label: "protected"})
 	}
@@ -682,6 +684,18 @@ func profileReviewBadges(profile config.Profile) []ui.Badge {
 	}
 
 	return badges
+}
+
+func managedValueScopeLabel(includedCount int, totalCount int) string {
+	return fmt.Sprintf("%d of %d managed values", includedCount, totalCount)
+}
+
+func profileValueSourceReviewLabel(value config.ProfileValue) string {
+	if value.ValueFromEnv != nil {
+		return "env " + *value.ValueFromEnv
+	}
+
+	return "literal"
 }
 
 func profileUsesEnvironment(profile config.Profile) bool {
