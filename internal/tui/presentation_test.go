@@ -60,6 +60,41 @@ func TestRenderCommandBar_GroupsKeyboardActions(t *testing.T) {
 	}
 }
 
+func TestRenderShell_PrioritizesEssentialCommandBarActionsAtConstrainedWidth(t *testing.T) {
+	got := RenderShell(Shell{
+		Title: "Switchlet",
+		Panels: []Panel{{
+			Title:   "Profiles",
+			Lines:   []string{"> Local"},
+			Focused: true,
+		}},
+		Actions: []Action{
+			{Key: "↑/↓ or j/k", Label: "Move", Priority: ActionPrioritySecondary},
+			{Key: "PgUp/PgDn", Label: "Page", Priority: ActionPrioritySecondary},
+			{Key: "Home/End", Label: "Jump", Priority: ActionPrioritySecondary},
+			{Key: "Enter", Label: "Apply", Priority: ActionPriorityPrimary},
+			{Key: "i", Label: "Inspect", Priority: ActionPrioritySecondary},
+			{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
+		},
+		Width: 28,
+	})
+
+	commandLine := visibleLines(got)[len(visibleLines(got))-1]
+	for _, expected := range []string{"Enter Apply", "q Quit"} {
+		if !strings.Contains(commandLine, expected) {
+			t.Fatalf("command line = %q, want essential action %q", commandLine, expected)
+		}
+	}
+	for _, omitted := range []string{"Move", "Page", "Jump", "Inspect"} {
+		if strings.Contains(commandLine, omitted) {
+			t.Fatalf("command line = %q, want low-priority action %q omitted first", commandLine, omitted)
+		}
+	}
+	if lipgloss.Width(commandLine) > 28 {
+		t.Fatalf("command line %q has width %d, want at most 28", commandLine, lipgloss.Width(commandLine))
+	}
+}
+
 func TestRenderInput_ClampsCursorAndShowsInsertionPoint(t *testing.T) {
 	tests := []struct {
 		name   string

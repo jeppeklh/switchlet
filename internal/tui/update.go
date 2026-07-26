@@ -116,6 +116,24 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.cursor = 0
 		}
 		return model, nil
+	case matchesKey(message, keyPageUp):
+		model.cursor -= model.profilePageStep()
+		if model.cursor < 0 {
+			model.cursor = 0
+		}
+		return model, nil
+	case matchesKey(message, keyPageDn):
+		model.cursor += model.profilePageStep()
+		if model.cursor >= len(model.profiles) {
+			model.cursor = len(model.profiles) - 1
+		}
+		return model, nil
+	case matchesKey(message, keyHome):
+		model.cursor = 0
+		return model, nil
+	case matchesKey(message, keyEnd):
+		model.cursor = len(model.profiles) - 1
+		return model, nil
 	case matchesKey(message, keyInspect):
 		model.refreshProfiles()
 

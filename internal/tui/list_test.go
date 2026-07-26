@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -153,6 +154,26 @@ func TestView_LongMainScreenContentStaysWithinTerminalWidth(t *testing.T) {
 	}
 }
 
+func TestView_WindowedProfileListShowsPositionContext(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		numberedProfiles(30),
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+	start, end := model.visibleProfileRange()
+	expected := fmt.Sprintf("Showing %d-%d of %d profiles", start+1, end, len(model.profiles))
+
+	view := model.View()
+	if !strings.Contains(view, expected) {
+		t.Fatalf("View() = %q, want windowed profile-list position %q", view, expected)
+	}
+	if !strings.Contains(view, "PgUp/PgDn Page") || !strings.Contains(view, "Home/End Jump") {
+		t.Fatalf("View() = %q, want long-list paging and jump command hints", view)
+	}
+}
+
 func TestUpdate_MovesCursorDownUpAndWraps(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
@@ -181,6 +202,53 @@ func TestUpdate_MovesCursorDownUpAndWraps(t *testing.T) {
 	}
 }
 
+func TestUpdate_PageAndJumpKeysClampLongProfileList(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		numberedProfiles(20),
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+	pageStep := model.profilePageStep()
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	model = updatedModel.(Model)
+	if model.cursor != pageStep {
+		t.Fatalf("cursor after PgDn = %d, want %d", model.cursor, pageStep)
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updatedModel.(Model)
+	if model.cursor != len(model.profiles)-1 {
+		t.Fatalf("cursor after End = %d, want last profile", model.cursor)
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	model = updatedModel.(Model)
+	if model.cursor != len(model.profiles)-1 {
+		t.Fatalf("cursor after PgDn at end = %d, want last profile", model.cursor)
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	model = updatedModel.(Model)
+	wantCursor := len(model.profiles) - 1 - pageStep
+	if model.cursor != wantCursor {
+		t.Fatalf("cursor after PgUp = %d, want %d", model.cursor, wantCursor)
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyHome})
+	model = updatedModel.(Model)
+	if model.cursor != 0 {
+		t.Fatalf("cursor after Home = %d, want first profile", model.cursor)
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	model = updatedModel.(Model)
+	if model.cursor != 0 {
+		t.Fatalf("cursor after PgUp at start = %d, want first profile", model.cursor)
+	}
+}
+
 func TestUpdate_ShowsRecoverableErrorForUnavailableProfile(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
@@ -205,6 +273,18 @@ func TestUpdate_ShowsRecoverableErrorForUnavailableProfile(t *testing.T) {
 			t.Fatalf("View() = %q, want recoverable error detail %q", view, expected)
 		}
 	}
+}
+
+func numberedProfiles(count int) []config.Profile {
+	profiles := make([]config.Profile, 0, count)
+	for index := 1; index <= count; index++ {
+		profiles = append(profiles, config.Profile{
+			Name:  fmt.Sprintf("Profile %02d", index),
+			Value: stringPointer(fmt.Sprintf("value-%02d", index)),
+		})
+	}
+
+	return profiles
 }
 
 func TestUpdate_QuitsImmediately(t *testing.T) {

@@ -1,6 +1,26 @@
 package tui
 
-import "github.com/jeppeklh/switchlet/internal/app"
+import (
+	"fmt"
+
+	"github.com/jeppeklh/switchlet/internal/app"
+)
+
+const (
+	shellActionLineCount      = 2
+	shellHeaderLineCount      = 2
+	shellHeaderPanelGap       = 1
+	stackedPanelGapLineCount  = 1
+	minimumVisibleProfileRows = 3
+)
+
+func (model Model) profilePanel(selectedState RowState, focused bool) Panel {
+	return Panel{
+		Title:   model.profilePanelTitle(),
+		Lines:   RenderListRows(model.profileRows(selectedState)),
+		Focused: focused,
+	}
+}
 
 func (model Model) profileRows(selectedState RowState) []ListRow {
 	start, end := model.visibleProfileRange()
@@ -23,6 +43,25 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 	}
 
 	return rows
+}
+
+func (model Model) profilePanelTitle() string {
+	positionContext := model.profileListPositionContext()
+	if positionContext == "" {
+		return "Profiles"
+	}
+
+	return "Profiles - " + positionContext
+}
+
+func (model Model) profileListPositionContext() string {
+	start, end := model.visibleProfileRange()
+	profileCount := len(model.profiles)
+	if profileCount == 0 || start == 0 && end == profileCount {
+		return ""
+	}
+
+	return fmt.Sprintf("Showing %d-%d of %d profiles", start+1, end, profileCount)
 }
 
 func (model Model) visibleProfileRange() (int, int) {
@@ -52,12 +91,26 @@ func (model Model) maxVisibleProfileRows() int {
 		return len(model.profiles)
 	}
 
-	maxVisibleRows := model.height - 12
-	if maxVisibleRows < 3 {
-		return 3
+	panelHeightBudget := model.height - shellActionLineCount - shellHeaderLineCount - shellHeaderPanelGap
+	if normalizedWidth(model.width) < splitShellWidth {
+		panelHeightBudget = (panelHeightBudget - stackedPanelGapLineCount) / 2
+	}
+
+	maxVisibleRows := panelHeightBudget - minimumPanelHeight(Panel{Title: "Profiles"}, defaultStyles())
+	if maxVisibleRows < minimumVisibleProfileRows {
+		return minimumVisibleProfileRows
 	}
 
 	return maxVisibleRows
+}
+
+func (model Model) profilePageStep() int {
+	step := model.maxVisibleProfileRows()
+	if step < 1 {
+		return 1
+	}
+
+	return step
 }
 
 func selectedProfileTitle(profile app.ProfileItem) string {

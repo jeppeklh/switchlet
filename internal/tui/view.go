@@ -43,7 +43,7 @@ func (model Model) listView() string {
 		Subtitle: "Switch a named profile safely",
 		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profiles", Lines: profileLines, Focused: true},
+			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true},
 			{Title: "Selected profile", Lines: model.selectionSummaryLines()},
 		},
 		Actions: model.listActions(),
@@ -62,12 +62,22 @@ func (model Model) listActions() []Action {
 		return []Action{{Key: "q", Label: "Quit"}}
 	}
 
-	return []Action{
-		{Key: "↑/↓ or j/k", Label: "Move"},
-		{Key: "Enter", Label: enterActionLabel(selectedProfile)},
-		{Key: "i", Label: "Inspect"},
-		{Key: "q", Label: "Quit"},
+	actions := []Action{
+		{Key: "↑/↓ or j/k", Label: "Move", Priority: ActionPrioritySecondary},
 	}
+	if model.profileListPositionContext() != "" {
+		actions = append(actions,
+			Action{Key: "PgUp/PgDn", Label: "Page", Priority: ActionPrioritySecondary},
+			Action{Key: "Home/End", Label: "Jump", Priority: ActionPrioritySecondary},
+		)
+	}
+	actions = append(actions,
+		Action{Key: "Enter", Label: enterActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
+		Action{Key: "i", Label: "Inspect", Priority: ActionPrioritySecondary},
+		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
+	)
+
+	return actions
 }
 
 func (model Model) selectionSummaryLines() []string {
@@ -204,7 +214,7 @@ func (model Model) inspectionView() string {
 		Subtitle: "Inspect Profile",
 		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Profile detail", Lines: profileLines, Focused: true},
 		},
 		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}},
@@ -248,7 +258,7 @@ func (model Model) confirmationView() string {
 		Title:    "Apply protected profile?",
 		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Confirmation", Lines: lines, Focused: true},
 		},
 		Actions: []Action{{Key: "Enter/y", Label: "Confirm"}, {Key: "n/Esc/q", Label: "Cancel"}},
@@ -279,7 +289,7 @@ func (model Model) errorView() string {
 		Subtitle: "Recoverable error",
 		Metadata: model.targetMetadata(),
 		Panels: []Panel{
-			{Title: "Profiles", Lines: RenderListRows(model.profileRows(RowInactiveSelected))},
+			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: model.recoverableErrorLines(errorMessage), Focused: true},
 		},
 		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},

@@ -24,9 +24,26 @@ type Badge struct {
 
 // Action describes one command-bar action.
 type Action struct {
-	Key   string
-	Label string
+	Key      string
+	Label    string
+	Priority ActionPriority
 }
+
+// ActionPriority controls which command-bar actions survive width pressure.
+type ActionPriority int
+
+const (
+	// ActionPriorityDefault lets the renderer infer priority from key and label.
+	ActionPriorityDefault ActionPriority = iota
+	// ActionPrioritySecondary is for movement and auxiliary hints.
+	ActionPrioritySecondary
+	// ActionPriorityNormal is for useful but non-critical actions.
+	ActionPriorityNormal
+	// ActionPriorityPrimary is for forward progress and return actions.
+	ActionPriorityPrimary
+	// ActionPriorityCritical is for cancellation and exit actions.
+	ActionPriorityCritical
+)
 
 // RowState controls the non-color marker used for list rows.
 type RowState int
@@ -98,7 +115,7 @@ func shellActionLines(actions []Action, width int) []string {
 		return nil
 	}
 
-	return []string{Separator(width), fitLine(RenderCommandBar(actions), width)}
+	return []string{Separator(width), fitLine(renderCommandBarWithinWidth(actions, width), width)}
 }
 
 func joinShellContentAndActions(contentLines []string, actionLines []string, height int) string {
@@ -211,6 +228,67 @@ func RenderCommandBar(actions []Action) string {
 	}
 
 	return styles.commandBar.Render(strings.Join(parts, "  "))
+}
+
+func renderCommandBarWithinWidth(actions []Action, width int) string {
+	actions = commandBarActionsForWidth(actions, width)
+	return RenderCommandBar(actions)
+}
+
+func commandBarActionsForWidth(actions []Action, width int) []Action {
+	selectedActions := compactActions(actions)
+	if width <= 0 || lipgloss.Width(RenderCommandBar(selectedActions)) <= width {
+		return selectedActions
+	}
+
+	for len(selectedActions) > 1 && lipgloss.Width(RenderCommandBar(selectedActions)) > width {
+		removeIndex := lowestPriorityActionIndex(selectedActions)
+		selectedActions = append(selectedActions[:removeIndex], selectedActions[removeIndex+1:]...)
+	}
+
+	return selectedActions
+}
+
+func compactActions(actions []Action) []Action {
+	selectedActions := make([]Action, 0, len(actions))
+	for _, action := range actions {
+		if action.Key == "" && action.Label == "" {
+			continue
+		}
+		selectedActions = append(selectedActions, action)
+	}
+
+	return selectedActions
+}
+
+func lowestPriorityActionIndex(actions []Action) int {
+	removeIndex := 0
+	lowestPriority := resolvedActionPriority(actions[0])
+	for index := 1; index < len(actions); index++ {
+		priority := resolvedActionPriority(actions[index])
+		if priority <= lowestPriority {
+			lowestPriority = priority
+			removeIndex = index
+		}
+	}
+
+	return removeIndex
+}
+
+func resolvedActionPriority(action Action) ActionPriority {
+	if action.Priority != ActionPriorityDefault {
+		return action.Priority
+	}
+
+	actionText := strings.ToLower(action.Key + " " + action.Label)
+	switch {
+	case strings.Contains(actionText, "ctrl+c") || strings.Contains(actionText, "quit") || strings.Contains(actionText, "cancel"):
+		return ActionPriorityCritical
+	case strings.Contains(actionText, "apply") || strings.Contains(actionText, "confirm") || strings.Contains(actionText, "continue") || strings.Contains(actionText, "select") || strings.Contains(actionText, "save") || strings.Contains(actionText, "create") || strings.Contains(actionText, "return") || strings.Contains(actionText, "back"):
+		return ActionPriorityPrimary
+	default:
+		return ActionPriorityNormal
+	}
 }
 
 // RenderInput renders a text input with an explicit cursor marker.
