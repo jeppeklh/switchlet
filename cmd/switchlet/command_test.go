@@ -899,34 +899,47 @@ func TestRunCommand_ListJSONReturnsStructuredConfigNotFoundError(t *testing.T) {
 	}
 }
 
-func TestREADME_ContainsInstallationAndCommandExamples(t *testing.T) {
+func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
 	_, currentFilePath, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller returned ok=false")
 	}
 
-	readmePath := filepath.Clean(filepath.Join(filepath.Dir(currentFilePath), "..", "..", "README.md"))
-	contents, err := os.ReadFile(readmePath)
-	if err != nil {
-		t.Fatalf("read README %q: %v", readmePath, err)
+	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFilePath), "..", ".."))
+	readDocumentation := func(name string) string {
+		t.Helper()
+		path := filepath.Join(repositoryRoot, name)
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("read %s %q: %v", name, path, err)
+		}
+
+		return string(contents)
 	}
 
-	readme := string(contents)
+	readme := readDocumentation("README.md")
 	for _, expected := range []string{
 		"go install github.com/jeppeklh/switchlet/cmd/switchlet@latest",
-		"switchlet_linux_amd64",
-		"switchlet_windows_amd64.exe",
 		"switchlet init",
+		"[COMMANDS.md](COMMANDS.md)",
+	} {
+		if !strings.Contains(readme, expected) {
+			t.Fatalf("README.md does not contain %q", expected)
+		}
+	}
+
+	commands := readDocumentation("COMMANDS.md")
+	for _, expected := range []string{
 		"switchlet list",
 		"switchlet inspect Local",
 		"switchlet apply Local",
-		"switchlet apply Production --dry-run --allow-protected",
-		"Use `--json` on `list`, `inspect`, and `apply`",
-		"No changes were written.",
-		"full-screen terminal UI",
+		"switchlet apply Local --dry-run",
+		"switchlet apply Production --allow-protected",
+		"Use `--json` with `list`, `inspect`, or `apply`",
+		"Text-entry screens treat `q` as literal input",
 	} {
-		if !strings.Contains(readme, expected) {
-			t.Fatalf("README %q does not contain %q", readmePath, expected)
+		if !strings.Contains(commands, expected) {
+			t.Fatalf("COMMANDS.md does not contain %q", expected)
 		}
 	}
 }
