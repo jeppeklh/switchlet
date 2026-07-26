@@ -48,6 +48,7 @@ func (model Model) listView() string {
 		},
 		Actions: model.listActions(),
 		Width:   model.width,
+		Height:  model.height,
 	})
 }
 
@@ -159,6 +160,7 @@ func (model Model) tooSmallTerminalView() string {
 		}}},
 		Actions: []Action{{Key: "q", Label: "Quit"}, {Key: "Ctrl+C", Label: "Exit immediately"}},
 		Width:   model.width,
+		Height:  model.height,
 	})
 }
 
@@ -207,6 +209,7 @@ func (model Model) inspectionView() string {
 		},
 		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}},
 		Width:   model.width,
+		Height:  model.height,
 	})
 }
 
@@ -250,6 +253,7 @@ func (model Model) confirmationView() string {
 		},
 		Actions: []Action{{Key: "Enter/y", Label: "Confirm"}, {Key: "n/Esc/q", Label: "Cancel"}},
 		Width:   model.width,
+		Height:  model.height,
 	})
 }
 
@@ -280,6 +284,7 @@ func (model Model) errorView() string {
 		},
 		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
 		Width:   model.width,
+		Height:  model.height,
 	})
 }
 
@@ -316,6 +321,7 @@ func (model Model) successView() string {
 		Subtitle: "Profile applied.",
 		Panels:   []Panel{{Title: "Result", Lines: successLines(model.successResult, fullPanelContentWidth(model.width)), Focused: true}},
 		Width:    model.width,
+		Height:   model.height,
 	})
 }
 

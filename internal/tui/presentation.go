@@ -57,6 +57,7 @@ type Shell struct {
 	Panels   []Panel
 	Actions  []Action
 	Width    int
+	Height   int
 }
 
 // RenderShell renders a compact application shell with titled content regions.
@@ -72,14 +73,42 @@ func RenderShell(shell Shell) string {
 		writeShellPanels(&builder, shell.Panels, width, styles)
 	}
 
-	if len(shell.Actions) > 0 {
-		builder.WriteString(Separator(width))
-		builder.WriteString("\n")
-		builder.WriteString(fitLine(RenderCommandBar(shell.Actions), width))
-		builder.WriteString("\n")
+	if len(shell.Actions) == 0 {
+		return builder.String()
 	}
 
-	return builder.String()
+	actionBlock := renderShellActions(shell.Actions, width)
+	if shell.Height > 0 {
+		return joinShellContentAndActions(builder.String(), actionBlock, shell.Height)
+	}
+
+	return builder.String() + actionBlock
+}
+
+func renderShellActions(actions []Action, width int) string {
+	return Separator(width) + "\n" + fitLine(RenderCommandBar(actions), width) + "\n"
+}
+
+func joinShellContentAndActions(content string, actionBlock string, height int) string {
+	padding := height - renderedLineCount(content) - renderedLineCount(actionBlock)
+	if padding <= 0 {
+		return content + actionBlock
+	}
+
+	return content + strings.Repeat("\n", padding) + actionBlock
+}
+
+func renderedLineCount(text string) int {
+	if text == "" {
+		return 0
+	}
+
+	lineCount := strings.Count(text, "\n")
+	if !strings.HasSuffix(text, "\n") {
+		lineCount++
+	}
+
+	return lineCount
 }
 
 // RenderHeader renders only the title block used by partial wizard screens.

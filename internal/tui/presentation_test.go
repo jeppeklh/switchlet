@@ -132,6 +132,31 @@ func TestRenderShell_RendersPanelsAndCommandBar(t *testing.T) {
 	}
 }
 
+func TestRenderShell_AnchorsCommandBarWhenHeightIsKnown(t *testing.T) {
+	got := RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Select a profile",
+		Panels: []Panel{
+			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
+			{Title: "Selected", Lines: []string{"Ready"}},
+		},
+		Actions: []Action{{Key: "Enter", Label: "Apply"}, {Key: "q", Label: "Quit"}},
+		Width:   120,
+		Height:  20,
+	})
+
+	lines := strings.Split(strings.TrimSuffix(got, "\n"), "\n")
+	if len(lines) != 20 {
+		t.Fatalf("RenderShell() rendered %d lines, want 20", len(lines))
+	}
+	if !strings.Contains(lines[len(lines)-1], "q Quit") {
+		t.Fatalf("last line = %q, want command bar at bottom", lines[len(lines)-1])
+	}
+	if lines[len(lines)-3] != "" {
+		t.Fatalf("line before command separator = %q, want vertical whitespace before bottom command bar", lines[len(lines)-3])
+	}
+}
+
 func TestRenderShell_RendersSplitLayoutAtComfortableWidth(t *testing.T) {
 	got := RenderShell(Shell{
 		Title:    "Switchlet",

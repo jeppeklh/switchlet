@@ -1036,6 +1036,8 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
 	model = updatedModel.(initWizardModel)
 	widView := model.View()
+	assertWizardViewHeight(t, widView, 32)
+	assertWizardCommandBarAtBottom(t, widView, "q Cancel")
 	for _, expected := range []string{"Switchlet init", "Step 1 of 5", "[1 File]", "2 Value", "3 Name", "4 Profiles", "5 Review", "* Configuration files", "> config.json", "Guidance", "Enter Select", "m Manual path"} {
 		if !strings.Contains(widView, expected) {
 			t.Fatalf("wide View() = %q, want %q", widView, expected)
@@ -1341,6 +1343,27 @@ func wizardLineContains(view string, values ...string) bool {
 	}
 
 	return false
+}
+
+func assertWizardViewHeight(t *testing.T, view string, height int) {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
+	if len(lines) != height {
+		t.Fatalf("View() rendered %d lines, want %d", len(lines), height)
+	}
+}
+
+func assertWizardCommandBarAtBottom(t *testing.T, view string, expectedAction string) {
+	t.Helper()
+
+	lines := strings.Split(strings.TrimSuffix(view, "\n"), "\n")
+	if len(lines) == 0 {
+		t.Fatal("View() rendered no lines")
+	}
+	if !strings.Contains(lines[len(lines)-1], expectedAction) {
+		t.Fatalf("last line = %q, want command bar action %q", lines[len(lines)-1], expectedAction)
+	}
 }
 
 func assertWizardViewWidth(t *testing.T, view string, width int) {

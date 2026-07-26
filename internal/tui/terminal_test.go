@@ -51,6 +51,24 @@ func TestView_TooSmallTerminalMessageStaysWithinReportedWidth(t *testing.T) {
 	}
 }
 
+func TestView_CommandBarUsesReportedTerminalHeight(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = updatedModel.(Model)
+
+	lines := strings.Split(strings.TrimSuffix(model.View(), "\n"), "\n")
+	if len(lines) != 40 {
+		t.Fatalf("View() rendered %d lines, want 40", len(lines))
+	}
+	if !strings.Contains(lines[len(lines)-1], "q Quit") {
+		t.Fatalf("last line = %q, want command bar at bottom", lines[len(lines)-1])
+	}
+}
+
 func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`

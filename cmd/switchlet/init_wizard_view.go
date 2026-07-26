@@ -24,6 +24,7 @@ func (model initWizardModel) View() string {
 			}}},
 			Actions: []ui.Action{{Key: "q", Label: "Cancel"}, {Key: "Ctrl+C", Label: "Cancel immediately"}},
 			Width:   model.width,
+			Height:  model.height,
 		})
 	}
 
@@ -108,6 +109,7 @@ func (model initWizardModel) View() string {
 			Title:    "Switchlet init",
 			Subtitle: "Unsupported wizard state.",
 			Width:    model.width,
+			Height:   model.height,
 		})
 	}
 }
@@ -473,6 +475,7 @@ func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, pa
 		Panels:   panels,
 		Actions:  actions,
 		Width:    model.width,
+		Height:   model.height,
 	})
 }
 
