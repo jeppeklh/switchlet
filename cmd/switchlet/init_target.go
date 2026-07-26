@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
 )
@@ -150,6 +151,25 @@ func targetSelectorStepGuidance(targetType config.TargetType) string {
 	}
 
 	return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
+}
+
+func targetSelectorLabel(target config.Target) (string, string) {
+	if target.Type == config.TargetTypeDotenv {
+		return "Key", target.Key
+	}
+
+	return "JSON path", target.JSONPath
+}
+
+func targetTypeDisplayName(targetType config.TargetType) string {
+	switch targetType {
+	case config.TargetTypeJSON:
+		return "JSON"
+	case config.TargetTypeDotenv:
+		return "dotenv"
+	default:
+		return string(targetType)
+	}
 }
 
 func promptTargetFile(prompter initPrompter, workingDirectory string, dependencies initDependencies) (targetFileSelection, error) {
@@ -303,7 +323,7 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 			return targetFileSelection{}, err
 		}
 
-		resolvedTargetPath := resolveTargetPath(workingDirectory, targetPath)
+		resolvedTargetPath := app.ResolveInitTargetPath(workingDirectory, targetPath)
 		targetType, ok := config.InferTargetType(resolvedTargetPath)
 		if !ok {
 			targetType, err = promptExplicitTargetType(prompter, resolvedTargetPath)
@@ -312,7 +332,7 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 			}
 		}
 
-		selectedFile, err := inspectTargetFile(resolvedTargetPath, displayTargetPath(workingDirectory, resolvedTargetPath), targetType, dependencies)
+		selectedFile, err := inspectTargetFile(resolvedTargetPath, app.DisplayInitTargetPath(workingDirectory, resolvedTargetPath), targetType, dependencies)
 		if err != nil {
 			if err := writePromptError(prompter, err); err != nil {
 				return targetFileSelection{}, err
@@ -748,24 +768,6 @@ func targetNodeChoiceLabel(node editor.StringTargetNode) string {
 	}
 
 	return node.Name + "/"
-}
-
-func resolveTargetPath(workingDirectory string, targetPath string) string {
-	resolvedTargetPath := targetPath
-	if !filepath.IsAbs(resolvedTargetPath) {
-		resolvedTargetPath = filepath.Join(workingDirectory, resolvedTargetPath)
-	}
-
-	return filepath.Clean(resolvedTargetPath)
-}
-
-func displayTargetPath(workingDirectory string, targetPath string) string {
-	relativePath, err := filepath.Rel(workingDirectory, targetPath)
-	if err == nil {
-		return relativePath
-	}
-
-	return targetPath
 }
 
 func writePromptError(prompter initPrompter, err error) error {

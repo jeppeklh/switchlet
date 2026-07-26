@@ -1,4 +1,4 @@
-package main
+package initwizard
 
 import (
 	"fmt"
@@ -9,34 +9,33 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/jeppeklh/switchlet/internal/config"
-	"github.com/jeppeklh/switchlet/internal/editor"
+	"github.com/jeppeklh/switchlet/internal/app"
 )
 
 func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t *testing.T) {
 	projectRoot := t.TempDir()
-	desiredCandidate := editor.TargetFileCandidate{
+	desiredCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
 		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
 	}
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{
 				{Path: filepath.Join(projectRoot, "packages", "one", "config.json"), RelativePath: filepath.Join("packages", "one", "config.json")},
 				desiredCandidate,
 			}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != desiredCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{
+			return []app.InitStringTargetNode{{
 				Name:     "database",
 				JSONPath: "database",
-				Children: []editor.StringTargetNode{
-					{Name: "primary", JSONPath: "database.primary", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.primary.url", Selectable: true}}},
-					{Name: "replica", JSONPath: "database.replica", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replica.url", Selectable: true}}},
+				Children: []app.InitStringTargetNode{
+					{Name: "primary", JSONPath: "database.primary", Children: []app.InitStringTargetNode{{Name: "url", JSONPath: "database.primary.url", Selectable: true}}},
+					{Name: "replica", JSONPath: "database.replica", Children: []app.InitStringTargetNode{{Name: "url", JSONPath: "database.replica.url", Selectable: true}}},
 				},
 			}}, nil
 		},
@@ -123,18 +122,18 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 
 func TestInitWizardModel_OneManagedValueProfilesUseVisibleDecisionScreens(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -221,31 +220,31 @@ func TestInitWizardModel_OneManagedValueProfilesUseVisibleDecisionScreens(t *tes
 
 func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	projectRoot := t.TempDir()
-	jsonCandidate := editor.TargetFileCandidate{
+	jsonCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "backend", "settings.json"),
 		RelativePath: filepath.Join("backend", "settings.json"),
-		Type:         config.TargetTypeJSON,
+		Type:         app.InitTargetTypeJSON,
 	}
-	dotenvCandidate := editor.TargetFileCandidate{
+	dotenvCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "frontend", ".env.local"),
 		RelativePath: filepath.Join("frontend", ".env.local"),
-		Type:         config.TargetTypeDotenv,
+		Type:         app.InitTargetTypeDotenv,
 	}
 
 	newModel := func(t *testing.T) initWizardModel {
 		t.Helper()
-		model, err := newInitWizardModel(projectRoot, initDependencies{
-			discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-				return []editor.TargetFileCandidate{jsonCandidate, dotenvCandidate}, nil
+		model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+			DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+				return []app.InitTargetFileCandidate{jsonCandidate, dotenvCandidate}, nil
 			},
-			inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 				if path != jsonCandidate.Path {
 					return nil, fmt.Errorf("unexpected JSON path %q", path)
 				}
 
-				return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+				return []app.InitStringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
 			},
-			inspectDotenvKeys: func(path string) ([]string, error) {
+			InspectDotenvKeys: func(path string) ([]string, error) {
 				if path != dotenvCandidate.Path {
 					return nil, fmt.Errorf("unexpected dotenv path %q", path)
 				}
@@ -325,20 +324,20 @@ func TestInitWizardModel_JSONBrowseUsesEscInsteadOfSelectableBackRow(t *testing.
 		step:             initWizardStepPathBrowse,
 		width:            120,
 		height:           32,
-		selectedFile: targetFileSelection{
-			displayPath: "config.json",
-			targetType:  config.TargetTypeJSON,
+		selectedFile: app.InitTargetFileSelection{
+			DisplayPath: "config.json",
+			TargetType:  app.InitTargetTypeJSON,
 		},
-		browseNodes: []editor.StringTargetNode{{
+		browseNodes: []app.InitStringTargetNode{{
 			Name:     "database",
 			JSONPath: "database",
-			Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.url", Selectable: true}},
+			Children: []app.InitStringTargetNode{{Name: "url", JSONPath: "database.url", Selectable: true}},
 		}},
 	}
 
 	model = pressWizardEnter(t, model)
 	view := model.View()
-	if strings.Contains(view, goBackChoiceLabel) {
+	if strings.Contains(view, "Back up one level") {
 		t.Fatalf("nested JSON browse View() = %q, want Esc command instead of selectable back row", view)
 	}
 	if !strings.Contains(view, "Esc Back") {
@@ -353,18 +352,18 @@ func TestInitWizardModel_JSONBrowseUsesEscInsteadOfSelectableBackRow(t *testing.
 
 func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: config.TargetTypeJSON}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: app.InitTargetTypeJSON}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -436,14 +435,14 @@ func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *test
 
 func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(string) ([]editor.StringTargetNode, error) {
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		InspectStringTargets: func(string) ([]app.InitStringTargetNode, error) {
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -475,9 +474,9 @@ func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *test
 		t.Fatalf("result = %#v, want cancelled result", model.result)
 	}
 
-	model, err = newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err = newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
 	})
 	if err != nil {
@@ -495,29 +494,29 @@ func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *test
 
 func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *testing.T) {
 	projectRoot := t.TempDir()
-	jsonCandidate := editor.TargetFileCandidate{
+	jsonCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "config.json"),
 		RelativePath: "config.json",
-		Type:         config.TargetTypeJSON,
+		Type:         app.InitTargetTypeJSON,
 	}
-	dotenvCandidate := editor.TargetFileCandidate{
+	dotenvCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "frontend", ".env.local"),
 		RelativePath: filepath.Join("frontend", ".env.local"),
-		Type:         config.TargetTypeDotenv,
+		Type:         app.InitTargetTypeDotenv,
 	}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{jsonCandidate, dotenvCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{jsonCandidate, dotenvCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != jsonCandidate.Path {
 				return nil, fmt.Errorf("unexpected JSON path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
 		},
-		inspectDotenvKeys: func(path string) ([]string, error) {
+		InspectDotenvKeys: func(path string) ([]string, error) {
 			if path != dotenvCandidate.Path {
 				return nil, fmt.Errorf("unexpected dotenv path %q", path)
 			}
@@ -616,7 +615,7 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	if len(model.result.Targets) != 2 {
 		t.Fatalf("len(result.Targets) = %d, want 2", len(model.result.Targets))
 	}
-	if model.result.Targets[1].Type != config.TargetTypeDotenv || model.result.Targets[1].Key != "VITE_API_URL" {
+	if model.result.Targets[1].Type != app.InitTargetTypeDotenv || model.result.Targets[1].Key != "VITE_API_URL" {
 		t.Fatalf("second target = %#v, want dotenv target with VITE_API_URL", model.result.Targets[1])
 	}
 	if len(model.result.Profiles) != 1 || len(model.result.Profiles[0].Values) != 1 {
@@ -636,11 +635,11 @@ func TestInitWizardModel_ProfileScopeUsesManagedValueNamesAndRejectsOmittingAll(
 		step:             initWizardStepProfileTargetInclude,
 		width:            120,
 		height:           32,
-		targets: []config.Target{
+		targets: []app.InitTarget{
 			{Name: "primaryUrl"},
 			{Name: "clientBaseUrl"},
 		},
-		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]config.ProfileValue, 0, 2)},
+		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]app.InitProfileValue, 0, 2)},
 	}
 
 	view := model.View()
@@ -683,11 +682,11 @@ func TestInitWizardModel_ProfileScopeBacktrackingRemovesRevisitedValues(t *testi
 		step:             initWizardStepProfileTargetInclude,
 		width:            120,
 		height:           32,
-		targets: []config.Target{
+		targets: []app.InitTarget{
 			{Name: "primaryUrl"},
 			{Name: "clientBaseUrl"},
 		},
-		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]config.ProfileValue, 0, 2)},
+		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]app.InitProfileValue, 0, 2)},
 	}
 
 	model = pressWizardEnter(t, model)
@@ -722,18 +721,18 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	projectRoot := t.TempDir()
 	manualTargetPath := filepath.Join(projectRoot, "..", "shared", "config.json")
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
 			return nil, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != filepath.Clean(manualTargetPath) {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "service", JSONPath: "service", Children: []editor.StringTargetNode{{Name: "baseUrl", JSONPath: "service.baseUrl", Selectable: true}}}}, nil
+			return []app.InitStringTargetNode{{Name: "service", JSONPath: "service", Children: []app.InitStringTargetNode{{Name: "baseUrl", JSONPath: "service.baseUrl", Selectable: true}}}}, nil
 		},
-		validateStringTarget: func(path string, jsonPath string) error {
+		ValidateStringTarget: func(path string, jsonPath string) error {
 			if path != filepath.Clean(manualTargetPath) || jsonPath != "service.baseUrl" {
 				return fmt.Errorf("unexpected validation %q %q", path, jsonPath)
 			}
@@ -754,8 +753,8 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	if model.step != initWizardStepPathBrowse {
 		t.Fatalf("step = %d, want path browse step", model.step)
 	}
-	if model.selectedFile.path != filepath.Clean(manualTargetPath) {
-		t.Fatalf("selectedFile.path = %q, want %q", model.selectedFile.path, filepath.Clean(manualTargetPath))
+	if model.selectedFile.Path != filepath.Clean(manualTargetPath) {
+		t.Fatalf("selectedFile.Path = %q, want %q", model.selectedFile.Path, filepath.Clean(manualTargetPath))
 	}
 
 	model = updateWizardModel(t, model, runeKey('m'))
@@ -771,18 +770,18 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 
 func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -821,18 +820,18 @@ func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testi
 
 func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -882,24 +881,24 @@ func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t 
 
 func TestInitWizardModel_FileFilterSupportsEditingInsideTheInput(t *testing.T) {
 	projectRoot := t.TempDir()
-	desiredCandidate := editor.TargetFileCandidate{
+	desiredCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
 		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
 	}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{
 				{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"},
 				desiredCandidate,
 			}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != desiredCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -921,25 +920,25 @@ func TestInitWizardModel_FileFilterSupportsEditingInsideTheInput(t *testing.T) {
 	if model.step != initWizardStepPathBrowse {
 		t.Fatalf("step = %d, want path browse step", model.step)
 	}
-	if model.selectedFile.path != desiredCandidate.Path {
-		t.Fatalf("selectedFile.path = %q, want %q", model.selectedFile.path, desiredCandidate.Path)
+	if model.selectedFile.Path != desiredCandidate.Path {
+		t.Fatalf("selectedFile.Path = %q, want %q", model.selectedFile.Path, desiredCandidate.Path)
 	}
 }
 
 func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -976,14 +975,14 @@ func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 
 func TestInitWizardModel_CanRemoveLastManagedValueBeforeReview(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(string) ([]editor.StringTargetNode, error) {
-			return []editor.StringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		InspectStringTargets: func(string) ([]app.InitStringTargetNode, error) {
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -1022,11 +1021,11 @@ func TestInitWizardModel_CanRemoveLastManagedValueBeforeReview(t *testing.T) {
 
 func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
 	})
 	if err != nil {
@@ -1062,11 +1061,11 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 
 func TestInitWizardModel_TooSmallTerminalStateIsSafe(t *testing.T) {
 	projectRoot := t.TempDir()
-	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
 	})
 	if err != nil {
@@ -1103,11 +1102,11 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 		step:               initWizardStepProfileSummary,
 		width:              120,
 		height:             32,
-		targets:            []config.Target{{Name: "database", File: filepath.Join(projectRoot, "config.json"), Type: config.TargetTypeJSON, JSONPath: "database.primary.url"}},
+		targets:            []app.InitTarget{{Name: "database", File: filepath.Join(projectRoot, "config.json"), Type: app.InitTargetTypeJSON, JSONPath: "database.primary.url"}},
 		shouldIgnoreConfig: true,
-		profiles: []config.Profile{
-			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: &literalValue}}},
-			{Name: "Production", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: &environmentVariableName}}, Protected: true},
+		profiles: []app.InitProfile{
+			{Name: "Local", Values: []app.InitProfileValue{{Target: "database", Value: &literalValue}}},
+			{Name: "Production", Values: []app.InitProfileValue{{Target: "database", ValueFromEnv: &environmentVariableName}}, Protected: true},
 		},
 	}
 
@@ -1155,13 +1154,13 @@ func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) 
 		width:              160,
 		height:             24,
 		shouldIgnoreConfig: true,
-		targets: []config.Target{
-			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
-			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		targets: []app.InitTarget{
+			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: app.InitTargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
+			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: app.InitTargetTypeDotenv, Key: "VITE_API_URL"},
 		},
-		profiles: []config.Profile{
-			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: &databaseValue}}},
-			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: &environmentVariableName}, {Target: "frontendApi", Value: &frontendValue}}, Protected: true},
+		profiles: []app.InitProfile{
+			{Name: "Local", Values: []app.InitProfileValue{{Target: "database", Value: &databaseValue}}},
+			{Name: "Staging", Values: []app.InitProfileValue{{Target: "database", ValueFromEnv: &environmentVariableName}, {Target: "frontendApi", Value: &frontendValue}}, Protected: true},
 		},
 	}
 
@@ -1204,15 +1203,15 @@ func TestInitWizardModel_ReviewOverflowKeepsCommandBarVisible(t *testing.T) {
 		width:              80,
 		height:             24,
 		shouldIgnoreConfig: true,
-		targets: []config.Target{
-			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
-			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
-			{Name: "workerQueue", File: filepath.Join(projectRoot, "worker", "config.json"), Type: config.TargetTypeJSON, JSONPath: "queue.endpoint"},
+		targets: []app.InitTarget{
+			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: app.InitTargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
+			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: app.InitTargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "workerQueue", File: filepath.Join(projectRoot, "worker", "config.json"), Type: app.InitTargetTypeJSON, JSONPath: "queue.endpoint"},
 		},
-		profiles: []config.Profile{
-			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("local database")}}},
-			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")}, {Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")}}, Protected: true},
-			{Name: "Worker", Values: []config.ProfileValue{{Target: "workerQueue", Value: stringPointer("https://queue.example.test")}}},
+		profiles: []app.InitProfile{
+			{Name: "Local", Values: []app.InitProfileValue{{Target: "database", Value: stringPointer("local database")}}},
+			{Name: "Staging", Values: []app.InitProfileValue{{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")}, {Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")}}, Protected: true},
+			{Name: "Worker", Values: []app.InitProfileValue{{Target: "workerQueue", Value: stringPointer("https://queue.example.test")}}},
 		},
 	}
 
@@ -1229,21 +1228,21 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 	projectRoot := t.TempDir()
 	longRelativePath := filepath.Join("services", "backend", "configuration", "very-long-directory-name", "appsettings.Development.json")
 	longJSONPath := "services.database.primary.connectionStrings.defaultConnection.value"
-	selectedCandidate := editor.TargetFileCandidate{
+	selectedCandidate := app.InitTargetFileCandidate{
 		Path:         filepath.Join(projectRoot, longRelativePath),
 		RelativePath: longRelativePath,
 	}
 
-	model, err := newInitWizardModel(projectRoot, initDependencies{
-		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
-			return []editor.TargetFileCandidate{selectedCandidate}, nil
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
 		},
-		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
 			if path != selectedCandidate.Path {
 				return nil, fmt.Errorf("unexpected path %q", path)
 			}
 
-			return []editor.StringTargetNode{{Name: longJSONPath, JSONPath: longJSONPath, Selectable: true}}, nil
+			return []app.InitStringTargetNode{{Name: longJSONPath, JSONPath: longJSONPath, Selectable: true}}, nil
 		},
 	})
 	if err != nil {
@@ -1261,7 +1260,7 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 	}
 
 	model.step = initWizardStepProfileValue
-	model.targets = []config.Target{{Name: "database", File: selectedCandidate.Path, Type: config.TargetTypeJSON, JSONPath: longJSONPath}}
+	model.targets = []app.InitTarget{{Name: "database", File: selectedCandidate.Path, Type: app.InitTargetTypeJSON, JSONPath: longJSONPath}}
 	model.draftProfile = initWizardProfileDraft{Name: "Local", TargetIndex: 0}
 	model.setInputValue("postgres://very-long-host-name.example.test/database-name-with-a-long-suffix")
 
@@ -1276,6 +1275,14 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 	if !strings.Contains(view, "_") {
 		t.Fatalf("View() = %q, want visible cursor for long input field", view)
 	}
+}
+
+func newTestInitWizardModel(workingDirectory string, dependencies app.InitWorkflowDependencies) (initWizardModel, error) {
+	return newInitWizardModel(workingDirectory, app.NewInitWorkflow(dependencies))
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
 
 func pressWizardEnter(t *testing.T, model initWizardModel) initWizardModel {

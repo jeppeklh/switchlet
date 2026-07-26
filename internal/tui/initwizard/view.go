@@ -1,11 +1,9 @@
-package main
+package initwizard
 
 import (
 	"fmt"
 
 	"github.com/jeppeklh/switchlet/internal/app"
-	"github.com/jeppeklh/switchlet/internal/config"
-	"github.com/jeppeklh/switchlet/internal/editor"
 	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
@@ -44,7 +42,7 @@ func (model initWizardModel) View() string {
 			1,
 			"Choose file type",
 			[]string{
-				ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+				ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 				"",
 				"Task",
 				"Choose the file type because the format cannot be inferred safely.",
@@ -57,8 +55,8 @@ func (model initWizardModel) View() string {
 		return model.pathSearchView()
 	case initWizardStepManualPath:
 		return model.textInputView(2, "Enter JSON value path", []string{
-			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
+			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
+			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
 			"Enter one existing string-valued JSON path.",
@@ -68,8 +66,8 @@ func (model initWizardModel) View() string {
 		return model.dotenvKeySelectView()
 	case initWizardStepManualDotenvKey:
 		return model.textInputView(2, "Enter dotenv value key", []string{
-			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
+			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
+			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
 			"Enter one existing dotenv key that appears once.",
@@ -235,8 +233,8 @@ func (model initWizardModel) pathBrowseView() string {
 	return model.initWizardShell(2, "Choose value", []ui.Panel{
 		{Title: "JSON strings", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
+			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
+			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
 			"Only existing string values are shown.",
@@ -264,8 +262,8 @@ func (model initWizardModel) pathSearchView() string {
 	return model.initWizardShell(2, "Search JSON values", []ui.Panel{
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
+			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
+			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
 			"Search existing string values by path segment or leaf name.",
@@ -275,17 +273,17 @@ func (model initWizardModel) pathSearchView() string {
 }
 
 func (model initWizardModel) dotenvKeySelectView() string {
-	choices := append([]string(nil), model.selectedFile.dotenvKeys...)
+	choices := append([]string(nil), model.selectedFile.DotenvKeys...)
 	choices = append(choices, manualDotenvKeyChoiceLabel)
 
 	workLines := model.choiceLines(choices, model.cursor, dotenvKeyChoiceWindowSize)
-	workLines = append(workLines, "", fmt.Sprintf("Showing %d dotenv key(s).", len(model.selectedFile.dotenvKeys)))
+	workLines = append(workLines, "", fmt.Sprintf("Showing %d dotenv key(s).", len(model.selectedFile.DotenvKeys)))
 
 	return model.initWizardShell(2, "Choose value", []ui.Panel{
 		{Title: "Dotenv keys", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
-			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
+			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
+			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
 			"Existing unique keys only.",
@@ -301,9 +299,9 @@ func (model initWizardModel) dotenvKeySelectView() string {
 }
 
 func (model initWizardModel) managedValueNameGuidanceLines() []string {
-	_, selector := targetSelectorLabel(config.Target{Type: model.selectedFile.targetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
+	_, selector := initTargetSelectorLabel(app.InitTarget{Type: model.selectedFile.TargetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
 	lines := []string{
-		ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+		ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 		ui.RenderKeyValue("Selected value", selector),
 		"",
 		"Profiles refer to this short name.",
@@ -403,7 +401,7 @@ func (model initWizardModel) profileSummaryView() string {
 }
 
 func (model initWizardModel) reviewView() string {
-	hasLiteralValues := hasLiteralProfiles(model.profiles)
+	hasLiteralValues := app.InitProfilesHaveLiteralValues(model.profiles)
 	choices := []string{"Create .switchlet.yaml"}
 	if hasLiteralValues {
 		choices = append(choices, "Toggle ignore")
@@ -481,12 +479,31 @@ func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, pa
 
 func wizardStepMetadata(stepNumber int) []string {
 	return []string{
-		fmt.Sprintf("Step %d of %d", stepNumber, initStepCount),
+		fmt.Sprintf("Step %d of %d", stepNumber, len(initWizardStepLabels)),
 		ui.RenderStepProgress(stepNumber, initWizardStepLabels),
 	}
 }
 
-func (model initWizardModel) candidateListLines(candidates []editor.TargetFileCandidate, cursor int, windowSize int) []string {
+func initTargetSelectorLabel(target app.InitTarget) (string, string) {
+	if target.Type == app.InitTargetTypeDotenv {
+		return "Key", target.Key
+	}
+
+	return "JSON path", target.JSONPath
+}
+
+func initTargetTypeDisplayName(targetType app.InitTargetType) string {
+	switch targetType {
+	case app.InitTargetTypeJSON:
+		return "JSON"
+	case app.InitTargetTypeDotenv:
+		return "dotenv"
+	default:
+		return string(targetType)
+	}
+}
+
+func (model initWizardModel) candidateListLines(candidates []app.InitTargetFileCandidate, cursor int, windowSize int) []string {
 	if len(candidates) == 0 {
 		return []string{"No matching files."}
 	}
@@ -580,8 +597,8 @@ func (model initWizardModel) lastTargetLines() []string {
 		State:  ui.RowNormal,
 		Badges: []ui.Badge{{Label: string(target.Type)}},
 	})}
-	lines = append(lines, ui.RenderKeyValue("File", displayTargetPath(model.workingDirectory, target.File)))
-	selectorName, selector := targetSelectorLabel(target)
+	lines = append(lines, ui.RenderKeyValue("File", app.DisplayInitTargetPath(model.workingDirectory, target.File)))
+	selectorName, selector := initTargetSelectorLabel(target)
 	lines = append(lines, ui.RenderKeyValue(selectorName, selector))
 
 	return lines
@@ -599,8 +616,8 @@ func (model initWizardModel) targetRows() []string {
 			State:  ui.RowNormal,
 			Badges: []ui.Badge{{Label: string(target.Type)}},
 		}))
-		lines = append(lines, ui.RenderKeyValue("  File", displayTargetPath(model.workingDirectory, target.File)))
-		selectorName, selector := targetSelectorLabel(target)
+		lines = append(lines, ui.RenderKeyValue("  File", app.DisplayInitTargetPath(model.workingDirectory, target.File)))
+		selectorName, selector := initTargetSelectorLabel(target)
 		lines = append(lines, ui.RenderKeyValue("  "+selectorName, selector))
 	}
 
@@ -676,11 +693,11 @@ func searchableTextInputActions(enterAction string) []ui.Action {
 	}
 }
 
-func profileReviewLabel(profile config.Profile) string {
+func profileReviewLabel(profile app.InitProfile) string {
 	return profile.Name
 }
 
-func (model initWizardModel) profileReviewBadges(profile config.Profile) []ui.Badge {
+func (model initWizardModel) profileReviewBadges(profile app.InitProfile) []ui.Badge {
 	badges := make([]ui.Badge, 0, 3)
 	if len(model.targets) > 1 && len(profile.Values) < len(model.targets) {
 		badges = append(badges, ui.Badge{Label: "partial"})
@@ -703,7 +720,7 @@ func managedValueScopeLabel(includedCount int, totalCount int) string {
 	return fmt.Sprintf("%d of %d managed values", includedCount, totalCount)
 }
 
-func profileValueSourceReviewLabel(value config.ProfileValue) string {
+func profileValueSourceReviewLabel(value app.InitProfileValue) string {
 	if value.ValueFromEnv != nil {
 		return "env " + *value.ValueFromEnv
 	}
@@ -711,7 +728,7 @@ func profileValueSourceReviewLabel(value config.ProfileValue) string {
 	return "literal"
 }
 
-func profileUsesEnvironment(profile config.Profile) bool {
+func profileUsesEnvironment(profile app.InitProfile) bool {
 	if profile.ValueFromEnv != nil {
 		return true
 	}
@@ -724,7 +741,7 @@ func profileUsesEnvironment(profile config.Profile) bool {
 	return false
 }
 
-func profileUsesMixedSources(profile config.Profile) bool {
+func profileUsesMixedSources(profile app.InitProfile) bool {
 	literal := profile.Value != nil
 	environment := profile.ValueFromEnv != nil
 	for _, value := range profile.Values {
@@ -740,10 +757,10 @@ func profileUsesMixedSources(profile config.Profile) bool {
 
 func profileSourceSummary(useEnvironment bool) string {
 	if useEnvironment {
-		return sourceLabel(app.ProfileSourceEnvironment)
+		return "Environment variable"
 	}
 
-	return sourceLabel(app.ProfileSourceLiteral)
+	return "Literal value"
 }
 
 func profileProtectionSummary(protected bool) string {
@@ -760,15 +777,4 @@ func profileValueGuidance(useEnvironment bool) string {
 	}
 
 	return "Enter the literal value to store in .switchlet.yaml."
-}
-
-func targetTypeDisplayName(targetType config.TargetType) string {
-	switch targetType {
-	case config.TargetTypeJSON:
-		return "JSON"
-	case config.TargetTypeDotenv:
-		return "dotenv"
-	default:
-		return string(targetType)
-	}
 }

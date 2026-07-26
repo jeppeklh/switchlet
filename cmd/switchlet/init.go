@@ -74,7 +74,6 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 }
 
 func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies) error {
-
 	prompter := initPrompter{
 		reader: bufio.NewReader(input),
 		writer: output,
@@ -128,7 +127,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 	}
 
 	shouldIgnoreConfig := false
-	if hasLiteralProfiles(profiles) {
+	if app.InitProfilesHaveLiteralValues(profiles) {
 		if _, err := fmt.Fprintln(output, "\nLiteral profile values are stored directly in .switchlet.yaml."); err != nil {
 			return err
 		}
@@ -179,21 +178,6 @@ func createInitConfiguration(workingDirectory string, output io.Writer, targets 
 	}
 	_, err = fmt.Fprintln(output, "Run `switchlet` to choose and apply a profile.")
 	return err
-}
-
-func hasLiteralProfiles(profiles []config.Profile) bool {
-	for _, profile := range profiles {
-		if profile.Value != nil {
-			return true
-		}
-		for _, value := range profile.Values {
-			if value.Value != nil {
-				return true
-			}
-		}
-	}
-
-	return false
 }
 
 func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Profile, error) {
@@ -333,7 +317,7 @@ func printInitSummary(output io.Writer, workingDirectory string, targets []confi
 		return err
 	}
 	for _, target := range targets {
-		if _, err := fmt.Fprintf(output, "    - %s [%s] -> %s\n", target.Name, target.Type, displayTargetPath(workingDirectory, target.File)); err != nil {
+		if _, err := fmt.Fprintf(output, "    - %s [%s] -> %s\n", target.Name, target.Type, app.DisplayInitTargetPath(workingDirectory, target.File)); err != nil {
 			return err
 		}
 		selectorName, selector := targetSelectorLabel(target)
@@ -357,14 +341,6 @@ func printInitSummary(output io.Writer, workingDirectory string, targets []confi
 	}
 
 	return nil
-}
-
-func targetSelectorLabel(target config.Target) (string, string) {
-	if target.Type == config.TargetTypeDotenv {
-		return "Key", target.Key
-	}
-
-	return "JSON path", target.JSONPath
 }
 
 func profileValueSummary(profile config.Profile) string {
