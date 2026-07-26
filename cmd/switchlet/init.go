@@ -211,7 +211,7 @@ func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Pr
 			return nil, err
 		}
 
-		values, err := promptProfileValues(prompter, targets)
+		values, err := promptProfileValues(prompter, name, targets)
 		if err != nil {
 			return nil, err
 		}
@@ -237,23 +237,26 @@ func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Pr
 	}
 }
 
-func promptProfileValues(prompter initPrompter, targets []config.Target) ([]config.ProfileValue, error) {
+func promptProfileValues(prompter initPrompter, profileName string, targets []config.Target) ([]config.ProfileValue, error) {
 	for {
 		values := make([]config.ProfileValue, 0, len(targets))
 		for _, target := range targets {
 			includeTarget := true
 			if len(targets) > 1 {
 				var err error
-				includeTarget, err = prompter.promptYesNo(formatYesNoPrompt(fmt.Sprintf("Include target %q in this profile?", target.Name), true), true)
+				includeTarget, err = prompter.promptYesNo(formatYesNoPrompt(fmt.Sprintf("Set %s in %s?", target.Name, profileName), true), true)
 				if err != nil {
 					return nil, err
 				}
 			}
 			if !includeTarget {
+				if _, err := fmt.Fprintf(prompter.writer, "Leaving %s unchanged in %s.\n", target.Name, profileName); err != nil {
+					return nil, err
+				}
 				continue
 			}
 
-			value, err := promptProfileValue(prompter, target)
+			value, err := promptProfileValue(prompter, profileName, target)
 			if err != nil {
 				return nil, err
 			}
@@ -264,18 +267,18 @@ func promptProfileValues(prompter initPrompter, targets []config.Target) ([]conf
 			return values, nil
 		}
 
-		if _, err := fmt.Fprintln(prompter.writer, "Error: a profile must include at least one target value."); err != nil {
+		if _, err := fmt.Fprintln(prompter.writer, "Error: a profile must include at least one managed value."); err != nil {
 			return nil, err
 		}
 	}
 }
 
-func promptProfileValue(prompter initPrompter, target config.Target) (config.ProfileValue, error) {
-	if _, err := fmt.Fprintf(prompter.writer, "\nValue for target %q\n", target.Name); err != nil {
+func promptProfileValue(prompter initPrompter, profileName string, target config.Target) (config.ProfileValue, error) {
+	if _, err := fmt.Fprintf(prompter.writer, "\nSet %s for %s\n", target.Name, profileName); err != nil {
 		return config.ProfileValue{}, err
 	}
 
-	sourceChoice, err := prompter.promptChoice("How should Switchlet resolve this target value?", []string{"Use a literal value", "Use an environment variable"})
+	sourceChoice, err := prompter.promptChoice("How should Switchlet store this managed value?", []string{"Use a literal value", "Use an environment variable"})
 	if err != nil {
 		return config.ProfileValue{}, err
 	}
@@ -326,7 +329,7 @@ func printInitSummary(output io.Writer, workingDirectory string, targets []confi
 	if _, err := fmt.Fprintf(output, "  Configuration file: %s\n", filepath.Join(workingDirectory, ".switchlet.yaml")); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(output, "  Targets:"); err != nil {
+	if _, err := fmt.Fprintln(output, "  Managed values:"); err != nil {
 		return err
 	}
 	for _, target := range targets {
@@ -382,7 +385,7 @@ func profileValueSummary(profile config.Profile) string {
 		}
 	}
 
-	description := fmt.Sprintf("%d target", len(profile.Values))
+	description := fmt.Sprintf("%d managed value", len(profile.Values))
 	if len(profile.Values) != 1 {
 		description += "s"
 	}

@@ -343,17 +343,18 @@ func (model initWizardModel) managedValueCheckpointView() string {
 
 func (model initWizardModel) profileTargetIncludeView() string {
 	target := model.currentDraftTarget()
-	choices := []string{"Include this target", "Omit this target"}
+	choices := profileTargetIncludeChoices(model.draftProfile.Name, target.Name)
 
-	return model.initWizardShell(4, "Choose profile targets", []ui.Panel{
-		{Title: "Profile scope", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+	return model.initWizardShell(4, "Values in "+model.draftProfile.Name, []ui.Panel{
+		{Title: "Scope", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Profile", model.draftProfile.Name),
 			ui.RenderKeyValue("Managed value", target.Name),
 			ui.RenderKeyValue("Progress", fmt.Sprintf("%d of %d", model.draftProfile.TargetIndex+1, len(model.targets))),
 			"",
 			"Task",
-			"Include only targets this profile should modify.",
+			"Choose whether this profile should set this managed value.",
+			"No leaves it unchanged when the profile is applied.",
 		})},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -361,6 +362,13 @@ func (model initWizardModel) profileTargetIncludeView() string {
 		{Key: "Esc", Label: "Back"},
 		{Key: "q", Label: "Cancel"},
 	})
+}
+
+func profileTargetIncludeChoices(profileName string, targetName string) []string {
+	return []string{
+		fmt.Sprintf("Set %s in %s? Yes", targetName, profileName),
+		fmt.Sprintf("Set %s in %s? No, leave unchanged", targetName, profileName),
+	}
 }
 
 func (model initWizardModel) profileOptionsView() string {

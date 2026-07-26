@@ -873,6 +873,18 @@ VITE_FEATURES=local
 		t.Fatalf("second profile values = %#v, want frontendApi-only partial profile", loadedConfig.Profiles[1].Values)
 	}
 
+	outputText := output.String()
+	for _, expected := range []string{
+		"Set database in Local Database? [Y/n]:",
+		"Set frontendApi in Local Database? [Y/n]:",
+		"Leaving frontendApi unchanged in Local Database.",
+		"Set frontendApi for Frontend Local",
+	} {
+		if !strings.Contains(outputText, expected) {
+			t.Fatalf("init output %q does not contain managed-value prompt %q", outputText, expected)
+		}
+	}
+
 	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
 	if err != nil {
 		t.Fatalf("read configuration file: %v", err)

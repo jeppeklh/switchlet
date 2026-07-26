@@ -519,9 +519,27 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
+	includeDatabaseView := model.View()
+	for _, expected := range []string{
+		"Values in Local",
+		"Set database in Local? Yes",
+		"Set database in Local? No, leave unchanged",
+		"Managed value: database",
+	} {
+		if !strings.Contains(includeDatabaseView, expected) {
+			t.Fatalf("profile scope View() = %q, want %q", includeDatabaseView, expected)
+		}
+	}
+	if strings.Contains(includeDatabaseView, "Include this target") || strings.Contains(includeDatabaseView, "Omit this target") {
+		t.Fatalf("profile scope View() = %q, want managed-value include language", includeDatabaseView)
+	}
 	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "postgres://localhost:5432/app")
 	model = pressWizardEnter(t, model)
+	includeFrontendView := model.View()
+	if !strings.Contains(includeFrontendView, "Set frontendApi in Local? No, leave unchanged") {
+		t.Fatalf("profile scope View() = %q, want dynamic leave-unchanged choice for frontendApi", includeFrontendView)
+	}
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepProfileSummary {
@@ -554,6 +572,92 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	}
 	if !model.result.ShouldIgnoreConfig {
 		t.Fatal("ShouldIgnoreConfig = false, want default literal-value protection")
+	}
+}
+
+func TestInitWizardModel_ProfileScopeUsesManagedValueNamesAndRejectsOmittingAll(t *testing.T) {
+	model := initWizardModel{
+		workingDirectory: t.TempDir(),
+		step:             initWizardStepProfileTargetInclude,
+		width:            120,
+		height:           32,
+		targets: []config.Target{
+			{Name: "primaryUrl"},
+			{Name: "clientBaseUrl"},
+		},
+		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]config.ProfileValue, 0, 2)},
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Set primaryUrl in Local? Yes",
+		"Set primaryUrl in Local? No, leave unchanged",
+		"Managed value: primaryUrl",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("profile scope View() = %q, want %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "database") || strings.Contains(view, "frontendApi") {
+		t.Fatalf("profile scope View() = %q, want names from wizard state only", view)
+	}
+
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+	if model.draftProfile.TargetIndex != 1 {
+		t.Fatalf("TargetIndex = %d, want second managed value", model.draftProfile.TargetIndex)
+	}
+	view = model.View()
+	if !strings.Contains(view, "Set clientBaseUrl in Local? No, leave unchanged") {
+		t.Fatalf("profile scope View() = %q, want second managed value leave-unchanged choice", view)
+	}
+
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileTargetInclude || model.draftProfile.TargetIndex != 0 {
+		t.Fatalf("step = %d, TargetIndex = %d, want first include decision after omitting all", model.step, model.draftProfile.TargetIndex)
+	}
+	if !strings.Contains(model.View(), "a profile must include at least one managed") {
+		t.Fatalf("View() = %q, want all-omitted managed-value error", model.View())
+	}
+}
+
+func TestInitWizardModel_ProfileScopeBacktrackingRemovesRevisitedValues(t *testing.T) {
+	model := initWizardModel{
+		workingDirectory: t.TempDir(),
+		step:             initWizardStepProfileTargetInclude,
+		width:            120,
+		height:           32,
+		targets: []config.Target{
+			{Name: "primaryUrl"},
+			{Name: "clientBaseUrl"},
+		},
+		draftProfile: initWizardProfileDraft{Name: "Local", Values: make([]config.ProfileValue, 0, 2)},
+	}
+
+	model = pressWizardEnter(t, model)
+	typeWizardText(t, &model, "https://primary.example.test")
+	model = pressWizardEnter(t, model)
+	if len(model.draftProfile.Values) != 1 || model.draftProfile.Values[0].Target != "primaryUrl" {
+		t.Fatalf("draft values = %#v, want primaryUrl before backtracking", model.draftProfile.Values)
+	}
+
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if len(model.draftProfile.Values) != 0 {
+		t.Fatalf("draft values = %#v, want revisited values removed after backtracking", model.draftProfile.Values)
+	}
+
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	typeWizardText(t, &model, "https://client.example.test")
+	model = pressWizardEnter(t, model)
+
+	if len(model.profiles) != 1 {
+		t.Fatalf("len(profiles) = %d, want 1", len(model.profiles))
+	}
+	if len(model.profiles[0].Values) != 1 || model.profiles[0].Values[0].Target != "clientBaseUrl" {
+		t.Fatalf("profile values = %#v, want only clientBaseUrl after changing inclusion", model.profiles[0].Values)
 	}
 }
 

@@ -438,9 +438,9 @@ func (model *initWizardModel) advanceDraftProfileTarget() {
 
 	if model.draftProfile.TargetIndex >= len(model.targets) {
 		if len(model.draftProfile.Values) == 0 {
-			model.errorMessage = "a profile must include at least one managed value"
 			model.draftProfile.TargetIndex = 0
 			model.beginProfileTargetInclude()
+			model.errorMessage = "a profile must include at least one managed value"
 			return
 		}
 
@@ -449,6 +449,31 @@ func (model *initWizardModel) advanceDraftProfileTarget() {
 	}
 
 	model.beginProfileTargetInclude()
+}
+
+func (model *initWizardModel) trimDraftProfileValuesFromTargetIndex(targetIndex int) {
+	if targetIndex < 0 {
+		targetIndex = 0
+	}
+	if targetIndex >= len(model.targets) || len(model.draftProfile.Values) == 0 {
+		return
+	}
+
+	revisitedTargets := make(map[string]struct{}, len(model.targets)-targetIndex)
+	for _, target := range model.targets[targetIndex:] {
+		revisitedTargets[target.Name] = struct{}{}
+	}
+
+	values := model.draftProfile.Values[:0]
+	for _, value := range model.draftProfile.Values {
+		if _, revisited := revisitedTargets[value.Target]; revisited {
+			continue
+		}
+
+		values = append(values, value)
+	}
+
+	model.draftProfile.Values = values
 }
 
 func windowRange(cursor int, total int, windowSize int) (int, int) {

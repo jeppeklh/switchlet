@@ -538,6 +538,7 @@ func (model initWizardModel) handleProfileTargetIncludeKey(message tea.KeyMsg) (
 		model.cursor = 1 - model.cursor
 	case message.Type == tea.KeyEsc:
 		if model.draftProfile.TargetIndex == 0 {
+			model.trimDraftProfileValuesFromTargetIndex(0)
 			model.step = initWizardStepProfileName
 			model.cursor = 0
 			model.errorMessage = ""
@@ -546,6 +547,7 @@ func (model initWizardModel) handleProfileTargetIncludeKey(message tea.KeyMsg) (
 		}
 
 		model.draftProfile.TargetIndex--
+		model.trimDraftProfileValuesFromTargetIndex(model.draftProfile.TargetIndex)
 		model.beginProfileTargetInclude()
 	case message.Type == tea.KeyEnter:
 		if model.cursor == 0 {
