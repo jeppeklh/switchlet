@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -95,11 +96,11 @@ func TestRenderInputWithinWidth_KeepsCursorVisibleForLongValues(t *testing.T) {
 }
 
 func TestPrimaryPanelWidth_MatchesShellSplitBehavior(t *testing.T) {
-	if got := PrimaryPanelWidth(120, 2); got != 62 {
-		t.Fatalf("PrimaryPanelWidth(120, 2) = %d, want 62", got)
+	if got := PrimaryPanelWidth(120, 2); got != 60 {
+		t.Fatalf("PrimaryPanelWidth(120, 2) = %d, want 60", got)
 	}
-	if got := PrimaryPanelWidth(80, 2); got != 76 {
-		t.Fatalf("PrimaryPanelWidth(80, 2) = %d, want 76", got)
+	if got := PrimaryPanelWidth(80, 2); got != 74 {
+		t.Fatalf("PrimaryPanelWidth(80, 2) = %d, want 74", got)
 	}
 }
 
@@ -154,6 +155,69 @@ func TestRenderShell_AnchorsCommandBarWhenHeightIsKnown(t *testing.T) {
 	}
 	if lines[len(lines)-3] != "" {
 		t.Fatalf("line before command separator = %q, want vertical whitespace before bottom command bar", lines[len(lines)-3])
+	}
+}
+
+func TestRenderShell_ClipsPanelOverflowWithinKnownHeight(t *testing.T) {
+	panelLines := make([]string, 0, 20)
+	for index := 1; index <= 20; index++ {
+		panelLines = append(panelLines, fmt.Sprintf("line %02d", index))
+	}
+
+	got := RenderShell(Shell{
+		Title: "Switchlet",
+		Panels: []Panel{{
+			Title:   "Long content",
+			Lines:   panelLines,
+			Focused: true,
+		}},
+		Actions: []Action{{Key: "Enter", Label: "Apply"}, {Key: "q", Label: "Quit"}},
+		Width:   80,
+		Height:  10,
+	})
+
+	lines := visibleLines(got)
+	if len(lines) != 10 {
+		t.Fatalf("RenderShell() rendered %d lines, want 10", len(lines))
+	}
+	if !strings.Contains(lines[len(lines)-1], "q Quit") {
+		t.Fatalf("last line = %q, want command bar at bottom", lines[len(lines)-1])
+	}
+	if !strings.Contains(got, "... ") {
+		t.Fatalf("RenderShell() = %q, want intentional overflow marker", got)
+	}
+	if strings.Contains(got, "line 20") {
+		t.Fatalf("RenderShell() = %q, want overflowing content clipped before command bar", got)
+	}
+}
+
+func TestRenderShell_WindowedPanelOverflowKeepsSelectedRowVisible(t *testing.T) {
+	rows := make([]ListRow, 0, 20)
+	for index := 1; index <= 20; index++ {
+		state := RowNormal
+		if index == 18 {
+			state = RowSelected
+		}
+		rows = append(rows, ListRow{Label: fmt.Sprintf("Profile %02d", index), State: state})
+	}
+
+	got := RenderShell(Shell{
+		Title: "Switchlet",
+		Panels: []Panel{{
+			Title:   "Profiles",
+			Lines:   RenderListRows(rows),
+			Focused: true,
+		}},
+		Actions: []Action{{Key: "Enter", Label: "Apply"}, {Key: "q", Label: "Quit"}},
+		Width:   80,
+		Height:  10,
+	})
+
+	if !strings.Contains(got, "> Profile 18") {
+		t.Fatalf("RenderShell() = %q, want selected row to remain visible in clipped panel", got)
+	}
+	if !strings.Contains(got, "earlier") || !strings.Contains(got, "more") {
+		t.Fatalf("RenderShell() = %q, want overflow marker to describe hidden content around selected row", got)
 	}
 }
 

@@ -44,26 +44,56 @@ func TestView_TooSmallTerminalMessageStaysWithinReportedWidth(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 20, Height: 10})
 	model = updatedModel.(Model)
 
-	for _, line := range strings.Split(model.View(), "\n") {
+	view := model.View()
+	for _, line := range strings.Split(view, "\n") {
 		if lipgloss.Width(line) > 20 {
 			t.Fatalf("line %q has width %d, want at most 20", line, lipgloss.Width(line))
 		}
 	}
+	assertVisibleHeight(t, view, 10)
 }
 
 func TestView_CommandBarUsesReportedTerminalHeight(t *testing.T) {
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 120, height: 40},
+		{width: 80, height: 24},
+	} {
+		model := New(app.New(
+			config.Target{},
+			[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+		))
+
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
+		model = updatedModel.(Model)
+
+		lines := visibleLines(model.View())
+		if len(lines) != size.height {
+			t.Fatalf("View() at %dx%d rendered %d lines, want %d", size.width, size.height, len(lines), size.height)
+		}
+		if !strings.Contains(lines[len(lines)-1], "q Quit") {
+			t.Fatalf("last line at %dx%d = %q, want command bar at bottom", size.width, size.height, lines[len(lines)-1])
+		}
+	}
+}
+
+func TestView_LongRecoverableErrorKeepsCommandBarVisible(t *testing.T) {
 	model := New(app.New(
-		config.Target{},
+		config.Target{File: "/very/long/project/path/backend/appsettings.Development.json", JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
 	))
-
-	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
+	model.state = errorState
+	model.errorMessage = strings.Repeat("target preparation failed because the configured path could not be validated safely ", 12)
 
-	lines := strings.Split(strings.TrimSuffix(model.View(), "\n"), "\n")
-	if len(lines) != 40 {
-		t.Fatalf("View() rendered %d lines, want 40", len(lines))
-	}
+	view := model.View()
+	assertVisibleWidth(t, view, 80)
+	assertVisibleHeight(t, view, 24)
+	lines := visibleLines(view)
 	if !strings.Contains(lines[len(lines)-1], "q Quit") {
 		t.Fatalf("last line = %q, want command bar at bottom", lines[len(lines)-1])
 	}

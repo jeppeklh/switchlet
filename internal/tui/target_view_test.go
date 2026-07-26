@@ -505,6 +505,7 @@ func TestView_MultiTargetViewsFitHostileDimensions(t *testing.T) {
 		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: size.width, Height: size.height})
 		resizedModel := updatedModel.(Model)
 		assertVisibleWidth(t, resizedModel.View(), size.width)
+		assertVisibleHeight(t, resizedModel.View(), size.height)
 
 		if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
 			continue
@@ -513,9 +514,11 @@ func TestView_MultiTargetViewsFitHostileDimensions(t *testing.T) {
 		updatedModel, _ = resizedModel.Update(runeKey('i'))
 		inspectionModel := updatedModel.(Model)
 		assertVisibleWidth(t, inspectionModel.View(), size.width)
+		assertVisibleHeight(t, inspectionModel.View(), size.height)
 
 		updatedModel, _ = inspectionModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		confirmationModel := updatedModel.(Model)
 		assertVisibleWidth(t, confirmationModel.View(), size.width)
+		assertVisibleHeight(t, confirmationModel.View(), size.height)
 	}
 }

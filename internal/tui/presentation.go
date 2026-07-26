@@ -5,13 +5,16 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 const (
-	defaultShellWidth = 80
-	splitShellWidth   = 100
-	panelGapWidth     = 3
-	textEllipsis      = "..."
+	defaultShellWidth        = 80
+	splitShellWidth          = 100
+	panelGapWidth            = 3
+	textEllipsis             = "..."
+	unboundedPanelBodyHeight = -1
+	unboundedShellHeight     = -1
 )
 
 // Badge describes compact metadata attached to a row or status line.
@@ -64,51 +67,62 @@ type Shell struct {
 func RenderShell(shell Shell) string {
 	width := normalizedWidth(shell.Width)
 	styles := defaultStyles()
-
-	var builder strings.Builder
-	writeShellHeader(&builder, shell, width, styles)
-
-	if len(shell.Panels) > 0 {
-		builder.WriteString("\n")
-		writeShellPanels(&builder, shell.Panels, width, styles)
-	}
-
-	if len(shell.Actions) == 0 {
-		return builder.String()
-	}
-
-	actionBlock := renderShellActions(shell.Actions, width)
+	actionLines := shellActionLines(shell.Actions, width)
+	contentHeight := unboundedShellHeight
 	if shell.Height > 0 {
-		return joinShellContentAndActions(builder.String(), actionBlock, shell.Height)
+		contentHeight = shell.Height - len(actionLines)
+		if contentHeight < 0 {
+			contentHeight = 0
+		}
 	}
 
-	return builder.String() + actionBlock
+	contentLines := shellContentLines(shell, width, styles, contentHeight)
+
+	if len(actionLines) == 0 {
+		return renderLines(contentLines)
+	}
+
+	if shell.Height > 0 {
+		return joinShellContentAndActions(contentLines, actionLines, shell.Height)
+	}
+
+	return renderLines(append(contentLines, actionLines...))
 }
 
 func renderShellActions(actions []Action, width int) string {
-	return Separator(width) + "\n" + fitLine(RenderCommandBar(actions), width) + "\n"
+	return renderLines(shellActionLines(actions, width))
 }
 
-func joinShellContentAndActions(content string, actionBlock string, height int) string {
-	padding := height - renderedLineCount(content) - renderedLineCount(actionBlock)
-	if padding <= 0 {
-		return content + actionBlock
+func shellActionLines(actions []Action, width int) []string {
+	if len(actions) == 0 {
+		return nil
 	}
 
-	return content + strings.Repeat("\n", padding) + actionBlock
+	return []string{Separator(width), fitLine(RenderCommandBar(actions), width)}
 }
 
-func renderedLineCount(text string) int {
-	if text == "" {
-		return 0
+func joinShellContentAndActions(contentLines []string, actionLines []string, height int) string {
+	if height <= 0 {
+		return renderLines(append(contentLines, actionLines...))
 	}
 
-	lineCount := strings.Count(text, "\n")
-	if !strings.HasSuffix(text, "\n") {
-		lineCount++
+	if len(actionLines) >= height {
+		return renderLines(lastLines(actionLines, height))
 	}
 
-	return lineCount
+	contentBudget := height - len(actionLines)
+	if len(contentLines) > contentBudget {
+		contentLines = contentLines[:contentBudget]
+	}
+
+	lines := make([]string, 0, height)
+	lines = append(lines, contentLines...)
+	for len(lines)+len(actionLines) < height {
+		lines = append(lines, "")
+	}
+	lines = append(lines, actionLines...)
+
+	return renderLines(lines)
 }
 
 // RenderHeader renders only the title block used by partial wizard screens.
@@ -269,7 +283,7 @@ func PrimaryPanelWidth(shellWidth int, panelCount int) int {
 		panelWidth = width * 55 / 100
 	}
 
-	return panelContentWidth(panelWidth, defaultStyles())
+	return panelTextWidth(panelWidth, defaultStyles().panel)
 }
 
 // RenderKeyValue renders one metadata line.
@@ -287,7 +301,34 @@ func Separator(width int) string {
 	return defaultStyles().muted.Render(strings.Repeat(border.Top, normalizedWidth(width)))
 }
 
-func writeShellHeader(builder *strings.Builder, shell Shell, width int, styles styleSet) {
+func shellContentLines(shell Shell, width int, styles styleSet, heightBudget int) []string {
+	lines := shellHeaderLines(shell, width, styles)
+	if heightBudget >= 0 && len(lines) >= heightBudget {
+		return lines[:heightBudget]
+	}
+
+	if len(shell.Panels) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "")
+	if heightBudget >= 0 && len(lines) >= heightBudget {
+		return lines[:heightBudget]
+	}
+
+	panelHeightBudget := unboundedShellHeight
+	if heightBudget >= 0 {
+		panelHeightBudget = heightBudget - len(lines)
+	}
+	lines = append(lines, renderShellPanels(shell.Panels, width, styles, panelHeightBudget)...)
+	if heightBudget >= 0 && len(lines) > heightBudget {
+		return lines[:heightBudget]
+	}
+
+	return lines
+}
+
+func shellHeaderLines(shell Shell, width int, styles styleSet) []string {
 	leftLines := []string{styles.title.Render(shell.Title)}
 	if shell.Subtitle != "" {
 		leftLines = append(leftLines, styles.subtitle.Render(shell.Subtitle))
@@ -298,6 +339,7 @@ func writeShellHeader(builder *strings.Builder, shell Shell, width int, styles s
 		lineCount = len(shell.Metadata)
 	}
 
+	lines := make([]string, 0, lineCount)
 	for index := 0; index < lineCount; index++ {
 		left := ""
 		if index < len(leftLines) {
@@ -308,47 +350,88 @@ func writeShellHeader(builder *strings.Builder, shell Shell, width int, styles s
 			right = styles.muted.Render(shell.Metadata[index])
 		}
 
-		builder.WriteString(joinHeaderLine(left, right, width))
-		builder.WriteString("\n")
+		lines = append(lines, joinHeaderLine(left, right, width))
 	}
+
+	return lines
 }
 
-func writeShellPanels(builder *strings.Builder, panels []Panel, width int, styles styleSet) {
+func renderShellPanels(panels []Panel, width int, styles styleSet, heightBudget int) []string {
+	if heightBudget == 0 {
+		return nil
+	}
 	if shouldUseSplitLayout(panels, width) {
-		writeSplitPanels(builder, panels[0], panels[1], width, styles)
-		return
+		return renderSplitPanels(panels[0], panels[1], width, styles, heightBudget)
 	}
 
-	writeStackedPanels(builder, panels, width, styles)
+	return renderStackedPanels(panels, width, styles, heightBudget)
 }
 
 func shouldUseSplitLayout(panels []Panel, width int) bool {
 	return len(panels) == 2 && width >= splitShellWidth
 }
 
-func writeStackedPanels(builder *strings.Builder, panels []Panel, width int, styles styleSet) {
+func renderStackedPanels(panels []Panel, width int, styles styleSet, heightBudget int) []string {
+	if heightBudget < 0 {
+		return renderUnboundedStackedPanels(panels, width, styles)
+	}
+
+	separatorBudget := len(panels) - 1
+	if separatorBudget > heightBudget {
+		separatorBudget = heightBudget
+	}
+	panelBudgets := allocateStackedPanelHeights(panels, width, styles, heightBudget-separatorBudget)
+
+	lines := make([]string, 0, heightBudget)
 	for index, panel := range panels {
-		for _, line := range renderPanel(panel, width, styles) {
-			builder.WriteString(line)
-			builder.WriteString("\n")
+		if len(lines) >= heightBudget {
+			break
 		}
-		if index != len(panels)-1 {
-			builder.WriteString("\n")
+
+		panelLines := renderPanelWithinHeight(panel, width, styles, panelBudgets[index])
+		lines = append(lines, panelLines...)
+		if len(lines) > heightBudget {
+			return lines[:heightBudget]
+		}
+		if index != len(panels)-1 && len(lines) < heightBudget {
+			lines = append(lines, "")
 		}
 	}
+
+	return lines
 }
 
-func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Panel, width int, styles styleSet) {
+func renderUnboundedStackedPanels(panels []Panel, width int, styles styleSet) []string {
+	lines := make([]string, 0)
+	for index, panel := range panels {
+		lines = append(lines, renderPanel(panel, width, styles, unboundedPanelBodyHeight)...)
+		if index != len(panels)-1 {
+			lines = append(lines, "")
+		}
+	}
+
+	return lines
+}
+
+func renderSplitPanels(leftPanel Panel, rightPanel Panel, width int, styles styleSet, heightBudget int) []string {
+	if heightBudget == 0 {
+		return nil
+	}
+
 	gap := strings.Repeat(" ", panelGapWidth)
 	leftWidth := width * 55 / 100
 	rightWidth := width - leftWidth - panelGapWidth
-	leftLines := renderPanel(leftPanel, leftWidth, styles)
-	rightLines := renderPanel(rightPanel, rightWidth, styles)
+	leftLines := renderPanelWithinHeight(leftPanel, leftWidth, styles, heightBudget)
+	rightLines := renderPanelWithinHeight(rightPanel, rightWidth, styles, heightBudget)
 	lineCount := len(leftLines)
 	if len(rightLines) > lineCount {
 		lineCount = len(rightLines)
 	}
+	if heightBudget >= 0 && lineCount > heightBudget {
+		lineCount = heightBudget
+	}
 
+	lines := make([]string, 0, lineCount)
 	for index := 0; index < lineCount; index++ {
 		leftLine := ""
 		if index < len(leftLines) {
@@ -359,14 +442,138 @@ func writeSplitPanels(builder *strings.Builder, leftPanel Panel, rightPanel Pane
 			rightLine = rightLines[index]
 		}
 
-		builder.WriteString(padLine(leftLine, leftWidth))
-		builder.WriteString(gap)
-		builder.WriteString(fitLine(rightLine, rightWidth))
-		builder.WriteString("\n")
+		lines = append(lines, padLine(leftLine, leftWidth)+gap+fitLine(rightLine, rightWidth))
 	}
+
+	return lines
 }
 
-func renderPanel(panel Panel, width int, styles styleSet) []string {
+func renderPanelWithinHeight(panel Panel, width int, styles styleSet, heightBudget int) []string {
+	if heightBudget < 0 {
+		return renderPanel(panel, width, styles, unboundedPanelBodyHeight)
+	}
+	if heightBudget == 0 {
+		return nil
+	}
+
+	bodyHeight := panelBodyHeightBudget(panel, styles, heightBudget)
+	panelLines := renderPanel(panel, width, styles, bodyHeight)
+	if len(panelLines) > heightBudget {
+		return panelLines[:heightBudget]
+	}
+
+	return panelLines
+}
+
+func renderPanel(panel Panel, width int, styles styleSet, bodyHeight int) []string {
+	style, titleStyle, title := panelStyles(panel, styles)
+	blockWidth := panelBlockWidth(width, styles)
+	textWidth := panelTextWidth(width, style)
+	bodyLines := panel.Lines
+	if bodyHeight >= 0 {
+		bodyLines = clippedPanelBodyLines(bodyLines, bodyHeight)
+	}
+
+	lines := make([]string, 0, len(bodyLines)+2)
+	if title != "" {
+		lines = append(lines, titleStyle.Render(fitLine(title, textWidth)))
+	}
+
+	for _, line := range bodyLines {
+		lines = append(lines, fitLine(line, textWidth))
+	}
+
+	panelBlock := style.Width(blockWidth).Render(strings.Join(lines, "\n"))
+	panelLines := strings.Split(panelBlock, "\n")
+	for index, line := range panelLines {
+		panelLines[index] = fitLine(line, width)
+	}
+
+	return panelLines
+}
+
+func allocateStackedPanelHeights(panels []Panel, width int, styles styleSet, heightBudget int) []int {
+	budgets := make([]int, len(panels))
+	if heightBudget <= 0 || len(panels) == 0 {
+		return budgets
+	}
+
+	naturalHeights := make([]int, len(panels))
+	totalNaturalHeight := 0
+	for index, panel := range panels {
+		naturalHeights[index] = len(renderPanel(panel, width, styles, unboundedPanelBodyHeight))
+		totalNaturalHeight += naturalHeights[index]
+	}
+	if totalNaturalHeight <= heightBudget {
+		return naturalHeights
+	}
+
+	remainingHeight := heightBudget
+	for index, panel := range panels {
+		minimumHeight := minimumPanelHeight(panel, styles)
+		if minimumHeight > naturalHeights[index] {
+			minimumHeight = naturalHeights[index]
+		}
+		if minimumHeight > remainingHeight {
+			minimumHeight = remainingHeight
+		}
+
+		budgets[index] = minimumHeight
+		remainingHeight -= minimumHeight
+		if remainingHeight == 0 {
+			return budgets
+		}
+	}
+
+	for remainingHeight > 0 {
+		allocated := false
+		for index := range budgets {
+			if budgets[index] >= naturalHeights[index] {
+				continue
+			}
+
+			budgets[index]++
+			remainingHeight--
+			allocated = true
+			if remainingHeight == 0 {
+				break
+			}
+		}
+		if !allocated {
+			break
+		}
+	}
+
+	return budgets
+}
+
+func minimumPanelHeight(panel Panel, styles styleSet) int {
+	style, _, title := panelStyles(panel, styles)
+	minimumHeight := style.GetVerticalFrameSize()
+	if title != "" {
+		minimumHeight++
+	}
+	if minimumHeight < 1 {
+		return 1
+	}
+
+	return minimumHeight
+}
+
+func panelBodyHeightBudget(panel Panel, styles styleSet, heightBudget int) int {
+	style, _, title := panelStyles(panel, styles)
+	bodyHeight := heightBudget - style.GetVerticalFrameSize()
+	if title != "" {
+		bodyHeight--
+	}
+	if bodyHeight < 0 {
+		return 0
+	}
+
+	return bodyHeight
+}
+
+func panelStyles(panel Panel, styles styleSet) (lipgloss.Style, lipgloss.Style, string) {
 	style := styles.panel
 	titleStyle := styles.panelTitle
 	title := panel.Title
@@ -378,23 +585,77 @@ func renderPanel(panel Panel, width int, styles styleSet) []string {
 		}
 	}
 
-	contentWidth := panelContentWidth(width, styles)
-	lines := make([]string, 0, len(panel.Lines)+2)
-	if title != "" {
-		lines = append(lines, titleStyle.Render(fitLine(title, contentWidth)))
+	return style, titleStyle, title
+}
+
+func clippedPanelBodyLines(lines []string, bodyHeight int) []string {
+	if bodyHeight < 0 || len(lines) <= bodyHeight {
+		return lines
+	}
+	if bodyHeight == 0 {
+		return nil
+	}
+	if bodyHeight == 1 {
+		return []string{panelOverflowLine(0, len(lines))}
 	}
 
-	for _, line := range panel.Lines {
-		lines = append(lines, fitLine(line, contentWidth))
+	visibleLineCount := bodyHeight - 1
+	start := 0
+	if selectedIndex := selectedBodyLineIndex(lines); selectedIndex >= visibleLineCount {
+		start = selectedIndex - visibleLineCount/2
+		if start+visibleLineCount > len(lines) {
+			start = len(lines) - visibleLineCount
+		}
+	}
+	if start < 0 {
+		start = 0
 	}
 
-	panelBlock := style.Width(contentWidth).Render(strings.Join(lines, "\n"))
-	panelLines := strings.Split(panelBlock, "\n")
-	for index, line := range panelLines {
-		panelLines[index] = fitLine(line, width)
+	end := start + visibleLineCount
+	visibleLines := append([]string(nil), lines[start:end]...)
+	visibleLines = append(visibleLines, panelOverflowLine(start, len(lines)-end))
+
+	return visibleLines
+}
+
+func selectedBodyLineIndex(lines []string) int {
+	for index, line := range lines {
+		if strings.Contains(line, "> ") {
+			return index
+		}
 	}
 
-	return panelLines
+	return -1
+}
+
+func panelOverflowLine(hiddenBefore int, hiddenAfter int) string {
+	switch {
+	case hiddenBefore > 0 && hiddenAfter > 0:
+		return fmt.Sprintf("... %d earlier, %d more", hiddenBefore, hiddenAfter)
+	case hiddenBefore > 0:
+		return fmt.Sprintf("... %d earlier", hiddenBefore)
+	default:
+		return fmt.Sprintf("... %d more", hiddenAfter)
+	}
+}
+
+func lastLines(lines []string, count int) []string {
+	if count >= len(lines) {
+		return lines
+	}
+	if count <= 0 {
+		return nil
+	}
+
+	return lines[len(lines)-count:]
+}
+
+func renderLines(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return strings.Join(lines, "\n") + "\n"
 }
 
 func joinHeaderLine(left string, right string, width int) string {
@@ -438,12 +699,8 @@ func fitLine(line string, width int) string {
 	if lipgloss.Width(line) <= width {
 		return line
 	}
-	ellipsisWidth := lipgloss.Width(textEllipsis)
-	if width <= ellipsisWidth {
-		return lipgloss.NewStyle().MaxWidth(width).Render(line)
-	}
 
-	return lipgloss.NewStyle().MaxWidth(width-ellipsisWidth).Render(line) + textEllipsis
+	return ansi.Truncate(line, width, textEllipsis)
 }
 
 func wrapText(text string, width int) []string {
@@ -522,13 +779,22 @@ func normalizedWidth(width int) int {
 	return width
 }
 
-func panelContentWidth(panelWidth int, styles styleSet) int {
+func panelBlockWidth(panelWidth int, styles styleSet) int {
 	contentWidth := panelWidth - styles.panel.GetHorizontalFrameSize()
 	if contentWidth < 1 {
 		return 1
 	}
 
 	return contentWidth
+}
+
+func panelTextWidth(panelWidth int, style lipgloss.Style) int {
+	textWidth := panelWidth - style.GetHorizontalFrameSize() - style.GetHorizontalPadding()
+	if textWidth < 1 {
+		return 1
+	}
+
+	return textWidth
 }
 
 func rowStyle(state RowState, styles styleSet) lipgloss.Style {

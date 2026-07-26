@@ -415,11 +415,11 @@ func secondaryPanelContentWidth(shellWidth int) int {
 		panelWidth = width - leftWidth - panelGapWidth
 	}
 
-	return panelContentWidth(panelWidth, defaultStyles())
+	return panelTextWidth(panelWidth, defaultStyles().panel)
 }
 
 func fullPanelContentWidth(shellWidth int) int {
-	return panelContentWidth(normalizedWidth(shellWidth), defaultStyles())
+	return panelTextWidth(normalizedWidth(shellWidth), defaultStyles().panel)
 }
 
 func valueWidthForLabel(maxLineWidth int, label string) int {

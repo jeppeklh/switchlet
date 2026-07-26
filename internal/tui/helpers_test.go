@@ -61,6 +61,15 @@ func lineContains(view string, values ...string) bool {
 	return false
 }
 
+func visibleLines(view string) []string {
+	trimmedView := strings.TrimSuffix(view, "\n")
+	if trimmedView == "" {
+		return nil
+	}
+
+	return strings.Split(trimmedView, "\n")
+}
+
 func assertVisibleWidth(t *testing.T, view string, width int) {
 	t.Helper()
 
@@ -68,5 +77,14 @@ func assertVisibleWidth(t *testing.T, view string, width int) {
 		if lipgloss.Width(line) > width {
 			t.Fatalf("line %q has width %d, want at most %d", line, lipgloss.Width(line), width)
 		}
+	}
+}
+
+func assertVisibleHeight(t *testing.T, view string, height int) {
+	t.Helper()
+
+	lines := visibleLines(view)
+	if len(lines) > height {
+		t.Fatalf("View() rendered %d lines, want at most %d", len(lines), height)
 	}
 }

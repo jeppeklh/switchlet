@@ -672,7 +672,7 @@ func TestInitWizardModel_ProfileScopeUsesManagedValueNamesAndRejectsOmittingAll(
 	if model.step != initWizardStepProfileTargetInclude || model.draftProfile.TargetIndex != 0 {
 		t.Fatalf("step = %d, TargetIndex = %d, want first include decision after omitting all", model.step, model.draftProfile.TargetIndex)
 	}
-	if !strings.Contains(model.View(), "a profile must include at least one managed") {
+	if !strings.Contains(model.View(), "a profile must include at least one manage") {
 		t.Fatalf("View() = %q, want all-omitted managed-value error", model.View())
 	}
 }
@@ -1050,6 +1050,8 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(initWizardModel)
 	narrowView := model.View()
+	assertWizardViewHeight(t, narrowView, 24)
+	assertWizardCommandBarAtBottom(t, narrowView, "q Cancel")
 	if wizardLineContains(narrowView, "* Configuration files", "Guidance") {
 		t.Fatalf("narrow View() = %q, want stacked panels at minimum width", narrowView)
 	}
@@ -1075,6 +1077,7 @@ func TestInitWizardModel_TooSmallTerminalStateIsSafe(t *testing.T) {
 	model = updatedModel.(initWizardModel)
 	view := model.View()
 	assertWizardViewWidth(t, view, 79)
+	assertWizardViewHeight(t, view, 23)
 	for _, expected := range []string{"Terminal too small.", "Resize required", "Minimum size: 80x24", "Current size: 79x23"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("too-small View() = %q, want %q", view, expected)
@@ -1149,7 +1152,7 @@ func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) 
 	model := initWizardModel{
 		workingDirectory:   projectRoot,
 		step:               initWizardStepReview,
-		width:              80,
+		width:              160,
 		height:             24,
 		shouldIgnoreConfig: true,
 		targets: []config.Target{
@@ -1189,7 +1192,37 @@ func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) 
 			t.Fatalf("review View() = %q, want no %q", view, forbidden)
 		}
 	}
+	assertWizardViewWidth(t, view, 160)
+	assertWizardViewHeight(t, view, 24)
+}
+
+func TestInitWizardModel_ReviewOverflowKeepsCommandBarVisible(t *testing.T) {
+	projectRoot := t.TempDir()
+	model := initWizardModel{
+		workingDirectory:   projectRoot,
+		step:               initWizardStepReview,
+		width:              80,
+		height:             24,
+		shouldIgnoreConfig: true,
+		targets: []config.Target{
+			{Name: "database", File: filepath.Join(projectRoot, "backend", "appsettings.Development.json"), Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.DefaultConnection"},
+			{Name: "frontendApi", File: filepath.Join(projectRoot, "frontend", ".env.local"), Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "workerQueue", File: filepath.Join(projectRoot, "worker", "config.json"), Type: config.TargetTypeJSON, JSONPath: "queue.endpoint"},
+		},
+		profiles: []config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("local database")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")}, {Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")}}, Protected: true},
+			{Name: "Worker", Values: []config.ProfileValue{{Target: "workerQueue", Value: stringPointer("https://queue.example.test")}}},
+		},
+	}
+
+	view := model.View()
 	assertWizardViewWidth(t, view, 80)
+	assertWizardViewHeight(t, view, 24)
+	assertWizardCommandBarAtBottom(t, view, "q Cancel")
+	if !strings.Contains(view, "... ") {
+		t.Fatalf("review View() = %q, want intentional overflow marker", view)
+	}
 }
 
 func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) {
