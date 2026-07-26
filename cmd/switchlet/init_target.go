@@ -10,19 +10,20 @@ import (
 )
 
 const (
-	manualTargetFileChoiceLabel  = "Enter file path manually"
-	manualJSONPathChoiceLabel    = "Enter JSON path manually"
-	manualDotenvKeyChoiceLabel   = "Enter dotenv key manually"
+	manualTargetFileChoiceLabel  = "Enter configuration file manually"
+	manualJSONPathChoiceLabel    = "Enter JSON value path manually"
+	manualDotenvKeyChoiceLabel   = "Enter dotenv value key manually"
 	chooseDifferentFileLabel     = "Back to file selection"
 	goBackChoiceLabel            = "Back up one level"
-	filterTargetFilesChoiceLabel = "Filter files by name or path"
+	filterTargetFilesChoiceLabel = "Filter configuration files"
 	clearTargetFileFilterLabel   = "Clear filter"
 	targetFileChoiceWindowSize   = 12
-	searchJSONPathsChoiceLabel   = "Search selectable JSON paths"
+	searchJSONPathsChoiceLabel   = "Search JSON values"
 	refineJSONPathSearchLabel    = "Refine path search"
 	clearJSONPathSearchLabel     = "Clear path search"
 	browseJSONPathsChoiceLabel   = "Browse JSON path hierarchy"
 	jsonPathChoiceWindowSize     = 12
+	filterDotenvKeysChoiceLabel  = "Filter dotenv keys"
 	dotenvKeyChoiceWindowSize    = 12
 )
 
@@ -93,6 +94,7 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 
 		if err := writeInitStep(prompter.writer, 2, targetSelectorStepTitle(selectedFile.targetType),
 			fmt.Sprintf("Selected file: %s", selectedFile.displayPath),
+			fmt.Sprintf("Detected format: %s", targetTypeDisplayName(selectedFile.targetType)),
 			targetSelectorStepGuidance(selectedFile.targetType),
 		); err != nil {
 			return config.Target{}, err
@@ -106,10 +108,10 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 			continue
 		}
 
-		if err := writeInitStep(prompter.writer, 3, "Name managed value",
+		if err := writeInitStep(prompter.writer, 3, "Name this managed value",
 			fmt.Sprintf("Selected file: %s", selectedFile.displayPath),
 			fmt.Sprintf("Selected value: %s", selector),
-			"Use a short name profiles can refer to.",
+			"Profiles refer to this short name.",
 		); err != nil {
 			return config.Target{}, err
 		}
@@ -136,18 +138,18 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 
 func targetSelectorStepTitle(targetType config.TargetType) string {
 	if targetType == config.TargetTypeDotenv {
-		return "Choose target dotenv key"
+		return "Choose dotenv value"
 	}
 
-	return "Choose target JSON path"
+	return "Choose JSON value"
 }
 
 func targetSelectorStepGuidance(targetType config.TargetType) string {
 	if targetType == config.TargetTypeDotenv {
-		return "Choose the existing dotenv key Switchlet should manage."
+		return "Choose an existing dotenv key that appears once. Switchlet does not create missing keys."
 	}
 
-	return "Choose the existing string-valued JSON path Switchlet should manage. Browse the hierarchy, search when the file has many selectable paths, or enter a path manually."
+	return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
 }
 
 func promptTargetFile(prompter initPrompter, workingDirectory string, dependencies initDependencies) (targetFileSelection, error) {
@@ -159,7 +161,7 @@ discoveryLoop:
 		}
 
 		if len(candidates) == 0 {
-			if _, err := fmt.Fprintln(prompter.writer, "No target files with selectable JSON paths or dotenv keys were discovered under the current directory."); err != nil {
+			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing string JSON values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
 				return targetFileSelection{}, err
 			}
 
@@ -170,7 +172,7 @@ discoveryLoop:
 		for {
 			matchingCandidates := filterTargetFileCandidates(candidates, filterValue)
 			if len(matchingCandidates) == 0 {
-				if _, err := fmt.Fprintf(prompter.writer, "No discovered target files match %q.\n", filterValue); err != nil {
+				if _, err := fmt.Fprintf(prompter.writer, "No discovered configuration files match %q.\n", filterValue); err != nil {
 					return targetFileSelection{}, err
 				}
 
@@ -281,22 +283,22 @@ func normalizeTargetFileFilter(filterValue string) string {
 func targetFileSelectionPrompt(filterValue string, visibleCount int, matchingCount int, totalCount int, truncated bool) string {
 	if filterValue != "" {
 		if truncated {
-			return fmt.Sprintf("Select target file matching %q (showing %d of %d matches):", filterValue, visibleCount, matchingCount)
+			return fmt.Sprintf("Select configuration file matching %q (showing %d of %d matches):", filterValue, visibleCount, matchingCount)
 		}
 
-		return fmt.Sprintf("Select target file matching %q:", filterValue)
+		return fmt.Sprintf("Select configuration file matching %q:", filterValue)
 	}
 
 	if truncated {
-		return fmt.Sprintf("Select target file (showing %d of %d discovered files):", visibleCount, totalCount)
+		return fmt.Sprintf("Select configuration file (showing %d of %d discovered files):", visibleCount, totalCount)
 	}
 
-	return "Select target file:"
+	return "Select configuration file:"
 }
 
 func promptManualTargetFile(prompter initPrompter, workingDirectory string, dependencies initDependencies) (targetFileSelection, error) {
 	for {
-		targetPath, err := prompter.promptNonEmptyLine("Target file path: ")
+		targetPath, err := prompter.promptNonEmptyLine("Configuration file path: ")
 		if err != nil {
 			return targetFileSelection{}, err
 		}
@@ -323,7 +325,7 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 }
 
 func promptExplicitTargetType(prompter initPrompter, targetPath string) (config.TargetType, error) {
-	choice, err := prompter.promptChoice(fmt.Sprintf("Target type cannot be inferred from %s. Choose target type:", targetPath), []string{"JSON", "dotenv"})
+	choice, err := prompter.promptChoice(fmt.Sprintf("File type cannot be inferred from %s. Choose file type:", targetPath), []string{"JSON", "dotenv"})
 	if err != nil {
 		return "", err
 	}
@@ -390,11 +392,11 @@ func promptTargetDotenvKey(prompter initPrompter, selectedFile targetFileSelecti
 	for {
 		matchingKeys := filterDotenvKeys(selectedFile.dotenvKeys, filterValue)
 		if len(matchingKeys) == 0 {
-			if _, err := fmt.Fprintf(prompter.writer, "No dotenv keys in %s match %q.\n", selectedFile.displayPath, filterValue); err != nil {
+			if _, err := fmt.Fprintf(prompter.writer, "No unambiguous dotenv keys in %s match %q.\n", selectedFile.displayPath, filterValue); err != nil {
 				return "", false, err
 			}
 			var err error
-			filterValue, err = prompter.promptLine("Filter dotenv keys (blank clears the filter): ")
+			filterValue, err = prompter.promptLine("Filter dotenv keys by name (blank clears the filter): ")
 			if err != nil {
 				return "", false, err
 			}
@@ -412,7 +414,7 @@ func promptTargetDotenvKey(prompter initPrompter, selectedFile targetFileSelecti
 		choices = append(choices, visibleKeys...)
 		showFilterAction := len(selectedFile.dotenvKeys) > dotenvKeyChoiceWindowSize || filterValue != ""
 		if showFilterAction {
-			choices = append(choices, filterTargetFilesChoiceLabel)
+			choices = append(choices, filterDotenvKeysChoiceLabel)
 		}
 		if filterValue != "" {
 			choices = append(choices, clearTargetFileFilterLabel)
@@ -431,7 +433,7 @@ func promptTargetDotenvKey(prompter initPrompter, selectedFile targetFileSelecti
 		nextActionIndex := len(visibleKeys)
 		if showFilterAction {
 			if choiceIndex == nextActionIndex {
-				filterValue, err = prompter.promptLine("Filter dotenv keys (blank clears the filter): ")
+				filterValue, err = prompter.promptLine("Filter dotenv keys by name (blank clears the filter): ")
 				if err != nil {
 					return "", false, err
 				}
@@ -449,7 +451,7 @@ func promptTargetDotenvKey(prompter initPrompter, selectedFile targetFileSelecti
 		}
 
 		if choiceIndex == nextActionIndex {
-			key, err := prompter.promptNonEmptyLine("Target dotenv key: ")
+			key, err := prompter.promptNonEmptyLine("Dotenv value key: ")
 			if err != nil {
 				return "", false, err
 			}
@@ -486,17 +488,17 @@ func filterDotenvKeys(keys []string, filterValue string) []string {
 func targetDotenvKeyPrompt(displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
 	if filterValue != "" {
 		if truncated {
-			return fmt.Sprintf("Select dotenv key matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
+			return fmt.Sprintf("Select dotenv value key matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
 		}
 
-		return fmt.Sprintf("Select dotenv key matching %q in %s:", filterValue, displayPath)
+		return fmt.Sprintf("Select dotenv value key matching %q in %s:", filterValue, displayPath)
 	}
 
 	if truncated {
-		return fmt.Sprintf("Select dotenv key in %s (showing %d of %d keys):", displayPath, visibleCount, matchingCount)
+		return fmt.Sprintf("Select dotenv value key in %s (showing %d of %d unique keys):", displayPath, visibleCount, matchingCount)
 	}
 
-	return fmt.Sprintf("Select dotenv key in %s:", displayPath)
+	return fmt.Sprintf("Select dotenv value key in %s:", displayPath)
 }
 
 func promptTargetName(prompter initPrompter, seenNames map[string]struct{}) (string, error) {
@@ -524,9 +526,9 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 	showSearchAction := len(selectablePaths) > jsonPathChoiceWindowSize
 
 	for {
-		prompt := fmt.Sprintf("Browse JSON paths in %s:", selectedFile.displayPath)
+		prompt := fmt.Sprintf("Choose JSON value in %s:", selectedFile.displayPath)
 		if len(ancestors) > 0 {
-			prompt = fmt.Sprintf("Browse JSON paths under %s in %s:", ancestors[len(ancestors)-1].path, selectedFile.displayPath)
+			prompt = fmt.Sprintf("Choose JSON value under %s in %s:", ancestors[len(ancestors)-1].path, selectedFile.displayPath)
 		}
 
 		choices := make([]string, 0, len(currentNodes)+4)
@@ -590,7 +592,7 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 		}
 
 		if choiceIndex == nextActionIndex {
-			jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
+			jsonPath, err := prompter.promptNonEmptyLine("JSON value path: ")
 			if err != nil {
 				return "", false, err
 			}
@@ -614,7 +616,7 @@ func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSe
 
 	for {
 		if filterValue == "" {
-			nextFilterValue, err := prompter.promptLine("Search JSON paths by name or path (blank returns to browsing): ")
+			nextFilterValue, err := prompter.promptLine("Search JSON values by name or path (blank returns to browsing): ")
 			if err != nil {
 				return jsonPathSearchResult{}, err
 			}
@@ -668,7 +670,7 @@ func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSe
 		nextActionIndex++
 
 		if choiceIndex == nextActionIndex {
-			jsonPath, err := prompter.promptNonEmptyLine("Target JSON path: ")
+			jsonPath, err := prompter.promptNonEmptyLine("JSON value path: ")
 			if err != nil {
 				return jsonPathSearchResult{}, err
 			}
@@ -734,10 +736,10 @@ func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []s
 
 func targetJSONPathSearchPrompt(displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
 	if truncated {
-		return fmt.Sprintf("Select target JSON path matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
+		return fmt.Sprintf("Select JSON value matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
 	}
 
-	return fmt.Sprintf("Select target JSON path matching %q in %s:", filterValue, displayPath)
+	return fmt.Sprintf("Select JSON value matching %q in %s:", filterValue, displayPath)
 }
 
 func targetNodeChoiceLabel(node editor.StringTargetNode) string {

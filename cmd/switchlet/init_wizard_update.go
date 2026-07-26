@@ -138,7 +138,7 @@ func (model initWizardModel) handleFileFilterKey(message tea.KeyMsg) (tea.Model,
 		return model, nil
 	case tea.KeyEnter:
 		if len(matchingCandidates) == 0 {
-			model.errorMessage = fmt.Sprintf("No discovered target files match %q.", model.inputValue)
+			model.errorMessage = fmt.Sprintf("No discovered configuration files match %q.", model.inputValue)
 			return model, nil
 		}
 

@@ -47,7 +47,7 @@ func (model initWizardModel) View() string {
 				ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
 				"",
 				"Task",
-				"Choose the file type because it cannot be inferred safely.",
+				"Choose the file type because the format cannot be inferred safely.",
 			},
 			[]string{"JSON", "dotenv"},
 		)
@@ -58,21 +58,25 @@ func (model initWizardModel) View() string {
 	case initWizardStepManualPath:
 		return model.textInputView(2, "Enter JSON value path", []string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
 			"",
 			"Task",
 			"Enter one existing string-valued JSON path.",
+			"Switchlet does not create missing values.",
 		}, "JSON value path", "Validate path")
 	case initWizardStepDotenvKeySelect:
 		return model.dotenvKeySelectView()
 	case initWizardStepManualDotenvKey:
 		return model.textInputView(2, "Enter dotenv value key", []string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
 			"",
 			"Task",
-			"Enter one existing dotenv key.",
+			"Enter one existing dotenv key that appears once.",
+			"Switchlet does not create missing keys.",
 		}, "Dotenv value key", "Validate key")
 	case initWizardStepManagedValueName:
-		return model.textInputView(3, "Name managed value", model.managedValueNameGuidanceLines(), "Managed value name", "Save")
+		return model.managedValueNameView()
 	case initWizardStepManagedValueCheckpoint:
 		return model.managedValueCheckpointView()
 	case initWizardStepProfileName:
@@ -107,6 +111,13 @@ func (model initWizardModel) View() string {
 			Width:    model.width,
 		})
 	}
+}
+
+func (model initWizardModel) managedValueNameView() string {
+	return model.initWizardShell(3, "Name this managed value", []ui.Panel{
+		{Title: "Name", Lines: []string{model.inputLine("Name")}, Focused: true},
+		{Title: "Context", Lines: model.withErrorLines(model.managedValueNameGuidanceLines())},
+	}, textInputActions("Save"))
 }
 
 func (model initWizardModel) profileNameView() string {
@@ -149,7 +160,8 @@ func (model initWizardModel) fileSelectionView() string {
 	}
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines,
-			"No target files with selectable JSON paths or dotenv keys were discovered under the current directory.",
+			"No supported configuration files were discovered.",
+			"Need existing JSON strings or unique dotenv keys.",
 			"Press m to enter a file path manually.",
 		)
 	} else {
@@ -164,8 +176,9 @@ func (model initWizardModel) fileSelectionView() string {
 
 	guidanceLines := []string{
 		"Task",
-		"Choose the file Switchlet may update.",
-		"JSON and dotenv files with existing selectors appear.",
+		"Choose a supported configuration file.",
+		"JSON and dotenv files are both supported.",
+		"File format chooses the value step.",
 		"",
 		"Manual fallback",
 		"Press m when the file is not listed.",
@@ -192,7 +205,7 @@ func (model initWizardModel) fileFilterView() string {
 
 	workLines := []string{model.inputLine("Filter"), ""}
 	if len(model.fileCandidates) == 0 {
-		workLines = append(workLines, "No discovered files are available. Press Esc and use manual file entry instead.")
+		workLines = append(workLines, "No discovered configuration files are available. Press Esc and use manual file entry instead.")
 	} else {
 		workLines = append(workLines, model.candidateListLines(matchingCandidates, model.cursor, targetFileChoiceWindowSize)...)
 		workLines = append(workLines, "", fmt.Sprintf("Showing %d matching file(s) out of %d discovered.", len(matchingCandidates), len(model.fileCandidates)))
@@ -202,7 +215,7 @@ func (model initWizardModel) fileFilterView() string {
 		{Title: "Filter results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			"Task",
-			"Narrow discovered files by name or path.",
+			"Narrow discovered configuration files by name or path.",
 			"Enter selects the highlighted file.",
 			"Esc returns to the file list with this filter.",
 		})},
@@ -231,9 +244,11 @@ func (model initWizardModel) pathBrowseView() string {
 		{Title: "JSON strings", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
 			"",
 			"Task",
-			"Choose one existing string-valued JSON path.",
+			"Only existing string values are shown.",
+			"Switchlet does not create missing values.",
 			"Rows ending in / open nested objects.",
 		})},
 	}, []ui.Action{
@@ -258,10 +273,11 @@ func (model initWizardModel) pathSearchView() string {
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
 			"",
 			"Task",
-			"Search by path segment or leaf name.",
-			"Enter chooses the highlighted string target.",
+			"Search existing string values by path segment or leaf name.",
+			"Enter chooses the highlighted JSON value.",
 		})},
 	}, searchableTextInputActions("Select"))
 }
@@ -277,9 +293,11 @@ func (model initWizardModel) dotenvKeySelectView() string {
 		{Title: "Dotenv keys", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
+			ui.RenderKeyValue("Detected format", targetTypeDisplayName(model.selectedFile.targetType)),
 			"",
 			"Task",
-			"Choose one existing dotenv key.",
+			"Existing unique keys only.",
+			"Switchlet does not create missing keys.",
 		})},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -291,28 +309,29 @@ func (model initWizardModel) dotenvKeySelectView() string {
 }
 
 func (model initWizardModel) managedValueNameGuidanceLines() []string {
+	_, selector := targetSelectorLabel(config.Target{Type: model.selectedFile.targetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
 	lines := []string{
 		ui.RenderKeyValue("Selected file", model.selectedFile.displayPath),
-		ui.RenderKeyValue("Detected format", string(model.selectedFile.targetType)),
-	}
-	selectorName, selector := targetSelectorLabel(config.Target{Type: model.selectedFile.targetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
-	lines = append(lines,
-		ui.RenderKeyValue(selectorName, selector),
+		ui.RenderKeyValue("Selected value", selector),
 		"",
-		"Task",
-		"Give this selected value a short name.",
-		"Profiles use this name later.",
+		"Profiles refer to this short name.",
 		"Examples: database, frontendApi, redisUrl",
-	)
+	}
 
 	return lines
 }
 
 func (model initWizardModel) managedValueCheckpointView() string {
 	choices := []string{"Create profiles", "Add value", "Remove value"}
+	decisionLines := []string{
+		"Switchlet now manages these values.",
+		"Add another, or create profiles.",
+		"",
+	}
+	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
 	return model.initWizardShell(3, "Managed values", []ui.Panel{
-		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Next action", Lines: decisionLines, Focused: true},
 		{Title: "Managed values", Lines: model.configuredTargetLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -706,4 +725,15 @@ func profileValueGuidance(useEnvironment bool) string {
 	}
 
 	return "Enter the literal value to store in .switchlet.yaml."
+}
+
+func targetTypeDisplayName(targetType config.TargetType) string {
+	switch targetType {
+	case config.TargetTypeJSON:
+		return "JSON"
+	case config.TargetTypeDotenv:
+		return "dotenv"
+	default:
+		return string(targetType)
+	}
 }

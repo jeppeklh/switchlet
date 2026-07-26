@@ -155,7 +155,7 @@ func TestPromptTargetJSONPath_AllowsSearchingLargeSelectablePathSets(t *testing.
 	if jsonPath != "database.replicaL.url" {
 		t.Fatalf("jsonPath = %q, want %q", jsonPath, "database.replicaL.url")
 	}
-	if !strings.Contains(output.String(), `Select target JSON path matching "replicaL" in config.json:`) {
+	if !strings.Contains(output.String(), `Select JSON value matching "replicaL" in config.json:`) {
 		t.Fatalf("prompt output %q does not report the filtered JSON-path selection", output.String())
 	}
 }
@@ -335,7 +335,7 @@ func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testi
 	}
 
 	outputText := output.String()
-	if !strings.Contains(outputText, `No discovered target files match "missing".`) {
+	if !strings.Contains(outputText, `No discovered configuration files match "missing".`) {
 		t.Fatalf("init output %q does not report the no-match filter state", outputText)
 	}
 	if !strings.Contains(outputText, "database [json] -> src/MyApplication/appsettings.Development.json") {
@@ -441,6 +441,9 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "postgres://old") {
 		t.Fatalf("init output %q must not include the existing target value", output.String())
+	}
+	if !strings.Contains(output.String(), "Detected format: JSON") {
+		t.Fatalf("init output %q does not show the detected target file format", output.String())
 	}
 	if !strings.Contains(output.String(), "Step 5 of 5: Review and create configuration") {
 		t.Fatalf("init output %q does not include the final review step", output.String())
@@ -627,7 +630,7 @@ func TestRunCommand_InitKeepsSelectedFileWhileRetryingJSONPathSelection(t *testi
 	if !strings.Contains(output.String(), `does not contain JSON path "database.primary.url"`) {
 		t.Fatalf("init output %q does not report missing JSON path", output.String())
 	}
-	if strings.Count(output.String(), "Select target file:") != 1 {
+	if strings.Count(output.String(), "Select configuration file:") != 1 {
 		t.Fatalf("init output %q should prompt for the target file only once", output.String())
 	}
 
@@ -677,7 +680,7 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "No target files with selectable JSON paths or dotenv keys were discovered") {
+	if !strings.Contains(output.String(), "No supported configuration files with existing string JSON values or unambiguous dotenv keys were discovered") {
 		t.Fatalf("init output %q does not report empty discovery results", output.String())
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {
@@ -777,7 +780,7 @@ func TestRunCommand_InitAllowsBackingOutToChooseDifferentFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if strings.Count(output.String(), "Select target file:") != 2 {
+	if strings.Count(output.String(), "Select configuration file:") != 2 {
 		t.Fatalf("init output %q should prompt for the target file twice", output.String())
 	}
 	if !strings.Contains(output.String(), "database [json] -> b.json") {

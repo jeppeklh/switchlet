@@ -196,6 +196,190 @@ func TestInitWizardModel_OneManagedValueLiteralProfilesUseFastPath(t *testing.T)
 	}
 }
 
+func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
+	projectRoot := t.TempDir()
+	jsonCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "backend", "settings.json"),
+		RelativePath: filepath.Join("backend", "settings.json"),
+		Type:         config.TargetTypeJSON,
+	}
+	dotenvCandidate := editor.TargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "frontend", ".env.local"),
+		RelativePath: filepath.Join("frontend", ".env.local"),
+		Type:         config.TargetTypeDotenv,
+	}
+
+	newModel := func(t *testing.T) initWizardModel {
+		t.Helper()
+		model, err := newInitWizardModel(projectRoot, initDependencies{
+			discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+				return []editor.TargetFileCandidate{jsonCandidate, dotenvCandidate}, nil
+			},
+			inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+				if path != jsonCandidate.Path {
+					return nil, fmt.Errorf("unexpected JSON path %q", path)
+				}
+
+				return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+			},
+			inspectDotenvKeys: func(path string) ([]string, error) {
+				if path != dotenvCandidate.Path {
+					return nil, fmt.Errorf("unexpected dotenv path %q", path)
+				}
+
+				return []string{"VITE_API_URL", "VITE_FEATURES"}, nil
+			},
+		})
+		if err != nil {
+			t.Fatalf("newInitWizardModel returned error: %v", err)
+		}
+
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+		return updatedModel.(initWizardModel)
+	}
+
+	model := newModel(t)
+	fileView := model.View()
+	for _, expected := range []string{
+		"Choose configuration file",
+		"JSON and dotenv files are both supported.",
+		"File format chooses the value step.",
+		"backend/settings.json [json]",
+		"frontend/.env.local [dotenv]",
+		"m Manual path",
+	} {
+		if !strings.Contains(fileView, expected) {
+			t.Fatalf("file selection View() = %q, want %q", fileView, expected)
+		}
+	}
+
+	model = pressWizardEnter(t, model)
+	jsonValueView := model.View()
+	for _, expected := range []string{
+		"Choose value",
+		"* JSON strings",
+		"Detected format: JSON",
+		"Only existing string values are shown.",
+		"Switchlet does not create missing values.",
+		"m Manual path",
+	} {
+		if !strings.Contains(jsonValueView, expected) {
+			t.Fatalf("JSON value View() = %q, want %q", jsonValueView, expected)
+		}
+	}
+	model = updateWizardModel(t, model, runeKey('m'))
+	manualJSONView := model.View()
+	if !strings.Contains(manualJSONView, "Enter JSON value path") || !strings.Contains(manualJSONView, "JSON value path") {
+		t.Fatalf("manual JSON View() = %q, want JSON value path fallback", manualJSONView)
+	}
+
+	model = newModel(t)
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+	dotenvValueView := model.View()
+	for _, expected := range []string{
+		"Choose value",
+		"* Dotenv keys",
+		"Detected format: dotenv",
+		"Existing unique keys only.",
+		"Switchlet does not create missing keys.",
+		"m Manual key",
+	} {
+		if !strings.Contains(dotenvValueView, expected) {
+			t.Fatalf("dotenv value View() = %q, want %q", dotenvValueView, expected)
+		}
+	}
+	model = updateWizardModel(t, model, runeKey('m'))
+	manualDotenvView := model.View()
+	if !strings.Contains(manualDotenvView, "Enter dotenv value key") || !strings.Contains(manualDotenvView, "Dotenv value key") {
+		t.Fatalf("manual dotenv View() = %q, want dotenv value key fallback", manualDotenvView)
+	}
+}
+
+func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: config.TargetTypeJSON}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: "databaseUrl", JSONPath: "database.url", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(initWizardModel)
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	nameView := model.View()
+	for _, expected := range []string{
+		"Name this managed value",
+		"* Name",
+		"Selected file: config.json",
+		"Selected value: database.url",
+		"Profiles refer to this short name.",
+		"Examples: database, frontendApi, redisUrl",
+	} {
+		if !strings.Contains(nameView, expected) {
+			t.Fatalf("managed-value name View() = %q, want %q", nameView, expected)
+		}
+	}
+	if strings.Contains(nameView, "Target name") {
+		t.Fatalf("managed-value name View() = %q, want no unexplained target-name copy", nameView)
+	}
+
+	typeWizardText(t, &model, "database")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after naming the first managed value", model.step)
+	}
+	if strings.Contains(model.View(), "Target summary") {
+		t.Fatalf("View() = %q, want no mandatory target summary after naming one managed value", model.View())
+	}
+
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	checkpointView := model.View()
+	for _, expected := range []string{
+		"Managed values",
+		"Switchlet now manages these values.",
+		"Add another, or create profiles.",
+		"Create profiles",
+		"Add value",
+		"Remove value",
+		"database [json]",
+		"File: config.json",
+		"JSON path: database.url",
+	} {
+		if !strings.Contains(checkpointView, expected) {
+			t.Fatalf("managed-values checkpoint View() = %q, want %q", checkpointView, expected)
+		}
+	}
+	if strings.Contains(checkpointView, "Target summary") || strings.Contains(checkpointView, "Configuration summary") {
+		t.Fatalf("managed-values checkpoint View() = %q, want no raw target/configuration summary copy", checkpointView)
+	}
+
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want Create profiles to return to profile entry", model.step)
+	}
+
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	model = updateWizardModel(t, model, runeKey('j'))
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepFileSelect {
+		t.Fatalf("step = %d, want Add value to return to file selection", model.step)
+	}
+}
+
 func TestInitWizardModel_BacktrackingAndCancellationPreservePhaseTwoFlow(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
@@ -399,7 +583,7 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInitWizardModel returned error: %v", err)
 	}
-	if !strings.Contains(model.View(), "No target files with selectable JSON paths or dotenv keys were") {
+	if !strings.Contains(model.View(), "No supported configuration files were discovered.") || !strings.Contains(model.View(), "Need existing JSON strings or unique dotenv keys.") {
 		t.Fatalf("View() = %q, want empty-discovery guidance", model.View())
 	}
 
@@ -709,6 +893,39 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	}
 }
 
+func TestInitWizardModel_TooSmallTerminalStateIsSafe(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
+
+	model, err := newInitWizardModel(projectRoot, initDependencies{
+		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
+			return []editor.TargetFileCandidate{selectedCandidate}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	model = updatedModel.(initWizardModel)
+	view := model.View()
+	assertWizardViewWidth(t, view, 79)
+	for _, expected := range []string{"Terminal too small.", "Resize required", "Minimum size: 80x24", "Current size: 79x23"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("too-small View() = %q, want %q", view, expected)
+		}
+	}
+
+	updatedModel, command := model.Update(runeKey('q'))
+	if command == nil {
+		t.Fatal("command is nil, want quit command for q cancellation in too-small state")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.result == nil || !model.result.Cancelled {
+		t.Fatalf("result = %#v, want cancelled result", model.result)
+	}
+}
+
 func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testing.T) {
 	projectRoot := t.TempDir()
 	literalValue := "postgres://local"
@@ -762,6 +979,13 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 		discoverTargetFileCandidates: func(string) ([]editor.TargetFileCandidate, error) {
 			return []editor.TargetFileCandidate{selectedCandidate}, nil
 		},
+		inspectStringTargets: func(path string) ([]editor.StringTargetNode, error) {
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []editor.StringTargetNode{{Name: longJSONPath, JSONPath: longJSONPath, Selectable: true}}, nil
+		},
 	})
 	if err != nil {
 		t.Fatalf("newInitWizardModel returned error: %v", err)
@@ -770,6 +994,12 @@ func TestInitWizardModel_LongInputAndPathsStayWithinTerminalWidth(t *testing.T) 
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(initWizardModel)
 	assertWizardViewWidth(t, model.View(), 80)
+	model = pressWizardEnter(t, model)
+	pathView := model.View()
+	assertWizardViewWidth(t, pathView, 80)
+	if !strings.Contains(pathView, "Detected format: JSON") {
+		t.Fatalf("View() = %q, want detected JSON format in value-selection context", pathView)
+	}
 
 	model.step = initWizardStepProfileValue
 	model.targets = []config.Target{{Name: "database", File: selectedCandidate.Path, Type: config.TargetTypeJSON, JSONPath: longJSONPath}}
