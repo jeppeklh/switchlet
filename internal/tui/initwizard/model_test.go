@@ -904,6 +904,90 @@ func TestInitWizardModel_TextEntryScreensPreserveLiteralQAndOmitQCancel(t *testi
 			wantViewText: "Configuration file: q_",
 		},
 		{
+			name: "file filter",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepFileFilter,
+				width:            120,
+				height:           32,
+			},
+			wantInput:    "q",
+			wantViewText: "Filter: q_",
+		},
+		{
+			name: "path search",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepPathSearch,
+				width:            120,
+				height:           32,
+				selectedFile: app.InitTargetFileSelection{
+					DisplayPath: "config.json",
+					TargetType:  app.InitTargetTypeJSON,
+				},
+			},
+			wantInput:    "q",
+			wantViewText: "Search: q_",
+		},
+		{
+			name: "manual JSON path",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepManualPath,
+				width:            120,
+				height:           32,
+				selectedFile: app.InitTargetFileSelection{
+					DisplayPath: "config.json",
+					TargetType:  app.InitTargetTypeJSON,
+				},
+			},
+			wantInput:    "q",
+			wantViewText: "JSON value path: q_",
+		},
+		{
+			name: "manual dotenv key",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepManualDotenvKey,
+				width:            120,
+				height:           32,
+				selectedFile: app.InitTargetFileSelection{
+					DisplayPath: ".env",
+					TargetType:  app.InitTargetTypeDotenv,
+				},
+			},
+			wantInput:    "q",
+			wantViewText: "Dotenv value key: q_",
+		},
+		{
+			name: "managed value name",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepManagedValueName,
+				width:            120,
+				height:           32,
+				selectedFile: app.InitTargetFileSelection{
+					DisplayPath: "config.json",
+					TargetType:  app.InitTargetTypeJSON,
+				},
+				selectedJSONPath: "database.url",
+			},
+			wantInput:    "q",
+			wantViewText: "Name: q_",
+		},
+		{
+			name: "profile name",
+			model: initWizardModel{
+				workingDirectory: t.TempDir(),
+				step:             initWizardStepProfileName,
+				width:            120,
+				height:           32,
+				targets:          []app.InitTarget{{Name: "database"}},
+			},
+			wantInput:    "q",
+			wantViewText: "Profile name: q_",
+		},
+		{
 			name: "profile value",
 			model: initWizardModel{
 				workingDirectory: t.TempDir(),
