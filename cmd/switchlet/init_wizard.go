@@ -32,8 +32,8 @@ const (
 	initWizardStepManagedValueCheckpoint
 	initWizardStepProfileName
 	initWizardStepProfileTargetInclude
+	initWizardStepProfileValueSource
 	initWizardStepProfileValue
-	initWizardStepProfileOptions
 	initWizardStepProfileSummary
 	initWizardStepReview
 )
@@ -219,28 +219,36 @@ func (model *initWizardModel) beginReview() {
 }
 
 func (model *initWizardModel) returnToProfilesFromReview() {
-	if len(model.targets) == 1 {
+	if len(model.profiles) == 0 {
 		model.beginProfileEntry()
 		return
 	}
 
-	model.step = initWizardStepProfileSummary
-	model.cursor = 0
-	model.errorMessage = ""
-	model.clearInputValue()
+	model.beginProfileAdded()
 }
 
 func (model *initWizardModel) beginProfileValue() {
 	model.step = initWizardStepProfileValue
 	model.cursor = 0
 	model.errorMessage = ""
-	model.clearInputValue()
+	model.setInputValue(model.draftProfile.Value)
 }
 
-func (model *initWizardModel) beginProfileOptions() {
-	model.step = initWizardStepProfileOptions
+func (model *initWizardModel) beginProfileValueSource() {
+	model.step = initWizardStepProfileValueSource
+	if model.draftProfile.UseEnvironment {
+		model.cursor = 1
+	} else {
+		model.cursor = 0
+	}
+	model.errorMessage = ""
+}
+
+func (model *initWizardModel) beginProfileAdded() {
+	model.step = initWizardStepProfileSummary
 	model.cursor = 0
 	model.errorMessage = ""
+	model.clearInputValue()
 }
 
 func (model *initWizardModel) syncIgnorePreference() {
@@ -269,7 +277,7 @@ func (model *initWizardModel) appendTarget(name string) {
 	}
 
 	model.targets = append(model.targets, target)
-	model.beginProfileEntry()
+	model.beginManagedValueCheckpoint()
 }
 
 func (model *initWizardModel) removeLastTarget() {
@@ -321,16 +329,7 @@ func (model *initWizardModel) appendDraftProfile() {
 	model.profiles = append(model.profiles, profile)
 	model.draftProfile = initWizardProfileDraft{}
 	model.syncIgnorePreference()
-
-	if len(model.targets) == 1 {
-		model.beginProfileEntry()
-		return
-	}
-
-	model.step = initWizardStepProfileSummary
-	model.cursor = 0
-	model.errorMessage = ""
-	model.clearInputValue()
+	model.beginProfileAdded()
 }
 
 func (model *initWizardModel) removeLastProfile() {

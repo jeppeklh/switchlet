@@ -72,16 +72,10 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 		t.Fatalf("selectedJSONPath = %q, want %q", model.selectedJSONPath, "database.replica.url")
 	}
 	nameCurrentTargetAndContinue(t, &model, "database")
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name step", model.step)
-	}
 
 	typeWizardText(t, &model, "Production")
 	model = pressWizardEnter(t, model)
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
-	model = updateWizardModel(t, model, runeKey('j'))
-	model = pressWizardEnter(t, model)
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	chooseProfileSource(t, &model, false, true)
 	typeWizardText(t, &model, "postgres://prod")
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
@@ -127,7 +121,7 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 	}
 }
 
-func TestInitWizardModel_OneManagedValueLiteralProfilesUseFastPath(t *testing.T) {
+func TestInitWizardModel_OneManagedValueProfilesUseVisibleDecisionScreens(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"}
 
@@ -149,39 +143,68 @@ func TestInitWizardModel_OneManagedValueLiteralProfilesUseFastPath(t *testing.T)
 
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
-	nameCurrentTargetAndContinue(t, &model, "database")
+	typeWizardText(t, &model, "database")
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-value-added decision after naming one managed value", model.step)
+	}
+	for _, expected := range []string{"Managed value added", "Create profiles", "Add another value"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("managed-value-added View() = %q, want %q", model.View(), expected)
+		}
+	}
 	if strings.Contains(model.View(), "Target summary") {
 		t.Fatalf("View() = %q, want no mandatory target summary after naming one managed value", model.View())
 	}
+	model = pressWizardEnter(t, model)
 
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileValue {
-		t.Fatalf("step = %d, want profile value directly after profile name", model.step)
+	if model.step != initWizardStepProfileValueSource {
+		t.Fatalf("step = %d, want visible source selection after profile name", model.step)
 	}
-	if strings.Contains(model.View(), "Choose profile source") || strings.Contains(model.View(), "Protected profile confirmation") {
-		t.Fatalf("View() = %q, want literal and unprotected defaults without choice screens", model.View())
+	for _, expected := range []string{"Choose value source", "Literal value", "Environment variable", "Protected: off"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("source View() = %q, want %q", model.View(), expected)
+		}
 	}
+	if strings.Contains(model.View(), "Tab Options") {
+		t.Fatalf("source View() = %q, want no hidden Tab Options path", model.View())
+	}
+	chooseProfileSource(t, &model, false, false)
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.step != initWizardStepProfileValueSource {
+		t.Fatalf("step = %d, want value entry Esc to return to source selection", model.step)
+	}
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "postgres://local")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want next profile name after saving first literal profile", model.step)
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added decision after saving first literal profile", model.step)
+	}
+	for _, expected := range []string{"Profile added", "Review and create", "Add another profile", "Add another managed value", "Remove last profile"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("profile-added View() = %q, want %q", model.View(), expected)
+		}
 	}
 
+	addAnotherProfileFromProfileAdded(t, &model)
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepProfileName || !strings.Contains(model.View(), "profile name must not be empty") {
+		t.Fatalf("View() = %q, want empty profile name validation instead of hidden review", model.View())
+	}
 	typeWizardText(t, &model, "Test")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileValue {
-		t.Fatalf("step = %d, want profile value directly for second profile", model.step)
-	}
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "postgres://test")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name loop after second literal profile", model.step)
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added decision after second literal profile", model.step)
 	}
 
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepReview {
-		t.Fatalf("step = %d, want blank profile name to advance to review after profiles exist", model.step)
+		t.Fatalf("step = %d, want explicit Review and create action to advance to review", model.step)
 	}
 	if len(model.profiles) != 2 {
 		t.Fatalf("len(profiles) = %d, want 2", len(model.profiles))
@@ -371,21 +394,20 @@ func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *test
 
 	typeWizardText(t, &model, "database")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name after naming the first managed value", model.step)
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-value-added decision after naming the first managed value", model.step)
 	}
 	if strings.Contains(model.View(), "Target summary") {
 		t.Fatalf("View() = %q, want no mandatory target summary after naming one managed value", model.View())
 	}
 
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	checkpointView := model.View()
 	for _, expected := range []string{
-		"Managed values",
-		"Switchlet now manages these values.",
+		"Managed value added",
+		"Switchlet now manages this value.",
 		"Add another, or create profiles.",
 		"Create profiles",
-		"Add value",
+		"Add another value",
 		"Remove value",
 		"database [json]",
 		"File: config.json",
@@ -408,7 +430,7 @@ func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *test
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepFileSelect {
-		t.Fatalf("step = %d, want Add value to return to file selection", model.step)
+		t.Fatalf("step = %d, want Add another value to return to file selection", model.step)
 	}
 }
 
@@ -514,11 +536,10 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	model = pressWizardEnter(t, model)
 	typeWizardText(t, &model, "database")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name after naming the first managed value", model.step)
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-value-added decision after naming the first managed value", model.step)
 	}
 
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepFileSelect {
@@ -545,9 +566,10 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlU})
 	typeWizardText(t, &model, "frontendApi")
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name", model.step)
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-value-added decision", model.step)
 	}
+	model = pressWizardEnter(t, model)
 
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
@@ -566,6 +588,7 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 		t.Fatalf("profile scope View() = %q, want managed-value include language", includeDatabaseView)
 	}
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "postgres://localhost:5432/app")
 	model = pressWizardEnter(t, model)
 	includeFrontendView := model.View()
@@ -575,7 +598,7 @@ func TestInitWizardModel_CreatesMultipleTargetsWithDotenvAndPartialProfile(t *te
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepProfileSummary {
-		t.Fatalf("step = %d, want profile summary", model.step)
+		t.Fatalf("step = %d, want profile-added decision", model.step)
 	}
 
 	model = pressWizardEnter(t, model)
@@ -668,6 +691,7 @@ func TestInitWizardModel_ProfileScopeBacktrackingRemovesRevisitedValues(t *testi
 	}
 
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "https://primary.example.test")
 	model = pressWizardEnter(t, model)
 	if len(model.draftProfile.Values) != 1 || model.draftProfile.Values[0].Target != "primaryUrl" {
@@ -682,6 +706,7 @@ func TestInitWizardModel_ProfileScopeBacktrackingRemovesRevisitedValues(t *testi
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "https://client.example.test")
 	model = pressWizardEnter(t, model)
 
@@ -769,9 +794,7 @@ func TestInitWizardModel_EnvironmentOnlyProfilesSkipGitignoreProtection(t *testi
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Test")
 	model = pressWizardEnter(t, model)
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
-	model = pressWizardEnter(t, model)
-	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	chooseProfileSource(t, &model, true, false)
 	typeWizardText(t, &model, "MYAPP_TEST_URL")
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
@@ -821,6 +844,7 @@ func TestInitWizardModel_AllowsDisablingGitignoreProtectionForLiteralProfiles(t 
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "https://new.example.test")
 	model = pressWizardEnter(t, model)
 	model = pressWizardEnter(t, model)
@@ -927,6 +951,7 @@ func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	pasteWizardText(t, &model, "[value]")
 
 	for range 7 {
@@ -941,8 +966,8 @@ func TestInitWizardModel_ProfileValueSupportsEditingPastedText(t *testing.T) {
 	}
 
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want next profile name step after submitting the edited value", model.step)
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added decision after submitting the edited value", model.step)
 	}
 	if len(model.profiles) != 1 || len(model.profiles[0].Values) != 1 || model.profiles[0].Values[0].Value == nil || *model.profiles[0].Values[0].Value != "value" {
 		t.Fatalf("profiles = %#v, want one profile with one literal value", model.profiles)
@@ -970,13 +995,15 @@ func TestInitWizardModel_CanRemoveLastManagedValueBeforeReview(t *testing.T) {
 	nameCurrentTargetAndContinue(t, &model, "service")
 	typeWizardText(t, &model, "Local")
 	model = pressWizardEnter(t, model)
+	chooseProfileSource(t, &model, false, false)
 	typeWizardText(t, &model, "https://new.example.test")
 	model = pressWizardEnter(t, model)
 
-	if model.step != initWizardStepProfileName {
-		t.Fatalf("step = %d, want profile name step", model.step)
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added decision", model.step)
 	}
 
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
 	model = updateWizardModel(t, model, runeKey('j'))
 	model = updateWizardModel(t, model, runeKey('j'))
@@ -1083,12 +1110,12 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 	if !wizardLineContains(summaryView, "* Next action", "Configured profiles") {
 		t.Fatalf("summary View() = %q, want focused next action as the primary panel", summaryView)
 	}
-	for _, expected := range []string{"Create profiles", "Review", "Add profile", "Remove profile", "Managed values", "Local [literal]", "Production [protected] [env]", "database: env MYAPP_PRODUCTION_URL"} {
+	for _, expected := range []string{"Profile added", "Review and create", "Add another profile", "Add another managed value", "Remove last profile", "Local [literal]", "Production [protected] [env]", "database: env MYAPP_PRODUCTION_URL"} {
 		if !strings.Contains(summaryView, expected) {
 			t.Fatalf("summary View() = %q, want profile badge summary %q", summaryView, expected)
 		}
 	}
-	for _, unexpected := range []string{"Back to targets", "Review and create configuration"} {
+	for _, unexpected := range []string{"Back to targets", "Back to profiles", "Review and create configuration"} {
 		if strings.Contains(summaryView, unexpected) {
 			t.Fatalf("summary View() = %q, want no %q", summaryView, unexpected)
 		}
@@ -1225,8 +1252,55 @@ func nameCurrentTargetAndContinue(t *testing.T, model *initWizardModel, targetNa
 	t.Helper()
 	typeWizardText(t, model, targetName)
 	*model = pressWizardEnter(t, *model)
+	if model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("step = %d, want managed-value-added decision after naming managed value", model.step)
+	}
+	*model = pressWizardEnter(t, *model)
 	if model.step != initWizardStepProfileName {
 		t.Fatalf("step = %d, want profile name after naming managed value", model.step)
+	}
+}
+
+func chooseProfileSource(t *testing.T, model *initWizardModel, useEnvironment bool, protected bool) {
+	t.Helper()
+	if model.step != initWizardStepProfileValueSource {
+		t.Fatalf("step = %d, want profile value source step", model.step)
+	}
+
+	if protected {
+		*model = updateWizardModel(t, *model, runeKey('j'))
+		*model = updateWizardModel(t, *model, runeKey('j'))
+		*model = pressWizardEnter(t, *model)
+		if !model.draftProfile.Protected {
+			t.Fatal("draftProfile.Protected = false, want visible protected toggle to enable protection")
+		}
+	}
+
+	if useEnvironment {
+		for model.cursor != 1 {
+			*model = updateWizardModel(t, *model, runeKey('k'))
+		}
+	} else {
+		for model.cursor != 0 {
+			*model = updateWizardModel(t, *model, runeKey('k'))
+		}
+	}
+
+	*model = pressWizardEnter(t, *model)
+	if model.step != initWizardStepProfileValue {
+		t.Fatalf("step = %d, want profile value input after choosing source", model.step)
+	}
+}
+
+func addAnotherProfileFromProfileAdded(t *testing.T, model *initWizardModel) {
+	t.Helper()
+	if model.step != initWizardStepProfileSummary {
+		t.Fatalf("step = %d, want profile-added decision", model.step)
+	}
+	*model = updateWizardModel(t, *model, runeKey('j'))
+	*model = pressWizardEnter(t, *model)
+	if model.step != initWizardStepProfileName {
+		t.Fatalf("step = %d, want profile name after choosing add another profile", model.step)
 	}
 }
 

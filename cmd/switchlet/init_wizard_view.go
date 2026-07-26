@@ -82,6 +82,8 @@ func (model initWizardModel) View() string {
 		return model.profileNameView()
 	case initWizardStepProfileTargetInclude:
 		return model.profileTargetIncludeView()
+	case initWizardStepProfileValueSource:
+		return model.profileValueSourceView()
 	case initWizardStepProfileValue:
 		label := "Literal value"
 		if model.draftProfile.UseEnvironment {
@@ -97,8 +99,6 @@ func (model initWizardModel) View() string {
 			"Task",
 			profileValueGuidance(model.draftProfile.UseEnvironment),
 		}, label, "Save")
-	case initWizardStepProfileOptions:
-		return model.profileOptionsView()
 	case initWizardStepProfileSummary:
 		return model.profileSummaryView()
 	case initWizardStepReview:
@@ -127,9 +127,6 @@ func (model initWizardModel) profileNameView() string {
 		"Task",
 		"Name the profile users will select later.",
 	}
-	if len(model.profiles) > 0 {
-		details = append(details, "Leave blank and press Enter to review.")
-	}
 
 	actions := []ui.Action{
 		{Key: "Enter", Label: "Continue"},
@@ -138,9 +135,6 @@ func (model initWizardModel) profileNameView() string {
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Managed values"},
 		{Key: "Ctrl+C", Label: "Cancel"},
-	}
-	if len(model.profiles) > 0 {
-		actions[0].Label = "Continue/Review"
 	}
 
 	return model.initWizardShell(4, "Profile name", []ui.Panel{
@@ -318,17 +312,17 @@ func (model initWizardModel) managedValueNameGuidanceLines() []string {
 }
 
 func (model initWizardModel) managedValueCheckpointView() string {
-	choices := []string{"Create profiles", "Add value", "Remove value"}
+	choices := []string{"Create profiles", "Add another value", "Remove value"}
 	decisionLines := []string{
-		"Switchlet now manages these values.",
+		"Switchlet now manages this value.",
 		"Add another, or create profiles.",
 		"",
 	}
 	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
-	return model.initWizardShell(3, "Managed values", []ui.Panel{
+	return model.initWizardShell(3, "Managed value added", []ui.Panel{
 		{Title: "Next action", Lines: decisionLines, Focused: true},
-		{Title: "Managed values", Lines: model.configuredTargetLines()},
+		{Title: "Added value", Lines: model.lastTargetLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
@@ -367,23 +361,25 @@ func profileTargetIncludeChoices(profileName string, targetName string) []string
 	}
 }
 
-func (model initWizardModel) profileOptionsView() string {
+func (model initWizardModel) profileValueSourceView() string {
 	choices := []string{
-		"Source " + profileSourceSummary(model.draftProfile.UseEnvironment),
-		"Protection " + profileProtectionSummary(model.draftProfile.Protected),
+		"Literal value",
+		"Environment variable",
+		"Protected: " + profileProtectionSummary(model.draftProfile.Protected),
 	}
 
-	return model.initWizardShell(4, "Profile options", []ui.Panel{
-		{Title: "Options", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+	return model.initWizardShell(4, "Choose value source", []ui.Panel{
+		{Title: "Source", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Context", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Profile", model.draftProfile.Name),
 			ui.RenderKeyValue("Managed value", model.currentDraftTarget().Name),
+			ui.RenderKeyValue("Protection", profileProtectionSummary(model.draftProfile.Protected)),
 			"",
 			"Task",
-			"Literal and unprotected are the defaults.",
+			"Choose how this value is stored before entering it.",
 		})},
 	}, []ui.Action{
-		{Key: "Enter", Label: "Toggle"},
+		{Key: "Enter", Label: "Select/Toggle"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
 		{Key: "Esc", Label: "Back"},
 		{Key: "q", Label: "Cancel"},
@@ -391,9 +387,9 @@ func (model initWizardModel) profileOptionsView() string {
 }
 
 func (model initWizardModel) profileSummaryView() string {
-	choices := []string{"Review", "Add profile", "Remove profile", "Managed values"}
+	choices := []string{"Review and create", "Add another profile", "Add another managed value", "Remove last profile"}
 
-	return model.initWizardShell(4, "Create profiles", []ui.Panel{
+	return model.initWizardShell(4, "Profile added", []ui.Panel{
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 	}, []ui.Action{
@@ -570,6 +566,24 @@ func (model initWizardModel) configuredTargetLines() []string {
 	return lines
 }
 
+func (model initWizardModel) lastTargetLines() []string {
+	if len(model.targets) == 0 {
+		return []string{"No managed value configured."}
+	}
+
+	target := model.targets[len(model.targets)-1]
+	lines := []string{ui.RenderListRow(ui.ListRow{
+		Label:  target.Name,
+		State:  ui.RowNormal,
+		Badges: []ui.Badge{{Label: string(target.Type)}},
+	})}
+	lines = append(lines, ui.RenderKeyValue("File", displayTargetPath(model.workingDirectory, target.File)))
+	selectorName, selector := targetSelectorLabel(target)
+	lines = append(lines, ui.RenderKeyValue(selectorName, selector))
+
+	return lines
+}
+
 func (model initWizardModel) targetRows() []string {
 	if len(model.targets) == 0 {
 		return []string{"No managed values configured."}
@@ -639,11 +653,10 @@ func textInputActions(enterAction string) []ui.Action {
 func profileValueInputActions(enterAction string) []ui.Action {
 	return []ui.Action{
 		{Key: "Enter", Label: enterAction},
-		{Key: "Tab", Label: "Options"},
 		{Key: "←/→", Label: "Move"},
 		{Key: "Home/End", Label: "Jump"},
 		{Key: "Bksp/Del", Label: "Edit"},
-		{Key: "Esc", Label: "Back"},
+		{Key: "Esc", Label: "Source"},
 		{Key: "Ctrl+C", Label: "Cancel"},
 	}
 }
