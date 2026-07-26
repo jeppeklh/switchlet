@@ -271,6 +271,61 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyMissingProfileJSONIncludesAvailableProfilesAndSuggestion(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+  - name: Staging
+    value: https://staging.example.test
+  - name: Production
+    value: https://production.example.test
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+
+	result := runCommandForTest(t, []string{"apply", "Stagng", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty string for JSON error", result.stderr)
+	}
+
+	var payload struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal apply JSON error: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Error.Kind != "profile_not_found" {
+		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "profile_not_found")
+	}
+	for _, expected := range []string{
+		`Profile "Stagng" does not exist.`,
+		"Available profiles:\n- Local\n- Staging\n- Production",
+		`Did you mean "Staging"?`,
+	} {
+		if !strings.Contains(payload.Error.Message, expected) {
+			t.Fatalf("error.message = %q, want profile-not-found guidance %q", payload.Error.Message, expected)
+		}
+	}
+	for _, forbidden := range []string{"http://localhost:8080", "https://staging.example.test", "https://production.example.test"} {
+		if strings.Contains(payload.Error.Message, forbidden) {
+			t.Fatalf("error.message = %q must not contain resolved value %q", payload.Error.Message, forbidden)
+		}
+	}
+}
+
 func TestRunCommand_InspectMissingProfileListsAvailableProfilesAndSuggestion(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
@@ -402,6 +457,71 @@ profiles:
 		if !strings.Contains(result.stderr, expected) {
 			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
 		}
+	}
+}
+
+func TestRunCommand_ProfileCommandsWithoutProfileJSONShowConfiguredGuidance(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local-secret
+  - name: Production
+    protected: true
+    values:
+      - target: database
+        value: postgres://production-secret
+      - target: frontendApi
+        value: https://api.production.example.test
+`)+"\n")
+
+	tests := []struct {
+		name    string
+		args    []string
+		wantTry string
+	}{
+		{name: "apply", args: []string{"apply", "--json"}, wantTry: "switchlet apply Local --dry-run"},
+		{name: "inspect", args: []string{"inspect", "--json"}, wantTry: "switchlet inspect Local"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != usageExitCode {
+				t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want empty string for JSON usage error", result.stderr)
+			}
+
+			var payload struct {
+				Error struct {
+					Kind    string `json:"kind"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+				t.Fatalf("unmarshal JSON usage error: %v\noutput: %q", err, result.stdout)
+			}
+			if payload.Error.Kind != "usage" {
+				t.Fatalf("error.kind = %q, want usage", payload.Error.Kind)
+			}
+			for _, expected := range []string{
+				"No profile specified.",
+				"Available profiles:\n- Local [partial]\n- Production [protected]",
+				"Try:\n" + testCase.wantTry,
+			} {
+				if !strings.Contains(payload.Error.Message, expected) {
+					t.Fatalf("error.message = %q, want guidance %q", payload.Error.Message, expected)
+				}
+			}
+			for _, forbidden := range []string{"postgres://local-secret", "postgres://production-secret", "https://api.production.example.test"} {
+				if strings.Contains(payload.Error.Message, forbidden) {
+					t.Fatalf("error.message = %q must not contain resolved value %q", payload.Error.Message, forbidden)
+				}
+			}
+		})
 	}
 }
 

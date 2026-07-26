@@ -346,6 +346,68 @@ func TestUpdate_UnavailableMultiTargetProfileIdentifiesFailingTarget(t *testing.
 	}
 }
 
+func TestUpdate_MultiTargetPreparationErrorShowsTargetContextWithoutResolvedValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+	originalDatabaseContents := readFile(t, databasePath)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://database-secret")},
+				{Target: "frontendApi", Value: stringPointer("https://api.secret.example.test\nNEXT=value")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want apply command")
+	}
+
+	message := command()
+	updatedModel, _ = updatedModel.Update(message)
+	model = updatedModel.(Model)
+	if model.state != errorState {
+		t.Fatalf("state = %d, want errorState", model.state)
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Context:",
+		"Affected targets",
+		"database [json] -> database.url",
+		"frontendApi [dotenv] -> VITE_API_URL",
+		"Reason:",
+		"replacement value must not contain newline",
+		"characters",
+		"Recovery:",
+		"Press any key to return.",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want target-aware error detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres://database-secret", "api.secret.example.test"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain resolved value %q", view, forbidden)
+		}
+	}
+	if string(readFile(t, databasePath)) != string(originalDatabaseContents) {
+		t.Fatal("database target changed after preparation failure")
+	}
+	if string(readFile(t, frontendPath)) != string(originalFrontendContents) {
+		t.Fatal("frontend target changed after preparation failure")
+	}
+}
+
 func TestUpdate_StartsApplyThroughCommandAndShowsImmediateFeedback(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)

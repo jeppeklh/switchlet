@@ -377,6 +377,54 @@ func TestApplication_ApplyProfileWithOptions_DryRunValidatesMultipleTargetsWitho
 	}
 }
 
+func TestApplication_ApplyProfileWithOptions_DryRunPreparationFailureLeavesAllTargetsUnchangedAndHidesSecrets(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+	originalDatabaseContents := readFile(t, databasePath)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://database-secret")},
+				{Target: "frontendApi", Value: stringPointer("https://api.secret.example.test\nNEXT=value")},
+			},
+		}},
+	)
+
+	_, err := application.ApplyProfileByNameWithOptions("Staging", app.ApplyOptions{DryRun: true})
+	if err == nil {
+		t.Fatal("ApplyProfileByNameWithOptions returned nil error, want dry-run preparation failure")
+	}
+	for _, expected := range []string{
+		`dry-run apply profile "Staging"`,
+		`target "frontendApi"`,
+		`key "VITE_API_URL"`,
+		"replacement value must not contain newline characters",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ApplyProfileByNameWithOptions returned error %q, want substring %q", err, expected)
+		}
+	}
+	for _, forbidden := range []string{"database-secret", "api.secret.example.test"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyProfileByNameWithOptions returned error %q, must not contain resolved value %q", err, forbidden)
+		}
+	}
+	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed after dry-run preparation failure")
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed after dry-run preparation failure")
+	}
+}
+
 func TestApplication_ApplyProfile_PreparationFailureLeavesAllTargetsUnchangedAndHidesSecrets(t *testing.T) {
 	t.Setenv("STAGING_DATABASE_URL", "postgres://user:super-secret@example.test/app")
 
