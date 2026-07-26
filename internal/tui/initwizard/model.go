@@ -42,6 +42,31 @@ type initWizardProfileDraft struct {
 	Protected      bool
 }
 
+type initWizardEffectKind int
+
+const (
+	initWizardEffectFileInspection initWizardEffectKind = iota + 1
+	initWizardEffectJSONSelectorValidation
+	initWizardEffectDotenvKeyValidation
+)
+
+type initWizardPendingEffect struct {
+	RequestID         int
+	Kind              initWizardEffectKind
+	StepNumber        int
+	Title             string
+	Message           string
+	ReturnStep        initWizardStep
+	ReturnCursor      int
+	ReturnInputValue  string
+	ReturnInputCursor int
+	TargetPath        string
+	DisplayPath       string
+	TargetType        app.InitTargetType
+	Selector          string
+	FileFilter        string
+}
+
 // Result describes the completed interactive init wizard outcome.
 type Result struct {
 	Targets            []app.InitTarget
@@ -72,6 +97,8 @@ type initWizardModel struct {
 	draftProfile          initWizardProfileDraft
 	shouldIgnoreConfig    bool
 	shouldIgnoreConfigSet bool
+	effectRequestID       int
+	pendingEffect         *initWizardPendingEffect
 	result                *Result
 }
 
@@ -116,6 +143,7 @@ func (model initWizardModel) isTerminalTooSmall() bool {
 }
 
 func (model *initWizardModel) cancel() {
+	model.pendingEffect = nil
 	model.result = &Result{Cancelled: true}
 }
 

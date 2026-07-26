@@ -47,11 +47,7 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 	model = updateWizardModel(t, model, runeKey('f'))
 	typeWizardText(t, &model, "appsettings")
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if command != nil {
-		t.Fatal("command is not nil, want no quit command while selecting a file")
-	}
-	model = updatedModel.(initWizardModel)
+	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepPathBrowse {
 		t.Fatalf("step = %d, want path browse step", model.step)
 	}
@@ -59,7 +55,7 @@ func TestInitWizardModel_CompletesGuidedFlowWithFilterSearchAndLiteralProfile(t 
 	model = updateWizardModel(t, model, runeKey('s'))
 	typeWizardText(t, &model, "replica")
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if command != nil {
 		t.Fatal("command is not nil, want no quit command while selecting a JSON path")
 	}
@@ -315,6 +311,371 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	manualDotenvView := model.View()
 	if !strings.Contains(manualDotenvView, "Enter dotenv value key") || !strings.Contains(manualDotenvView, "Dotenv value key") {
 		t.Fatalf("manual dotenv View() = %q, want dotenv value key fallback", manualDotenvView)
+	}
+}
+
+func TestInitWizardModel_FileInspectionRunsThroughCommandWithPendingView(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: app.InitTargetTypeJSON}
+	inspectionCount := 0
+
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
+		},
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
+			inspectionCount++
+			if path != selectedCandidate.Path {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	model.width = 120
+	model.height = 32
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want file inspection command")
+	}
+	if inspectionCount != 0 {
+		t.Fatalf("inspectionCount = %d, want no inspection before command execution", inspectionCount)
+	}
+
+	model = updatedModel.(initWizardModel)
+	if !model.isPending() {
+		t.Fatal("isPending() = false, want pending file inspection")
+	}
+	for _, expected := range []string{"Inspecting configuration file", "Inspecting config.json.", "Esc Back", "q Cancel", "Ctrl+C Cancel immediately"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("pending View() = %q, want %q", model.View(), expected)
+		}
+	}
+
+	model = executeWizardEffectCommand(t, model, command)
+	if inspectionCount != 1 {
+		t.Fatalf("inspectionCount = %d, want one inspection after command execution", inspectionCount)
+	}
+	if model.step != initWizardStepPathBrowse {
+		t.Fatalf("step = %d, want path browse after inspection completes", model.step)
+	}
+}
+
+func TestInitWizardModel_ManualFileInspectionRunsThroughCommand(t *testing.T) {
+	projectRoot := t.TempDir()
+	manualTargetPath := filepath.Join(projectRoot, "config.json")
+	inspectionCount := 0
+
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return nil, nil
+		},
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
+			inspectionCount++
+			if path != manualTargetPath {
+				return nil, fmt.Errorf("unexpected path %q", path)
+			}
+
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	model.width = 120
+	model.height = 32
+
+	model = updateWizardModel(t, model, runeKey('m'))
+	typeWizardText(t, &model, manualTargetPath)
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want manual file inspection command")
+	}
+	if inspectionCount != 0 {
+		t.Fatalf("inspectionCount = %d, want no inspection before command execution", inspectionCount)
+	}
+
+	model = updatedModel.(initWizardModel)
+	if !model.isPending() || !strings.Contains(model.View(), "Inspecting configuration file") {
+		t.Fatalf("model after manual file submit = %#v, want pending inspection view", model)
+	}
+
+	model = executeWizardEffectCommand(t, model, command)
+	if inspectionCount != 1 {
+		t.Fatalf("inspectionCount = %d, want one inspection after command execution", inspectionCount)
+	}
+	if model.step != initWizardStepPathBrowse {
+		t.Fatalf("step = %d, want path browse after manual file inspection completes", model.step)
+	}
+}
+
+func TestInitWizardModel_ManualSelectorValidationRunsThroughCommands(t *testing.T) {
+	projectRoot := t.TempDir()
+	jsonTargetPath := filepath.Join(projectRoot, "config.json")
+	dotenvTargetPath := filepath.Join(projectRoot, ".env")
+	jsonValidationCount := 0
+	dotenvValidationCount := 0
+	workflow := app.NewInitWorkflow(app.InitWorkflowDependencies{
+		ValidateStringTarget: func(path string, jsonPath string) error {
+			jsonValidationCount++
+			if path != jsonTargetPath || jsonPath != "service.url" {
+				return fmt.Errorf("unexpected JSON validation %q %q", path, jsonPath)
+			}
+
+			return nil
+		},
+		ValidateDotenvTarget: func(path string, key string) error {
+			dotenvValidationCount++
+			if path != dotenvTargetPath || key != "VITE_API_URL" {
+				return fmt.Errorf("unexpected dotenv validation %q %q", path, key)
+			}
+
+			return nil
+		},
+	})
+
+	jsonModel := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow:         workflow,
+		step:             initWizardStepManualPath,
+		width:            120,
+		height:           32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        jsonTargetPath,
+			DisplayPath: "config.json",
+			TargetType:  app.InitTargetTypeJSON,
+		},
+	}
+	jsonModel.setInputValue("service.url")
+	updatedModel, command := jsonModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want JSON selector validation command")
+	}
+	if jsonValidationCount != 0 {
+		t.Fatalf("jsonValidationCount = %d, want no validation before command execution", jsonValidationCount)
+	}
+
+	jsonModel = updatedModel.(initWizardModel)
+	if !jsonModel.isPending() || !strings.Contains(jsonModel.View(), "Validating JSON value path") {
+		t.Fatalf("pending JSON View() = %q, want validation pending view", jsonModel.View())
+	}
+	jsonModel = executeWizardEffectCommand(t, jsonModel, command)
+	if jsonValidationCount != 1 {
+		t.Fatalf("jsonValidationCount = %d, want one validation after command execution", jsonValidationCount)
+	}
+	if jsonModel.step != initWizardStepManagedValueName || jsonModel.selectedJSONPath != "service.url" {
+		t.Fatalf("JSON model = %#v, want managed value name step with selected path", jsonModel)
+	}
+
+	dotenvModel := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow:         workflow,
+		step:             initWizardStepManualDotenvKey,
+		width:            120,
+		height:           32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        dotenvTargetPath,
+			DisplayPath: ".env",
+			TargetType:  app.InitTargetTypeDotenv,
+		},
+	}
+	dotenvModel.setInputValue("VITE_API_URL")
+	updatedModel, command = dotenvModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want dotenv key validation command")
+	}
+	if dotenvValidationCount != 0 {
+		t.Fatalf("dotenvValidationCount = %d, want no validation before command execution", dotenvValidationCount)
+	}
+
+	dotenvModel = updatedModel.(initWizardModel)
+	if !dotenvModel.isPending() || !strings.Contains(dotenvModel.View(), "Validating dotenv key") {
+		t.Fatalf("pending dotenv View() = %q, want validation pending view", dotenvModel.View())
+	}
+	dotenvModel = executeWizardEffectCommand(t, dotenvModel, command)
+	if dotenvValidationCount != 1 {
+		t.Fatalf("dotenvValidationCount = %d, want one validation after command execution", dotenvValidationCount)
+	}
+	if dotenvModel.step != initWizardStepManagedValueName || dotenvModel.selectedDotenvKey != "VITE_API_URL" {
+		t.Fatalf("dotenv model = %#v, want managed value name step with selected key", dotenvModel)
+	}
+}
+
+func TestInitWizardModel_StaleFileInspectionResultIsIgnoredAfterReplacementSelection(t *testing.T) {
+	projectRoot := t.TempDir()
+	firstCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "first.json"), RelativePath: "first.json", Type: app.InitTargetTypeJSON}
+	secondCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "second.json"), RelativePath: "second.json", Type: app.InitTargetTypeJSON}
+	inspectedPaths := make([]string, 0, 2)
+
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{firstCandidate, secondCandidate}, nil
+		},
+		InspectStringTargets: func(path string) ([]app.InitStringTargetNode, error) {
+			inspectedPaths = append(inspectedPaths, path)
+			return []app.InitStringTargetNode{{Name: "serviceUrl", JSONPath: "serviceUrl", Selectable: true}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	model.width = 120
+	model.height = 32
+
+	updatedModel, firstCommand := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if firstCommand == nil {
+		t.Fatal("firstCommand is nil, want first inspection command")
+	}
+	model = updatedModel.(initWizardModel)
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if command != nil {
+		t.Fatal("command is not nil, want pending cancellation without command")
+	}
+	model = updatedModel.(initWizardModel)
+	model = updateWizardModel(t, model, runeKey('j'))
+
+	updatedModel, secondCommand := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if secondCommand == nil {
+		t.Fatal("secondCommand is nil, want replacement inspection command")
+	}
+	model = updatedModel.(initWizardModel)
+
+	staleMessage := firstCommand()
+	updatedModel, command = model.Update(staleMessage)
+	if command != nil {
+		t.Fatal("command is not nil, want stale result ignored without command")
+	}
+	model = updatedModel.(initWizardModel)
+	if !model.isPending() || model.pendingEffect.TargetPath != secondCandidate.Path {
+		t.Fatalf("model after stale result = %#v, want still-pending second inspection", model)
+	}
+
+	model = executeWizardEffectCommand(t, model, secondCommand)
+	if len(inspectedPaths) != 2 || inspectedPaths[0] != firstCandidate.Path || inspectedPaths[1] != secondCandidate.Path {
+		t.Fatalf("inspectedPaths = %#v, want first then second command execution", inspectedPaths)
+	}
+	if model.step != initWizardStepPathBrowse || model.selectedFile.Path != secondCandidate.Path {
+		t.Fatalf("model after second inspection = %#v, want second file selected", model)
+	}
+}
+
+func TestInitWizardModel_StaleValidationErrorIsIgnoredAfterBacktrackingAndEditing(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := filepath.Join(projectRoot, "config.json")
+	validationCount := 0
+	model := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow: app.NewInitWorkflow(app.InitWorkflowDependencies{
+			ValidateStringTarget: func(string, string) error {
+				validationCount++
+				return fmt.Errorf("old path is invalid")
+			},
+		}),
+		step:   initWizardStepManualPath,
+		width:  120,
+		height: 32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        targetPath,
+			DisplayPath: "config.json",
+			TargetType:  app.InitTargetTypeJSON,
+		},
+	}
+	model.setInputValue("old.path")
+
+	updatedModel, validationCommand := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if validationCommand == nil {
+		t.Fatal("validationCommand is nil, want validation command")
+	}
+	model = updatedModel.(initWizardModel)
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if command != nil {
+		t.Fatal("command is not nil, want pending cancellation without command")
+	}
+	model = updatedModel.(initWizardModel)
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlU})
+	typeWizardText(t, &model, "new.path")
+
+	staleMessage := validationCommand()
+	if validationCount != 1 {
+		t.Fatalf("validationCount = %d, want stale command to execute once", validationCount)
+	}
+	updatedModel, command = model.Update(staleMessage)
+	if command != nil {
+		t.Fatal("command is not nil, want stale validation result ignored without command")
+	}
+	model = updatedModel.(initWizardModel)
+	if model.errorMessage != "" || model.inputValue != "new.path" || model.step != initWizardStepManualPath {
+		t.Fatalf("model after stale validation = %#v, want edited manual path with no error", model)
+	}
+}
+
+func TestInitWizardModel_FailedInspectionAndValidationReturnToSourceScreens(t *testing.T) {
+	projectRoot := t.TempDir()
+	selectedCandidate := app.InitTargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: app.InitTargetTypeJSON}
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{selectedCandidate}, nil
+		},
+		InspectStringTargets: func(string) ([]app.InitStringTargetNode, error) {
+			return nil, fmt.Errorf("invalid JSON")
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	model.width = 120
+	model.height = 32
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want inspection command")
+	}
+	model = executeWizardEffectCommand(t, updatedModel.(initWizardModel), command)
+	if model.step != initWizardStepFileSelect {
+		t.Fatalf("step = %d, want file selection after failed inspection", model.step)
+	}
+	if !strings.Contains(model.errorMessage, "Could not inspect configuration file") || !strings.Contains(model.errorMessage, "invalid JSON") {
+		t.Fatalf("errorMessage = %q, want recoverable inspection error", model.errorMessage)
+	}
+	if !strings.Contains(model.View(), "Choose configuration file") || !strings.Contains(model.View(), "Error") {
+		t.Fatalf("View() = %q, want file selection error view", model.View())
+	}
+
+	targetPath := filepath.Join(projectRoot, "manual.json")
+	validationModel := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow: app.NewInitWorkflow(app.InitWorkflowDependencies{
+			ValidateStringTarget: func(string, string) error {
+				return fmt.Errorf("missing string value")
+			},
+		}),
+		step:   initWizardStepManualPath,
+		width:  120,
+		height: 32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        targetPath,
+			DisplayPath: "manual.json",
+			TargetType:  app.InitTargetTypeJSON,
+		},
+	}
+	validationModel.setInputValue("missing.path")
+	updatedModel, command = validationModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want validation command")
+	}
+	validationModel = executeWizardEffectCommand(t, updatedModel.(initWizardModel), command)
+	if validationModel.step != initWizardStepManualPath || validationModel.inputValue != "missing.path" {
+		t.Fatalf("validation model = %#v, want manual path with input preserved", validationModel)
+	}
+	if !strings.Contains(validationModel.errorMessage, "Could not validate JSON value path") || !strings.Contains(validationModel.errorMessage, "missing string value") {
+		t.Fatalf("errorMessage = %q, want recoverable validation error", validationModel.errorMessage)
+	}
+	if !strings.Contains(validationModel.View(), "Enter JSON value path") || !strings.Contains(validationModel.View(), "Error") {
+		t.Fatalf("View() = %q, want manual path error view", validationModel.View())
 	}
 }
 
@@ -912,11 +1273,7 @@ func TestInitWizardModel_FileFilterSupportsEditingInsideTheInput(t *testing.T) {
 	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyLeft})
 	model = updateWizardModel(t, model, runeKey('i'))
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if command != nil {
-		t.Fatal("command is not nil, want no quit command while selecting a file")
-	}
-	model = updatedModel.(initWizardModel)
+	model = pressWizardEnter(t, model)
 	if model.step != initWizardStepPathBrowse {
 		t.Fatalf("step = %d, want path browse step", model.step)
 	}
@@ -1360,8 +1717,39 @@ func pasteWizardText(t *testing.T, model *initWizardModel, value string) {
 
 func updateWizardModel(t *testing.T, model initWizardModel, message tea.KeyMsg) initWizardModel {
 	t.Helper()
-	updatedModel, _ := model.Update(message)
-	return updatedModel.(initWizardModel)
+	updatedModel, command := model.Update(message)
+	return executeWizardEffectCommand(t, updatedModel.(initWizardModel), command)
+}
+
+func executeWizardEffectCommand(t *testing.T, model initWizardModel, command tea.Cmd) initWizardModel {
+	t.Helper()
+	if command == nil {
+		return model
+	}
+
+	message := command()
+	switch message := message.(type) {
+	case fileInspectedMsg:
+		updatedModel, nextCommand := model.Update(message)
+		if nextCommand != nil {
+			t.Fatal("effect completion returned an unexpected command")
+		}
+		return updatedModel.(initWizardModel)
+	case jsonSelectorValidatedMsg:
+		updatedModel, nextCommand := model.Update(message)
+		if nextCommand != nil {
+			t.Fatal("effect completion returned an unexpected command")
+		}
+		return updatedModel.(initWizardModel)
+	case dotenvKeyValidatedMsg:
+		updatedModel, nextCommand := model.Update(message)
+		if nextCommand != nil {
+			t.Fatal("effect completion returned an unexpected command")
+		}
+		return updatedModel.(initWizardModel)
+	default:
+		return model
+	}
 }
 
 func runeKey(value rune) tea.KeyMsg {

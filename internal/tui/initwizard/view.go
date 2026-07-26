@@ -25,6 +25,9 @@ func (model initWizardModel) View() string {
 			Height:  model.height,
 		})
 	}
+	if model.isPending() {
+		return model.pendingView()
+	}
 
 	switch model.step {
 	case initWizardStepFileSelect:
@@ -110,6 +113,45 @@ func (model initWizardModel) View() string {
 			Height:   model.height,
 		})
 	}
+}
+
+func (model initWizardModel) pendingView() string {
+	pendingEffect := *model.pendingEffect
+	workLines := []string{
+		pendingEffect.Message,
+		"Please wait.",
+	}
+
+	return model.initWizardShell(pendingEffect.StepNumber, pendingEffect.Title, []ui.Panel{
+		{Title: "Working", Lines: workLines, Focused: true},
+		{Title: "Context", Lines: pendingEffectContextLines(pendingEffect)},
+	}, []ui.Action{
+		{Key: "Esc", Label: "Back"},
+		{Key: "q", Label: "Cancel"},
+		{Key: "Ctrl+C", Label: "Cancel immediately"},
+	})
+}
+
+func pendingEffectContextLines(pendingEffect initWizardPendingEffect) []string {
+	lines := make([]string, 0, 4)
+	if pendingEffect.DisplayPath != "" {
+		lines = append(lines, ui.RenderKeyValue("Selected file", pendingEffect.DisplayPath))
+	}
+	if pendingEffect.TargetType != "" {
+		lines = append(lines, ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(pendingEffect.TargetType)))
+	}
+	if pendingEffect.Selector != "" {
+		selectorLabel := "Value"
+		if pendingEffect.Kind == initWizardEffectJSONSelectorValidation {
+			selectorLabel = "JSON path"
+		}
+		if pendingEffect.Kind == initWizardEffectDotenvKeyValidation {
+			selectorLabel = "Key"
+		}
+		lines = append(lines, ui.RenderKeyValue(selectorLabel, pendingEffect.Selector))
+	}
+
+	return lines
 }
 
 func (model initWizardModel) managedValueNameView() string {

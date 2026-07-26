@@ -12,6 +12,12 @@ import (
 // Update handles Bubble Tea messages for the init wizard.
 func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case fileInspectedMsg:
+		return model.handleFileInspected(message)
+	case jsonSelectorValidatedMsg:
+		return model.handleJSONSelectorValidated(message)
+	case dotenvKeyValidatedMsg:
+		return model.handleDotenvKeyValidated(message)
 	case tea.WindowSizeMsg:
 		model.width = message.Width
 		model.height = message.Height
@@ -27,6 +33,9 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, tea.Quit
 			}
 			return model, nil
+		}
+		if model.isPending() {
+			return model.handlePendingKey(message)
 		}
 		if !isTextEntryStep(model.step) && isQuitKey(message) {
 			model.cancel()
@@ -76,6 +85,151 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (model initWizardModel) handlePendingKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case isQuitKey(message):
+		model.cancel()
+		return model, tea.Quit
+	case message.Type == tea.KeyEsc:
+		model.cancelPendingEffect()
+		return model, nil
+	default:
+		return model, nil
+	}
+}
+
+func (model initWizardModel) handleFileInspected(message fileInspectedMsg) (tea.Model, tea.Cmd) {
+	if model.staleFileInspected(message) {
+		return model, nil
+	}
+
+	pendingEffect := *model.pendingEffect
+	model.pendingEffect = nil
+	if message.err != nil {
+		model.restorePendingContext(pendingEffect)
+		model.errorMessage = fileInspectionError(message.err)
+		return model, nil
+	}
+
+	if pendingEffect.ReturnStep == initWizardStepFileFilter {
+		model.fileFilter = pendingEffect.FileFilter
+	}
+	model.selectedFile = message.selection
+	model.beginSelectorForSelectedFile()
+	return model, nil
+}
+
+func (model initWizardModel) handleJSONSelectorValidated(message jsonSelectorValidatedMsg) (tea.Model, tea.Cmd) {
+	if model.staleJSONSelectorValidated(message) {
+		return model, nil
+	}
+
+	pendingEffect := *model.pendingEffect
+	model.pendingEffect = nil
+	if message.err != nil {
+		model.restorePendingContext(pendingEffect)
+		model.errorMessage = jsonSelectorValidationError(message.err)
+		return model, nil
+	}
+
+	model.selectedJSONPath = message.jsonPath
+	model.beginManagedValueName()
+	return model, nil
+}
+
+func (model initWizardModel) handleDotenvKeyValidated(message dotenvKeyValidatedMsg) (tea.Model, tea.Cmd) {
+	if model.staleDotenvKeyValidated(message) {
+		return model, nil
+	}
+
+	pendingEffect := *model.pendingEffect
+	model.pendingEffect = nil
+	if message.err != nil {
+		model.restorePendingContext(pendingEffect)
+		model.errorMessage = dotenvKeyValidationError(message.err)
+		return model, nil
+	}
+
+	model.selectedDotenvKey = message.key
+	model.beginManagedValueName()
+	return model, nil
+}
+
+func (model initWizardModel) startFileCandidateInspection(candidate app.InitTargetFileCandidate, returnStep initWizardStep, fileFilter string) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectFileInspection,
+		StepNumber:        1,
+		Title:             "Inspecting configuration file",
+		Message:           "Inspecting " + candidate.RelativePath + ".",
+		ReturnStep:        returnStep,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        candidate.Path,
+		DisplayPath:       candidate.RelativePath,
+		TargetType:        candidate.Type,
+		FileFilter:        fileFilter,
+	})
+
+	return model, inspectTargetFileCandidate(model.workflow, requestID, candidate)
+}
+
+func (model initWizardModel) startFileInspection(targetPath string, displayPath string, targetType app.InitTargetType, returnStep initWizardStep) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectFileInspection,
+		StepNumber:        1,
+		Title:             "Inspecting configuration file",
+		Message:           "Inspecting " + displayPath + ".",
+		ReturnStep:        returnStep,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        targetPath,
+		DisplayPath:       displayPath,
+		TargetType:        targetType,
+	})
+
+	return model, inspectTargetFile(model.workflow, requestID, targetPath, displayPath, targetType)
+}
+
+func (model initWizardModel) startJSONSelectorValidation(jsonPath string) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectJSONSelectorValidation,
+		StepNumber:        2,
+		Title:             "Validating JSON value path",
+		Message:           "Checking " + jsonPath + ".",
+		ReturnStep:        initWizardStepManualPath,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        model.selectedFile.Path,
+		DisplayPath:       model.selectedFile.DisplayPath,
+		TargetType:        model.selectedFile.TargetType,
+		Selector:          jsonPath,
+	})
+
+	return model, validateJSONSelector(model.workflow, requestID, model.selectedFile.Path, jsonPath)
+}
+
+func (model initWizardModel) startDotenvKeyValidation(key string) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectDotenvKeyValidation,
+		StepNumber:        2,
+		Title:             "Validating dotenv key",
+		Message:           "Checking " + key + ".",
+		ReturnStep:        initWizardStepManualDotenvKey,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        model.selectedFile.Path,
+		DisplayPath:       model.selectedFile.DisplayPath,
+		TargetType:        model.selectedFile.TargetType,
+		Selector:          key,
+	})
+
+	return model, validateDotenvKey(model.workflow, requestID, model.selectedFile.Path, key)
+}
+
 func (model initWizardModel) handleFileSelectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	matchingCandidates := model.filteredFileCandidates(model.fileFilter)
 	model.clampCursor(len(matchingCandidates))
@@ -110,15 +264,7 @@ func (model initWizardModel) handleFileSelectKey(message tea.KeyMsg) (tea.Model,
 			return model, nil
 		}
 
-		selectedCandidate := matchingCandidates[model.cursor]
-		selectedFile, err := model.workflow.InspectTargetFileCandidate(selectedCandidate)
-		if err != nil {
-			model.errorMessage = err.Error()
-			return model, nil
-		}
-
-		model.selectedFile = selectedFile
-		model.beginSelectorForSelectedFile()
+		return model.startFileCandidateInspection(matchingCandidates[model.cursor], initWizardStepFileSelect, model.fileFilter)
 	}
 
 	return model, nil
@@ -142,17 +288,7 @@ func (model initWizardModel) handleFileFilterKey(message tea.KeyMsg) (tea.Model,
 			return model, nil
 		}
 
-		selectedCandidate := matchingCandidates[model.cursor]
-		selectedFile, err := model.workflow.InspectTargetFileCandidate(selectedCandidate)
-		if err != nil {
-			model.errorMessage = err.Error()
-			return model, nil
-		}
-
-		model.fileFilter = strings.TrimSpace(model.inputValue)
-		model.selectedFile = selectedFile
-		model.beginSelectorForSelectedFile()
-		return model, nil
+		return model.startFileCandidateInspection(matchingCandidates[model.cursor], initWizardStepFileFilter, strings.TrimSpace(model.inputValue))
 	case tea.KeyUp:
 		if len(matchingCandidates) > 0 {
 			model.cursor--
@@ -180,7 +316,21 @@ func (model initWizardModel) handleFileFilterKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model initWizardModel) handleManualFileKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return model.handleTextInputKey(message, initWizardStepFileSelect, func(value string) (initWizardModel, error) {
+	switch message.Type {
+	case tea.KeyEsc:
+		model.step = initWizardStepFileSelect
+		model.cursor = 0
+		model.errorMessage = ""
+		model.clearInputValue()
+		return model, nil
+	case tea.KeyEnter:
+		enteredValue := strings.TrimSpace(model.inputValue)
+		if enteredValue == "" {
+			model.errorMessage = "value must not be empty"
+			return model, nil
+		}
+
+		value := enteredValue
 		resolvedTargetPath := app.ResolveInitTargetPath(model.workingDirectory, value)
 		targetType, ok := app.InferInitTargetType(resolvedTargetPath)
 		if !ok {
@@ -195,15 +345,14 @@ func (model initWizardModel) handleManualFileKey(message tea.KeyMsg) (tea.Model,
 			return model, nil
 		}
 
-		selectedFile, err := model.workflow.InspectTargetFile(resolvedTargetPath, app.DisplayInitTargetPath(model.workingDirectory, resolvedTargetPath), targetType)
-		if err != nil {
-			return model, err
+		return model.startFileInspection(resolvedTargetPath, app.DisplayInitTargetPath(model.workingDirectory, resolvedTargetPath), targetType, initWizardStepManualFile)
+	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
 		}
-
-		model.selectedFile = selectedFile
-		model.beginSelectorForSelectedFile()
+		model.errorMessage = ""
 		return model, nil
-	})
+	}
 }
 
 func (model *initWizardModel) beginSelectorForSelectedFile() {
@@ -230,14 +379,7 @@ func (model initWizardModel) handleTypeSelectKey(message tea.KeyMsg) (tea.Model,
 			targetType = app.InitTargetTypeDotenv
 		}
 
-		selectedFile, err := model.workflow.InspectTargetFile(model.selectedFile.Path, model.selectedFile.DisplayPath, targetType)
-		if err != nil {
-			model.errorMessage = err.Error()
-			return model, nil
-		}
-
-		model.selectedFile = selectedFile
-		model.beginSelectorForSelectedFile()
+		return model.startFileInspection(model.selectedFile.Path, model.selectedFile.DisplayPath, targetType, initWizardStepTypeSelect)
 	}
 
 	return model, nil
@@ -285,15 +427,28 @@ func (model initWizardModel) handleDotenvKeySelectKey(message tea.KeyMsg) (tea.M
 }
 
 func (model initWizardModel) handleManualDotenvKeyKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return model.handleTextInputKey(message, initWizardStepDotenvKeySelect, func(value string) (initWizardModel, error) {
-		if err := model.workflow.ValidateDotenvTarget(model.selectedFile.Path, value); err != nil {
-			return model, err
+	switch message.Type {
+	case tea.KeyEsc:
+		model.step = initWizardStepDotenvKeySelect
+		model.cursor = 0
+		model.errorMessage = ""
+		model.clearInputValue()
+		return model, nil
+	case tea.KeyEnter:
+		enteredValue := strings.TrimSpace(model.inputValue)
+		if enteredValue == "" {
+			model.errorMessage = "value must not be empty"
+			return model, nil
 		}
 
-		model.selectedDotenvKey = value
-		model.beginManagedValueName()
+		return model.startDotenvKeyValidation(enteredValue)
+	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
 		return model, nil
-	})
+	}
 }
 
 func (model initWizardModel) handleManagedValueNameKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -466,15 +621,28 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model initWizardModel) handleManualPathKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	return model.handleTextInputKey(message, initWizardStepPathBrowse, func(value string) (initWizardModel, error) {
-		if err := model.workflow.ValidateStringTarget(model.selectedFile.Path, value); err != nil {
-			return model, err
+	switch message.Type {
+	case tea.KeyEsc:
+		model.step = initWizardStepPathBrowse
+		model.cursor = 0
+		model.errorMessage = ""
+		model.clearInputValue()
+		return model, nil
+	case tea.KeyEnter:
+		enteredValue := strings.TrimSpace(model.inputValue)
+		if enteredValue == "" {
+			model.errorMessage = "value must not be empty"
+			return model, nil
 		}
 
-		model.selectedJSONPath = value
-		model.beginManagedValueName()
+		return model.startJSONSelectorValidation(enteredValue)
+	default:
+		if !model.handleInputEditKey(message) {
+			return model, nil
+		}
+		model.errorMessage = ""
 		return model, nil
-	})
+	}
 }
 
 func (model initWizardModel) handleProfileNameKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
