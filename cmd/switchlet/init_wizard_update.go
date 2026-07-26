@@ -346,11 +346,7 @@ func (model initWizardModel) handleManagedValueCheckpointKey(message tea.KeyMsg)
 }
 
 func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	choices := len(model.browseNodes)
-	if len(model.browseAncestors) > 0 {
-		choices++
-	}
-	choices += 2
+	choices := len(model.browseNodes) + 2
 	model.clampCursor(choices)
 
 	switch {
@@ -406,18 +402,6 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 		}
 
 		actionIndex := len(model.browseNodes)
-		if len(model.browseAncestors) > 0 {
-			if model.cursor == actionIndex {
-				previousLevel := model.browseAncestors[len(model.browseAncestors)-1]
-				model.browseAncestors = model.browseAncestors[:len(model.browseAncestors)-1]
-				model.browseNodes = previousLevel.nodes
-				model.cursor = 0
-				model.errorMessage = ""
-				return model, nil
-			}
-			actionIndex++
-		}
-
 		if model.cursor == actionIndex {
 			model.step = initWizardStepPathSearch
 			model.cursor = 0

@@ -296,6 +296,38 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	}
 }
 
+func TestInitWizardModel_JSONBrowseUsesEscInsteadOfSelectableBackRow(t *testing.T) {
+	model := initWizardModel{
+		workingDirectory: t.TempDir(),
+		step:             initWizardStepPathBrowse,
+		width:            120,
+		height:           32,
+		selectedFile: targetFileSelection{
+			displayPath: "config.json",
+			targetType:  config.TargetTypeJSON,
+		},
+		browseNodes: []editor.StringTargetNode{{
+			Name:     "database",
+			JSONPath: "database",
+			Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.url", Selectable: true}},
+		}},
+	}
+
+	model = pressWizardEnter(t, model)
+	view := model.View()
+	if strings.Contains(view, goBackChoiceLabel) {
+		t.Fatalf("nested JSON browse View() = %q, want Esc command instead of selectable back row", view)
+	}
+	if !strings.Contains(view, "Esc Back") {
+		t.Fatalf("nested JSON browse View() = %q, want command bar back action", view)
+	}
+
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	if model.step != initWizardStepPathBrowse || len(model.browseAncestors) != 0 || len(model.browseNodes) != 1 || model.browseNodes[0].Name != "database" {
+		t.Fatalf("model after Esc = %#v, want root JSON browse context", model)
+	}
+}
+
 func TestInitWizardModel_ManagedValueNamingAndCheckpointUsePhaseFourCopy(t *testing.T) {
 	projectRoot := t.TempDir()
 	selectedCandidate := editor.TargetFileCandidate{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json", Type: config.TargetTypeJSON}
@@ -1051,9 +1083,14 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 	if !wizardLineContains(summaryView, "* Next action", "Configured profiles") {
 		t.Fatalf("summary View() = %q, want focused next action as the primary panel", summaryView)
 	}
-	for _, expected := range []string{"Local [literal]", "Production [protected] [env]", "database: env MYAPP_PRODUCTION_URL"} {
+	for _, expected := range []string{"Create profiles", "Review", "Add profile", "Remove profile", "Managed values", "Local [literal]", "Production [protected] [env]", "database: env MYAPP_PRODUCTION_URL"} {
 		if !strings.Contains(summaryView, expected) {
 			t.Fatalf("summary View() = %q, want profile badge summary %q", summaryView, expected)
+		}
+	}
+	for _, unexpected := range []string{"Back to targets", "Review and create configuration"} {
+		if strings.Contains(summaryView, unexpected) {
+			t.Fatalf("summary View() = %q, want no %q", summaryView, unexpected)
 		}
 	}
 

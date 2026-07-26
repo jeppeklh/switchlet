@@ -226,9 +226,6 @@ func (model initWizardModel) pathBrowseView() string {
 	for _, node := range model.browseNodes {
 		choices = append(choices, targetNodeChoiceLabel(node))
 	}
-	if len(model.browseAncestors) > 0 {
-		choices = append(choices, goBackChoiceLabel)
-	}
 	choices = append(choices, searchJSONPathsChoiceLabel, manualJSONPathChoiceLabel)
 
 	currentLocation := "root"
@@ -394,9 +391,9 @@ func (model initWizardModel) profileOptionsView() string {
 }
 
 func (model initWizardModel) profileSummaryView() string {
-	choices := []string{"Review and create configuration", "Add another profile", "Remove last profile", "Back to targets"}
+	choices := []string{"Review", "Add profile", "Remove profile", "Managed values"}
 
-	return model.initWizardShell(4, "Profile summary", []ui.Panel{
+	return model.initWizardShell(4, "Create profiles", []ui.Panel{
 		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
 		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 	}, []ui.Action{

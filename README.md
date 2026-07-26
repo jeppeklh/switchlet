@@ -4,7 +4,8 @@ Switchlet is a terminal application for safely switching named
 configuration profiles across explicitly configured targets.
 
 It updates existing JSON or dotenv values through a small workflow:
-configure targets once, choose a profile, apply it, and continue working.
+choose the values Switchlet may manage, create profiles, apply one, and
+continue working.
 
 ## Supported Scope
 
@@ -61,15 +62,17 @@ go build -o switchlet ./cmd/switchlet
 2. When stdin and stdout are interactive terminals, follow the terminal-
    native setup wizard. Otherwise, use the line-oriented fallback
    prompts.
-3. Choose one of the discovered JSON or dotenv files, narrow large file
-   lists by name or path when needed, or enter a file path manually.
-4. Browse or search for an existing string-valued JSON path, select an
-   existing dotenv key, or enter the selector manually.
-5. Name the target and optionally add more targets.
-6. Add one or more profiles with values for the targets each profile
-   should modify.
-7. Review the generated configuration summary and press Enter to create
-   `.switchlet.yaml`.
+3. Choose a supported configuration file. JSON and dotenv files are shown
+   as peer options, and you can filter or enter a path manually.
+4. Choose one existing value inside that file: a string-valued JSON path or
+   a dotenv key that appears once.
+5. Name that managed value so profiles can refer to it. Add another managed
+   value only when the project needs one.
+6. Add one or more profiles. For one managed value, the wizard uses the
+   short path `Profile name -> Profile value`; environment-backed values
+   and protected profiles are optional profile-value settings.
+7. Review the managed values, profile scopes, and `.gitignore` protection,
+   then press Enter to create `.switchlet.yaml`.
 8. If any profile uses a literal value, keep `.switchlet.yaml`
    protection enabled in the review step or let the fallback prompt add
    it to the project `.gitignore`.
@@ -170,6 +173,9 @@ profiles:
 
 `Local Database Only` is a partial profile. Applying it updates only the
 `database` target and leaves `frontendApi` unchanged.
+
+See `docs/configuration/CONFIGURATION.md` for the complete configuration
+schema and validation rules.
 
 Version `1` ASP.NET `target.connectionName` configurations and Version
 `2` `target.jsonPath` configurations are still supported for existing
