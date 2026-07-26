@@ -182,10 +182,10 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	if model.state != errorState {
 		t.Fatalf("state = %d, want errorState", model.state)
 	}
-	if !strings.Contains(model.errorMessage, "contains invalid JSON") {
-		t.Fatalf("errorMessage = %q, want editor error", model.errorMessage)
+	if !strings.Contains(model.recoverableError.Reason, "contains invalid JSON") {
+		t.Fatalf("recoverableError.Reason = %q, want editor error", model.recoverableError.Reason)
 	}
-	for _, expected := range []string{"Context:", "Affected targets", "config.json", "service.baseUrl", "Reason:", "contains invalid JSON", "Recovery:", "Press any key to return."} {
+	for _, expected := range []string{"Could not prepare target", "Context:", "Profile: Local", "Target: default [json]", "config.json", "Selector: service.baseUrl", "Reason:", "contains invalid JSON", "Recovery:", "Press any key"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("View() = %q, want recoverable error detail %q", model.View(), expected)
 		}
@@ -193,7 +193,7 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	if strings.Contains(model.View(), "https://new.example.test") {
 		t.Fatalf("View() = %q, must not contain resolved replacement value", model.View())
 	}
-	if !strings.Contains(model.View(), "Press any key to return.") {
+	if !strings.Contains(model.recoverableError.Recovery, "Press any key to return.") {
 		t.Fatalf("View() = %q, want recoverable error guidance", model.View())
 	}
 	assertVisibleWidth(t, model.View(), 80)

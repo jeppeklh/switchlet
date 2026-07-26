@@ -264,11 +264,11 @@ func TestUpdate_ShowsRecoverableErrorForUnavailableProfile(t *testing.T) {
 	if model.state != errorState {
 		t.Fatalf("state = %d, want errorState", model.state)
 	}
-	if !strings.Contains(model.errorMessage, "MISSING_CONNECTION_STRING") {
-		t.Fatalf("errorMessage = %q, want unavailable reason", model.errorMessage)
+	if !strings.Contains(model.recoverableError.Reason, "MISSING_CONNECTION_STRING") {
+		t.Fatalf("recoverableError.Reason = %q, want unavailable reason", model.recoverableError.Reason)
 	}
 	view := model.View()
-	for _, expected := range []string{"Error", "Action could not continue.", "Recovery", "MISSING_CONNECTION_STRING"} {
+	for _, expected := range []string{"Error", "Profile \"Production\" is unavailable.", "Context:", "Reason:", "Recovery", "MISSING_CONNECTION_STRING"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want recoverable error detail %q", view, expected)
 		}

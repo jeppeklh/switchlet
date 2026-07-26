@@ -241,6 +241,105 @@ func recoverableProfileContextLines(profile app.ProfileItem, maxLineWidth int) [
 	return lines
 }
 
+func (model Model) unavailableProfileError(profile app.ProfileItem) RecoverableError {
+	unavailableValues := unavailableProfileValues(profile)
+	context := []string{RenderKeyValue("Profile", selectedProfileTitle(profile))}
+	for _, valueItem := range unavailableValues {
+		context = append(context, "", RenderKeyValue("Affected target", profileValueTargetSummary(valueItem)))
+		if valueItem.TargetFile != "" {
+			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(valueItem.TargetFile, "File")))
+		}
+		if valueItem.EnvironmentVariableName != "" {
+			context = append(context, RenderKeyValue("Environment variable", valueItem.EnvironmentVariableName))
+		}
+	}
+
+	reason := profile.UnavailableReason
+	if len(unavailableValues) == 1 && unavailableValues[0].UnavailableReason != "" {
+		reason = unavailableValues[0].UnavailableReason
+	}
+	if reason == "" {
+		reason = "One or more profile values are unavailable."
+	}
+
+	recovery := "Fix the selected profile or choose another profile. Press any key to return."
+	if profileHasEnvironmentUnavailableValue(unavailableValues) {
+		recovery = "Set the environment variable or choose another profile. Press any key to return."
+	}
+
+	return RecoverableError{
+		Problem:  fmt.Sprintf("Profile %q is unavailable.", profile.Name),
+		Context:  context,
+		Reason:   reason,
+		Recovery: recovery,
+	}
+}
+
+func (model Model) targetFailureError(profileName string, failure app.TargetFailure, cause error) RecoverableError {
+	context := []string{RenderKeyValue("Profile", profileName)}
+	context = append(context, RenderKeyValue("Target", targetNameLabel(failure.TargetName)+targetTypeBadge(string(failure.TargetType))))
+	if failure.TargetFile != "" {
+		context = append(context, RenderKeyValue("File", model.compactTargetFileValue(failure.TargetFile, "File")))
+	}
+	if failure.Selector != "" {
+		context = append(context, RenderKeyValue("Selector", failure.Selector))
+	}
+
+	reason := failure.Reason
+	if reason == "" && cause != nil {
+		reason = cause.Error()
+	}
+
+	return RecoverableError{
+		Problem:  fmt.Sprintf("Could not prepare target %q.", targetNameLabel(failure.TargetName)),
+		Context:  context,
+		Reason:   reason,
+		Recovery: "Inspect this profile, fix the target, then try again. Press any key to return.",
+		Cause:    cause,
+	}
+}
+
+func (model Model) genericRecoverableError(cause error) RecoverableError {
+	reason := "Unknown error."
+	if cause != nil {
+		reason = cause.Error()
+	}
+
+	context := []string(nil)
+	if selectedProfile, ok := model.selectedProfile(); ok {
+		context = recoverableProfileContextLines(selectedProfile, secondaryPanelContentWidth(model.width))
+	}
+
+	return RecoverableError{
+		Problem:  "Action could not continue.",
+		Context:  context,
+		Reason:   reason,
+		Recovery: "Fix the selected profile or target, then try again. Press any key to return.",
+		Cause:    cause,
+	}
+}
+
+func unavailableProfileValues(profile app.ProfileItem) []app.ProfileValueItem {
+	unavailableValues := make([]app.ProfileValueItem, 0)
+	for _, valueItem := range profile.Values {
+		if !valueItem.Available {
+			unavailableValues = append(unavailableValues, valueItem)
+		}
+	}
+
+	return unavailableValues
+}
+
+func profileHasEnvironmentUnavailableValue(values []app.ProfileValueItem) bool {
+	for _, valueItem := range values {
+		if valueItem.EnvironmentVariableName != "" {
+			return true
+		}
+	}
+
+	return false
+}
+
 func targetNameLabel(targetName string) string {
 	if targetName == "" {
 		return "target"

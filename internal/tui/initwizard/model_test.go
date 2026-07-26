@@ -185,7 +185,7 @@ func TestInitWizardModel_OneManagedValueProfilesUseVisibleDecisionScreens(t *tes
 
 	addAnotherProfileFromProfileAdded(t, &model)
 	model = pressWizardEnter(t, model)
-	if model.step != initWizardStepProfileName || !strings.Contains(model.View(), "profile name must not be empty") {
+	if model.step != initWizardStepProfileName || !strings.Contains(model.View(), "Profile name must not be empty") {
 		t.Fatalf("View() = %q, want empty profile name validation instead of hidden review", model.View())
 	}
 	typeWizardText(t, &model, "Test")
@@ -608,7 +608,7 @@ func TestInitWizardModel_StaleValidationErrorIsIgnoredAfterBacktrackingAndEditin
 		t.Fatal("command is not nil, want stale validation result ignored without command")
 	}
 	model = updatedModel.(initWizardModel)
-	if model.errorMessage != "" || model.inputValue != "new.path" || model.step != initWizardStepManualPath {
+	if !model.errorDetail.IsZero() || model.inputValue != "new.path" || model.step != initWizardStepManualPath {
 		t.Fatalf("model after stale validation = %#v, want edited manual path with no error", model)
 	}
 }
@@ -638,10 +638,10 @@ func TestInitWizardModel_FailedInspectionAndValidationReturnToSourceScreens(t *t
 	if model.step != initWizardStepFileSelect {
 		t.Fatalf("step = %d, want file selection after failed inspection", model.step)
 	}
-	if !strings.Contains(model.errorMessage, "Could not inspect configuration file") || !strings.Contains(model.errorMessage, "invalid JSON") {
-		t.Fatalf("errorMessage = %q, want recoverable inspection error", model.errorMessage)
+	if model.errorDetail.Problem != "Could not inspect configuration file." || !strings.Contains(model.errorDetail.Reason, "invalid JSON") {
+		t.Fatalf("errorDetail = %#v, want recoverable inspection error", model.errorDetail)
 	}
-	if !strings.Contains(model.View(), "Choose configuration file") || !strings.Contains(model.View(), "Error") {
+	if !strings.Contains(model.View(), "Choose configuration file") || !strings.Contains(model.View(), "Error") || !strings.Contains(model.View(), "Recovery:") {
 		t.Fatalf("View() = %q, want file selection error view", model.View())
 	}
 
@@ -671,11 +671,43 @@ func TestInitWizardModel_FailedInspectionAndValidationReturnToSourceScreens(t *t
 	if validationModel.step != initWizardStepManualPath || validationModel.inputValue != "missing.path" {
 		t.Fatalf("validation model = %#v, want manual path with input preserved", validationModel)
 	}
-	if !strings.Contains(validationModel.errorMessage, "Could not validate JSON value path") || !strings.Contains(validationModel.errorMessage, "missing string value") {
-		t.Fatalf("errorMessage = %q, want recoverable validation error", validationModel.errorMessage)
+	if validationModel.errorDetail.Problem != "Could not use this JSON value." || !strings.Contains(validationModel.errorDetail.Reason, "missing string value") {
+		t.Fatalf("errorDetail = %#v, want recoverable validation error", validationModel.errorDetail)
 	}
-	if !strings.Contains(validationModel.View(), "Enter JSON value path") || !strings.Contains(validationModel.View(), "Error") {
+	if !strings.Contains(validationModel.View(), "Enter JSON value path") || !strings.Contains(validationModel.View(), "Error") || !strings.Contains(validationModel.View(), "Selector: missing.path") {
 		t.Fatalf("View() = %q, want manual path error view", validationModel.View())
+	}
+
+	dotenvValidationModel := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow: app.NewInitWorkflow(app.InitWorkflowDependencies{
+			ValidateDotenvTarget: func(string, string) error {
+				return fmt.Errorf("missing dotenv key")
+			},
+		}),
+		step:   initWizardStepManualDotenvKey,
+		width:  120,
+		height: 32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        filepath.Join(projectRoot, ".env"),
+			DisplayPath: ".env",
+			TargetType:  app.InitTargetTypeDotenv,
+		},
+	}
+	dotenvValidationModel.setInputValue("MISSING_KEY")
+	updatedModel, command = dotenvValidationModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want dotenv validation command")
+	}
+	dotenvValidationModel = executeWizardEffectCommand(t, updatedModel.(initWizardModel), command)
+	if dotenvValidationModel.step != initWizardStepManualDotenvKey || dotenvValidationModel.inputValue != "MISSING_KEY" {
+		t.Fatalf("dotenv validation model = %#v, want manual dotenv key with input preserved", dotenvValidationModel)
+	}
+	if dotenvValidationModel.errorDetail.Problem != "Could not use this dotenv key." || !strings.Contains(dotenvValidationModel.errorDetail.Reason, "missing dotenv key") {
+		t.Fatalf("errorDetail = %#v, want recoverable dotenv validation error", dotenvValidationModel.errorDetail)
+	}
+	if !strings.Contains(dotenvValidationModel.View(), "Enter dotenv value key") || !strings.Contains(dotenvValidationModel.View(), "Selector: MISSING_KEY") || !strings.Contains(dotenvValidationModel.View(), "Recovery:") {
+		t.Fatalf("View() = %q, want manual dotenv key error view", dotenvValidationModel.View())
 	}
 }
 
@@ -1032,7 +1064,7 @@ func TestInitWizardModel_ProfileScopeUsesManagedValueNamesAndRejectsOmittingAll(
 	if model.step != initWizardStepProfileTargetInclude || model.draftProfile.TargetIndex != 0 {
 		t.Fatalf("step = %d, TargetIndex = %d, want first include decision after omitting all", model.step, model.draftProfile.TargetIndex)
 	}
-	if !strings.Contains(model.View(), "a profile must include at least one manage") {
+	if !strings.Contains(model.View(), "A profile must include at least one manage") {
 		t.Fatalf("View() = %q, want all-omitted managed-value error", model.View())
 	}
 }

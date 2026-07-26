@@ -279,46 +279,18 @@ func enterActionLabel(profile app.ProfileItem) string {
 }
 
 func (model Model) errorView() string {
-	errorMessage := model.errorMessage
-	if errorMessage == "" {
-		errorMessage = "Unknown error."
-	}
-
 	return RenderShell(Shell{
 		Title:    "Switchlet",
 		Subtitle: "Recoverable error",
 		Metadata: model.targetMetadata(),
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Error", Lines: model.recoverableErrorLines(errorMessage), Focused: true},
+			{Title: "Error", Lines: RecoverableErrorLines(model.recoverableError, secondaryPanelContentWidth(model.width)), Focused: true},
 		},
 		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
 		Width:   model.width,
 		Height:  model.height,
 	})
-}
-
-func (model Model) recoverableErrorLines(errorMessage string) []string {
-	lines := []string{
-		"Action could not continue.",
-	}
-	if selectedProfile, ok := model.selectedProfile(); ok {
-		lines = append(lines, "", "Context:")
-		lines = append(lines, recoverableProfileContextLines(selectedProfile, secondaryPanelContentWidth(model.width))...)
-	}
-	lines = append(lines,
-		"",
-		"Reason:",
-	)
-	lines = append(lines, wrapText(errorMessage, secondaryPanelContentWidth(model.width))...)
-	lines = append(lines,
-		"",
-		"Recovery:",
-		"Fix the selected profile or target, then try again.",
-		"Press any key to return.",
-	)
-
-	return lines
 }
 
 func (model Model) successView() string {

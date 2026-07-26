@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"errors"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
@@ -80,16 +82,17 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		return model, nil
 	}
 
+	profileName := model.applyingProfile
 	model.applyingProfile = ""
 	if message.err != nil {
 		model.state = errorState
-		model.errorMessage = message.err.Error()
+		model.recoverableError = model.applyFailureError(profileName, message.err)
 		model.successResult = nil
 		return model, nil
 	}
 
 	model.state = successState
-	model.errorMessage = ""
+	model.recoverableError = RecoverableError{}
 	model.successResult = &message.result
 	return model, tea.Quit
 }
@@ -178,7 +181,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		if !selectedProfile.Available {
 			model.state = errorState
-			model.errorMessage = selectedProfile.UnavailableReason
+			model.recoverableError = model.unavailableProfileError(selectedProfile)
 			return model, nil
 		}
 
@@ -194,7 +197,7 @@ func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	model.state = listState
-	model.errorMessage = ""
+	model.recoverableError = RecoverableError{}
 	model.refreshProfiles()
 	return model, nil
 }
@@ -207,7 +210,7 @@ func (model Model) applyOrConfirmSelectedProfile() (tea.Model, tea.Cmd) {
 
 	if !selectedProfile.Available {
 		model.state = errorState
-		model.errorMessage = selectedProfile.UnavailableReason
+		model.recoverableError = model.unavailableProfileError(selectedProfile)
 		return model, nil
 	}
 	if selectedProfile.Protected {
@@ -221,11 +224,25 @@ func (model Model) applyOrConfirmSelectedProfile() (tea.Model, tea.Cmd) {
 func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem) (tea.Model, tea.Cmd) {
 	model.applyingProfile = selectedProfile.Name
 	model.applyRequestID++
-	model.errorMessage = ""
+	model.recoverableError = RecoverableError{}
 	model.successResult = nil
 	model.state = listState
 
 	return model, applySelectedProfile(model.application, selectedProfile.Name, model.applyRequestID)
+}
+
+func (model Model) applyFailureError(profileName string, err error) RecoverableError {
+	if targetFailure, ok := app.TargetFailureFromError(err); ok {
+		return model.targetFailureError(profileName, targetFailure, err)
+	}
+
+	if errors.Is(err, app.ErrProfileUnavailable) {
+		if profileItem, inspectErr := model.application.InspectProfileByName(profileName); inspectErr == nil {
+			return model.unavailableProfileError(profileItem)
+		}
+	}
+
+	return model.genericRecoverableError(err)
 }
 
 func (model Model) isApplying() bool {

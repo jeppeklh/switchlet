@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/jeppeklh/switchlet/internal/config"
+	"github.com/jeppeklh/switchlet/internal/editor"
 )
 
 var (
@@ -80,4 +81,37 @@ type PlannedChange struct {
 	TargetType   config.TargetType
 	SelectorName string
 	Selector     string
+}
+
+// TargetFailure describes a target-specific application failure in a
+// presentation-neutral form.
+type TargetFailure struct {
+	TargetName   string
+	TargetFile   string
+	TargetType   config.TargetType
+	SelectorName string
+	Selector     string
+	Reason       string
+}
+
+// TargetFailureFromError extracts target-specific failure context from an error.
+func TargetFailureFromError(err error) (TargetFailure, bool) {
+	var targetErr editor.TargetError
+	if !errors.As(err, &targetErr) {
+		return TargetFailure{}, false
+	}
+
+	selectorName, selector := targetSelector(targetErr.Target)
+	failure := TargetFailure{
+		TargetName:   targetErr.Target.Name,
+		TargetFile:   targetErr.Target.File,
+		TargetType:   targetErr.Target.Type,
+		SelectorName: selectorName,
+		Selector:     selector,
+	}
+	if targetErr.Err != nil {
+		failure.Reason = targetErr.Err.Error()
+	}
+
+	return failure, true
 }

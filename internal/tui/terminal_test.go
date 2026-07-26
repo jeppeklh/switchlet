@@ -88,7 +88,11 @@ func TestView_LongRecoverableErrorKeepsCommandBarVisible(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
 	model.state = errorState
-	model.errorMessage = strings.Repeat("target preparation failed because the configured path could not be validated safely ", 12)
+	model.recoverableError = RecoverableError{
+		Problem:  "Action could not continue.",
+		Reason:   strings.Repeat("target preparation failed because the configured path could not be validated safely ", 12),
+		Recovery: "Fix the selected profile or target, then try again.",
+	}
 
 	view := model.View()
 	assertVisibleWidth(t, view, 80)

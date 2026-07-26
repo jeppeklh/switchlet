@@ -1,8 +1,6 @@
 package initwizard
 
 import (
-	"fmt"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
@@ -93,7 +91,7 @@ func (model initWizardModel) isPending() bool {
 func (model *initWizardModel) startPendingEffect(pendingEffect initWizardPendingEffect) int {
 	pendingEffect.RequestID = model.nextEffectRequestID()
 	model.pendingEffect = &pendingEffect
-	model.errorMessage = ""
+	model.clearError()
 	return pendingEffect.RequestID
 }
 
@@ -112,7 +110,7 @@ func (model *initWizardModel) cancelPendingEffect() {
 
 	pendingEffect := *model.pendingEffect
 	model.restorePendingContext(pendingEffect)
-	model.errorMessage = ""
+	model.clearError()
 }
 
 func (model initWizardModel) staleFileInspected(message fileInspectedMsg) bool {
@@ -146,16 +144,4 @@ func (model initWizardModel) staleDotenvKeyValidated(message dotenvKeyValidatedM
 	}
 
 	return model.pendingEffect.RequestID != message.requestID || model.pendingEffect.TargetPath != message.targetPath || model.pendingEffect.Selector != message.key
-}
-
-func fileInspectionError(err error) string {
-	return fmt.Sprintf("Could not inspect configuration file: %v", err)
-}
-
-func jsonSelectorValidationError(err error) string {
-	return fmt.Sprintf("Could not validate JSON value path: %v", err)
-}
-
-func dotenvKeyValidationError(err error) string {
-	return fmt.Sprintf("Could not validate dotenv key: %v", err)
 }

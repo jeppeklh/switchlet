@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
 const (
@@ -82,7 +83,7 @@ type initWizardModel struct {
 	width                 int
 	height                int
 	cursor                int
-	errorMessage          string
+	errorDetail           ui.RecoverableError
 	inputValue            string
 	inputCursor           int
 	fileFilter            string
@@ -164,7 +165,7 @@ func (model *initWizardModel) complete() {
 func (model *initWizardModel) beginPathBrowse() {
 	model.step = initWizardStepPathBrowse
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 	model.browseNodes = model.selectedFile.Nodes
 	model.browseAncestors = nil
@@ -175,7 +176,7 @@ func (model *initWizardModel) beginPathBrowse() {
 func (model *initWizardModel) beginDotenvKeySelect() {
 	model.step = initWizardStepDotenvKeySelect
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 	model.selectedJSONPath = ""
 	model.selectedDotenvKey = ""
@@ -184,21 +185,21 @@ func (model *initWizardModel) beginDotenvKeySelect() {
 func (model *initWizardModel) beginManagedValueName() {
 	model.step = initWizardStepManagedValueName
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 }
 
 func (model *initWizardModel) beginManagedValueCheckpoint() {
 	model.step = initWizardStepManagedValueCheckpoint
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 }
 
 func (model *initWizardModel) beginProfileEntry() {
 	model.step = initWizardStepProfileName
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 	model.draftProfile = initWizardProfileDraft{Values: make([]app.InitProfileValue, 0, len(model.targets))}
 }
@@ -207,7 +208,7 @@ func (model *initWizardModel) beginReview() {
 	model.syncIgnorePreference()
 	model.step = initWizardStepReview
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 }
 
@@ -223,7 +224,7 @@ func (model *initWizardModel) returnToProfilesFromReview() {
 func (model *initWizardModel) beginProfileValue() {
 	model.step = initWizardStepProfileValue
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.setInputValue(model.draftProfile.Value)
 }
 
@@ -234,13 +235,13 @@ func (model *initWizardModel) beginProfileValueSource() {
 	} else {
 		model.cursor = 0
 	}
-	model.errorMessage = ""
+	model.clearError()
 }
 
 func (model *initWizardModel) beginProfileAdded() {
 	model.step = initWizardStepProfileSummary
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 }
 
@@ -284,7 +285,7 @@ func (model *initWizardModel) removeLastTarget() {
 	if len(model.targets) == 0 {
 		model.step = initWizardStepFileSelect
 		model.cursor = 0
-		model.errorMessage = ""
+		model.clearError()
 		return
 	}
 
@@ -339,7 +340,7 @@ func (model *initWizardModel) removeLastProfile() {
 
 	model.step = initWizardStepProfileSummary
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.inputValue = ""
 }
 
@@ -403,7 +404,7 @@ func (model initWizardModel) currentDraftTarget() app.InitTarget {
 func (model *initWizardModel) beginProfileTargetInclude() {
 	model.step = initWizardStepProfileTargetInclude
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 }
 
@@ -425,14 +426,14 @@ func (model *initWizardModel) advanceDraftProfileTarget() {
 	model.draftProfile.UseEnvironment = false
 	model.draftProfile.Value = ""
 	model.cursor = 0
-	model.errorMessage = ""
+	model.clearError()
 	model.clearInputValue()
 
 	if model.draftProfile.TargetIndex >= len(model.targets) {
 		if len(model.draftProfile.Values) == 0 {
 			model.draftProfile.TargetIndex = 0
 			model.beginProfileTargetInclude()
-			model.errorMessage = "a profile must include at least one managed value"
+			model.setStepError("Profile scope is empty.", "A profile must include at least one managed value.", "Set at least one managed value before continuing.")
 			return
 		}
 

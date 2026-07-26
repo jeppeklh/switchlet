@@ -694,11 +694,11 @@ func (model initWizardModel) inputLine(label string) string {
 }
 
 func (model initWizardModel) withErrorLines(lines []string) []string {
-	if model.errorMessage == "" {
+	if model.errorDetail.IsZero() {
 		return lines
 	}
 
-	return append(lines, "", "Error", model.errorMessage)
+	return append(append(lines, "", "Error"), ui.RecoverableErrorLines(model.errorDetail, ui.PrimaryPanelWidth(model.width, 2))...)
 }
 
 func textInputActions(enterAction string) []ui.Action {

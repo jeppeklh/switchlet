@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -69,7 +70,7 @@ func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
 
 	errorModel := model
 	errorModel.state = errorState
-	errorModel.errorMessage = "target file could not be updated"
+	errorModel.recoverableError = errorModel.genericRecoverableError(errors.New("target file could not be updated"))
 	assertTargetFilenameVisible(t, "error", errorModel.View())
 	assertVisibleWidth(t, errorModel.View(), 80)
 
@@ -339,7 +340,7 @@ func TestUpdate_UnavailableMultiTargetProfileIdentifiesFailingTarget(t *testing.
 	}
 
 	view := model.View()
-	for _, expected := range []string{"Unavailable target: database", "Environment variable: STAGING_DATABASE_URL", "Target reason:"} {
+	for _, expected := range []string{"Profile \"Staging\" is unavailable.", "Affected target: database [json] -> database.url", "Environment variable: STAGING_DATABASE_URL", "Reason:"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want unavailable target detail %q", view, expected)
 		}
@@ -381,15 +382,16 @@ func TestUpdate_MultiTargetPreparationErrorShowsTargetContextWithoutResolvedValu
 
 	view := model.View()
 	for _, expected := range []string{
+		"Could not prepare target \"frontendApi\".",
 		"Context:",
-		"Affected targets",
-		"database [json] -> database.url",
-		"frontendApi [dotenv] -> VITE_API_URL",
+		"Profile: Staging",
+		"Target: frontendApi [dotenv]",
+		"Selector: VITE_API_URL",
 		"Reason:",
 		"replacement value must not contain newline",
 		"characters",
 		"Recovery:",
-		"Press any key to return.",
+		"Press any key",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want target-aware error detail %q", view, expected)

@@ -18,16 +18,16 @@ const (
 
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
-	application     app.Application
-	profiles        []app.ProfileItem
-	cursor          int
-	width           int
-	height          int
-	state           viewState
-	errorMessage    string
-	successResult   *app.Result
-	applyingProfile string
-	applyRequestID  int
+	application      app.Application
+	profiles         []app.ProfileItem
+	cursor           int
+	width            int
+	height           int
+	state            viewState
+	recoverableError RecoverableError
+	successResult    *app.Result
+	applyingProfile  string
+	applyRequestID   int
 }
 
 // New creates the terminal model.
