@@ -12,6 +12,7 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
+	"github.com/jeppeklh/switchlet/internal/editor"
 	"github.com/jeppeklh/switchlet/internal/tui"
 )
 
@@ -218,8 +219,13 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer)
 		return runtimeCommandError(jsonOutput, err)
 	}
 
-	profileItem, err := application.InspectProfileByName(positionals[0])
+	profileName := positionals[0]
+	profileItem, err := application.InspectProfileByName(profileName)
 	if err != nil {
+		if errors.Is(err, app.ErrProfileNotFound) {
+			return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+		}
+
 		return runtimeCommandError(jsonOutput, err)
 	}
 
@@ -257,12 +263,13 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer) e
 		return runtimeCommandError(jsonOutput, err)
 	}
 
-	result, err := application.ApplyProfileByNameWithOptions(positionals[0], app.ApplyOptions{
+	profileName := positionals[0]
+	result, err := application.ApplyProfileByNameWithOptions(profileName, app.ApplyOptions{
 		DryRun:         dryRun,
 		AllowProtected: allowProtected,
 	})
 	if err != nil {
-		return runtimeCommandError(jsonOutput, err)
+		return applyCommandError(jsonOutput, application, profileName, err)
 	}
 
 	if jsonOutput {
@@ -337,11 +344,34 @@ func usageCommandError(jsonOutput bool, format string, arguments ...any) error {
 }
 
 func runtimeCommandError(jsonOutput bool, err error) error {
+	return runtimeCommandErrorWithMessage(jsonOutput, err, err.Error())
+}
+
+func runtimeCommandErrorWithMessage(jsonOutput bool, err error, message string) error {
 	if !jsonOutput {
-		return err
+		return commandError{message: message, exitCode: runtimeExitCode}
 	}
 
-	return commandFailure(true, runtimeExitCode, runtimeErrorKind(err), err.Error())
+	return commandFailure(true, runtimeExitCode, runtimeErrorKind(err), message)
+}
+
+func applyCommandError(jsonOutput bool, application app.Application, profileName string, err error) error {
+	if errors.Is(err, app.ErrProfileNotFound) {
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+	}
+	if errors.Is(err, app.ErrProfileUnavailable) {
+		profileItem, inspectErr := application.InspectProfileByName(profileName)
+		if inspectErr == nil {
+			return runtimeCommandErrorWithMessage(jsonOutput, err, formatUnavailableProfileMessage(profileItem))
+		}
+	}
+
+	var targetErr editor.TargetError
+	if errors.As(err, &targetErr) {
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetErrorMessage(profileName, targetErr))
+	}
+
+	return runtimeCommandError(jsonOutput, err)
 }
 
 func commandFailure(jsonOutput bool, exitCode int, kind string, message string) error {
@@ -377,4 +407,177 @@ func runtimeErrorKind(err error) string {
 type commandErrorJSON struct {
 	Kind    string `json:"kind"`
 	Message string `json:"message"`
+}
+
+func formatMissingProfileMessage(profileName string, profiles []app.ProfileItem) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Profile %q does not exist.", profileName)
+
+	if len(profiles) > 0 {
+		builder.WriteString("\n\nAvailable profiles:\n")
+		for _, profileItem := range profiles {
+			fmt.Fprintf(&builder, "- %s\n", profileItem.Name)
+		}
+	}
+
+	if suggestion := suggestedProfileName(profileName, profiles); suggestion != "" {
+		fmt.Fprintf(&builder, "\nDid you mean %q?", suggestion)
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func formatUnavailableProfileMessage(profileItem app.ProfileItem) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Profile %q is unavailable.", profileItem.Name)
+
+	unavailableValues := unavailableProfileValues(profileItem)
+	if len(unavailableValues) > 0 {
+		builder.WriteString("\n\nUnavailable values:")
+		for _, valueItem := range unavailableValues {
+			fmt.Fprintf(&builder, "\n- %s", targetNameLabel(valueItem.TargetName))
+			if valueItem.EnvironmentVariableName != "" {
+				fmt.Fprintf(&builder, "\n  environment variable: %s", valueItem.EnvironmentVariableName)
+			}
+			if valueItem.UnavailableReason != "" {
+				fmt.Fprintf(&builder, "\n  reason: %s", valueItem.UnavailableReason)
+			}
+		}
+	} else if profileItem.UnavailableReason != "" {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", profileItem.UnavailableReason)
+	}
+
+	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review profile values.", profileItem.Name)
+	return builder.String()
+}
+
+func unavailableProfileValues(profileItem app.ProfileItem) []app.ProfileValueItem {
+	unavailableValues := make([]app.ProfileValueItem, 0)
+	for _, valueItem := range profileItem.Values {
+		if !valueItem.Available {
+			unavailableValues = append(unavailableValues, valueItem)
+		}
+	}
+
+	return unavailableValues
+}
+
+func formatTargetErrorMessage(profileName string, targetErr editor.TargetError) string {
+	target := targetErr.Target
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Could not prepare target %q.", targetNameLabel(target.Name))
+
+	if target.File != "" {
+		fmt.Fprintf(&builder, "\n\nFile:\n%s", target.File)
+	}
+	if target.Type != "" {
+		fmt.Fprintf(&builder, "\n\nType:\n%s", target.Type)
+	}
+	if selector := selectorValue(target); selector != "" {
+		fmt.Fprintf(&builder, "\n\nSelector:\n%s", selector)
+	}
+	if targetErr.Err != nil {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", targetErr.Err)
+	}
+
+	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review planned targets.", profileName)
+	return builder.String()
+}
+
+func selectorValue(target config.Target) string {
+	if target.Type == config.TargetTypeDotenv {
+		return target.Key
+	}
+
+	return target.JSONPath
+}
+
+func suggestedProfileName(profileName string, profiles []app.ProfileItem) string {
+	requested := strings.ToLower(strings.TrimSpace(profileName))
+	if requested == "" {
+		return ""
+	}
+
+	bestDistance := -1
+	bestSuggestion := ""
+	bestMatches := 0
+	for _, profileItem := range profiles {
+		candidate := strings.ToLower(profileItem.Name)
+		distance := levenshteinDistance(requested, candidate)
+		if distance > profileSuggestionThreshold(requested, candidate) {
+			continue
+		}
+		if bestDistance < 0 || distance < bestDistance {
+			bestDistance = distance
+			bestSuggestion = profileItem.Name
+			bestMatches = 1
+			continue
+		}
+		if distance == bestDistance {
+			bestMatches++
+		}
+	}
+
+	if bestMatches == 1 {
+		return bestSuggestion
+	}
+
+	return ""
+}
+
+func profileSuggestionThreshold(requested string, candidate string) int {
+	maxLength := len([]rune(requested))
+	if candidateLength := len([]rune(candidate)); candidateLength > maxLength {
+		maxLength = candidateLength
+	}
+	if maxLength <= 3 {
+		return 0
+	}
+	if maxLength <= 6 {
+		return 1
+	}
+
+	return 2
+}
+
+func levenshteinDistance(left string, right string) int {
+	leftRunes := []rune(left)
+	rightRunes := []rune(right)
+	previous := make([]int, len(rightRunes)+1)
+	current := make([]int, len(rightRunes)+1)
+
+	for index := range previous {
+		previous[index] = index
+	}
+
+	for leftIndex, leftRune := range leftRunes {
+		current[0] = leftIndex + 1
+		for rightIndex, rightRune := range rightRunes {
+			cost := 0
+			if leftRune != rightRune {
+				cost = 1
+			}
+
+			current[rightIndex+1] = minInt(
+				current[rightIndex]+1,
+				previous[rightIndex+1]+1,
+				previous[rightIndex]+cost,
+			)
+		}
+
+		previous, current = current, previous
+	}
+
+	return previous[len(rightRunes)]
+}
+
+func minInt(values ...int) int {
+	minimum := values[0]
+	for _, value := range values[1:] {
+		if value < minimum {
+			minimum = value
+		}
+	}
+
+	return minimum
 }

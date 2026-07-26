@@ -135,6 +135,16 @@ func TestApplyTargetChanges_PreparationFailureLeavesEveryFileUnchangedAndHidesSe
 	if !strings.Contains(err.Error(), `target "api"`) || !strings.Contains(err.Error(), `jsonPath "api.url"`) {
 		t.Fatalf("ApplyTargetChanges returned error %q, want target and selector context", err)
 	}
+	var targetErr TargetError
+	if !errors.As(err, &targetErr) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want TargetError", err)
+	}
+	if targetErr.Target.Name != "api" || targetErr.Target.File != invalidPath || targetErr.Target.JSONPath != "api.url" {
+		t.Fatalf("TargetError.Target = %#v, want api target context", targetErr.Target)
+	}
+	if targetErr.Err == nil || !strings.Contains(targetErr.Err.Error(), `missing segment "url"`) {
+		t.Fatalf("TargetError.Err = %v, want underlying reason", targetErr.Err)
+	}
 	if strings.Contains(err.Error(), "super-secret") {
 		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
 	}

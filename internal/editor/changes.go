@@ -33,6 +33,22 @@ type targetChangeGroup struct {
 	changes    []TargetChange
 }
 
+// TargetError describes a failure for one configured target while preserving
+// the underlying reason for callers that need user-facing diagnostics.
+type TargetError struct {
+	Target config.Target
+	Err    error
+}
+
+func (err TargetError) Error() string {
+	selectorName, selector := targetSelectorSummary(err.Target)
+	return fmt.Sprintf("target %q in file %q (%s %q): %v", err.Target.Name, err.Target.File, selectorName, selector, err.Err)
+}
+
+func (err TargetError) Unwrap() error {
+	return err.Err
+}
+
 // ValidateTarget verifies that one configured target points at an existing
 // editable value.
 func ValidateTarget(target config.Target) error {
@@ -231,8 +247,7 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 }
 
 func targetError(target config.Target, err error) error {
-	selectorName, selector := targetSelectorSummary(target)
-	return fmt.Errorf("target %q in file %q (%s %q): %w", target.Name, target.File, selectorName, selector, err)
+	return TargetError{Target: target, Err: err}
 }
 
 func targetSelectorSummary(target config.Target) (string, string) {

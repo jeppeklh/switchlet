@@ -249,15 +249,22 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		"Applied profile: Staging",
-		"Updated targets: 2",
-		"database [json] -> " + databasePath,
-		"jsonPath: database.url",
-		"frontendApi [dotenv] -> " + frontendPath,
-		"key: VITE_API_URL",
+		`Applied profile "Staging"`,
+		"Updated targets:",
+		"updated " + databasePath,
+		"  database [json]",
+		"  database.url",
+		"updated " + frontendPath,
+		"  frontendApi [dotenv]",
+		"  VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres://staging", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
 		}
 	}
 	if !strings.Contains(string(readFileBytes(t, databasePath)), "postgres://staging") {
@@ -265,6 +272,136 @@ profiles:
 	}
 	if !strings.Contains(string(readFileBytes(t, frontendPath)), "VITE_API_URL=https://api.staging.example.test") {
 		t.Fatalf("dotenv file %q was not updated", string(readFileBytes(t, frontendPath)))
+	}
+}
+
+func TestRunCommand_ApplyVersionThreeDryRunTextListsPlannedTargetsAndWritesNothing(t *testing.T) {
+	t.Setenv("STAGING_DATABASE_URL", "Server=staging;Database=App;Password=super-secret;")
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        valueFromEnv: STAGING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--dry-run"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	for _, expected := range []string{
+		`Dry run successful for profile "Staging"`,
+		"Planned targets:",
+		"would update " + databasePath,
+		"  database [json]",
+		"  database.url",
+		"would update " + frontendPath,
+		"  frontendApi [dotenv]",
+		"  VITE_API_URL",
+		"No changes were written.",
+	} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed during dry run")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed during dry run")
+	}
+}
+
+func TestRunCommand_ApplyVersionThreeUnavailableProfileIdentifiesTargetAndEnvironmentVariable(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        valueFromEnv: STAGING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Staging"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+
+	for _, expected := range []string{
+		`Profile "Staging" is unavailable.`,
+		"Unavailable values:",
+		"- database",
+		"environment variable: STAGING_DATABASE_URL",
+		"Run `switchlet inspect Staging` to review profile values.",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+	if strings.Contains(result.stderr, "https://api.staging.example.test") {
+		t.Fatalf("stderr %q must not contain resolved literal value", result.stderr)
+	}
+}
+
+func TestRunCommand_ApplyVersionThreeTargetPreparationErrorShowsSafeTargetContext(t *testing.T) {
+	projectRoot, _, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: frontendApi
+        value: "https://secret-value.example.test\nNEXT=value"
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Staging"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+
+	for _, expected := range []string{
+		`Could not prepare target "frontendApi".`,
+		"File:\n" + frontendPath,
+		"Type:\ndotenv",
+		"Selector:\nVITE_API_URL",
+		"Reason:\nreplacement value must not contain newline characters",
+		"Run `switchlet inspect Staging` to review planned targets.",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+	if strings.Contains(result.stderr, "secret-value") {
+		t.Fatalf("stderr %q must not contain resolved replacement value", result.stderr)
+	}
+
+	jsonResult := runCommandForTest(t, []string{"apply", "Staging", "--json"}, projectRoot)
+	if jsonResult.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", jsonResult.exitCode, runtimeExitCode)
+	}
+	var payload struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal target-preparation JSON error: %v\noutput: %q", err, jsonResult.stdout)
+	}
+	if payload.Error.Kind != "runtime" {
+		t.Fatalf("error.kind = %q, want runtime", payload.Error.Kind)
+	}
+	if !strings.Contains(payload.Error.Message, `Could not prepare target "frontendApi".`) || strings.Contains(payload.Error.Message, "secret-value") {
+		t.Fatalf("error.message = %q, want safe target context", payload.Error.Message)
 	}
 }
 

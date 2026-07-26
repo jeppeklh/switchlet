@@ -79,18 +79,10 @@ func writeInspectText(output io.Writer, profileItem app.ProfileItem) error {
 
 func writeApplyText(output io.Writer, result app.Result) error {
 	if result.DryRun {
-		if isSingleTargetResult(result) {
-			if _, err := fmt.Fprintf(output, "Dry run successful: %s\n\nTarget file:\n%s\n\n%s:\n%s\n\nNo changes were written.\n", result.ProfileName, singleResultTargetFile(result), singleResultSelectorLabel(result), singleResultSelector(result)); err != nil {
-				return err
-			}
-
-			return nil
-		}
-
-		if _, err := fmt.Fprintf(output, "Dry run successful: %s\n\nPlanned targets: %d\n", result.ProfileName, len(result.Changes)); err != nil {
+		if _, err := fmt.Fprintf(output, "Dry run successful for profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Planned target", result.Changes)); err != nil {
 			return err
 		}
-		if err := writePlannedChangesText(output, result.Changes); err != nil {
+		if err := writePlannedChangesText(output, result.Changes, "would update"); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintln(output, "\nNo changes were written."); err != nil {
@@ -100,18 +92,10 @@ func writeApplyText(output io.Writer, result app.Result) error {
 		return nil
 	}
 
-	if isSingleTargetResult(result) {
-		if _, err := fmt.Fprintf(output, "Applied profile: %s\n\nTarget file:\n%s\n\nUpdated target:\n%s\n", result.ProfileName, singleResultTargetFile(result), singleResultSelector(result)); err != nil {
-			return err
-		}
-
-		return nil
-	}
-
-	if _, err := fmt.Fprintf(output, "Applied profile: %s\n\nUpdated targets: %d\n", result.ProfileName, len(result.Changes)); err != nil {
+	if _, err := fmt.Fprintf(output, "Applied profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Updated target", result.Changes)); err != nil {
 		return err
 	}
-	if err := writePlannedChangesText(output, result.Changes); err != nil {
+	if err := writePlannedChangesText(output, result.Changes, "updated"); err != nil {
 		return err
 	}
 
@@ -271,19 +255,35 @@ func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem) err
 	return nil
 }
 
-func writePlannedChangesText(output io.Writer, changes []app.PlannedChange) error {
-	for _, change := range changes {
-		if _, err := fmt.Fprintf(output, "%s%s -> %s\n", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType)), change.TargetFile); err != nil {
+func writePlannedChangesText(output io.Writer, changes []app.PlannedChange, marker string) error {
+	for index, change := range changes {
+		if _, err := fmt.Fprintf(output, "%s %s\n", marker, change.TargetFile); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(output, "  %s%s\n", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType))); err != nil {
 			return err
 		}
 		if change.Selector != "" {
-			if _, err := fmt.Fprintf(output, "  %s: %s\n", selectorFieldName(change.SelectorName), change.Selector); err != nil {
+			if _, err := fmt.Fprintf(output, "  %s\n", change.Selector); err != nil {
+				return err
+			}
+		}
+		if index < len(changes)-1 {
+			if _, err := fmt.Fprintln(output); err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+func targetListHeading(singular string, changes []app.PlannedChange) string {
+	if len(changes) == 1 {
+		return singular
+	}
+
+	return singular + "s"
 }
 
 func targetNameLabel(targetName string) string {

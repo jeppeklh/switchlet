@@ -256,7 +256,8 @@ profiles:
 
 	var payload struct {
 		Error struct {
-			Kind string `json:"kind"`
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
@@ -264,6 +265,77 @@ profiles:
 	}
 	if payload.Error.Kind != "profile_not_found" {
 		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "profile_not_found")
+	}
+	if !strings.Contains(payload.Error.Message, `Profile "Missing" does not exist.`) || !strings.Contains(payload.Error.Message, "Available profiles:\n- Local") {
+		t.Fatalf("error.message = %q, want profile-not-found guidance", payload.Error.Message)
+	}
+}
+
+func TestRunCommand_InspectMissingProfileListsAvailableProfilesAndSuggestion(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+  - name: Staging
+    value: https://staging.example.test
+  - name: Production
+    value: https://production.example.test
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+
+	result := runCommandForTest(t, []string{"inspect", "Stagng"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	for _, expected := range []string{
+		`Profile "Stagng" does not exist.`,
+		"Available profiles:",
+		"- Local",
+		"- Staging",
+		"- Production",
+		`Did you mean "Staging"?`,
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_ApplyMissingProfileOmitsAmbiguousSuggestion(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: AbcX
+    value: https://x.example.test
+  - name: AbcY
+    value: https://y.example.test
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+
+	result := runCommandForTest(t, []string{"apply", "Abc"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	for _, expected := range []string{`Profile "Abc" does not exist.`, "- AbcX", "- AbcY"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+	if strings.Contains(result.stderr, "Did you mean") {
+		t.Fatalf("stderr %q must not include an ambiguous suggestion", result.stderr)
 	}
 }
 
@@ -286,14 +358,23 @@ profiles:
 	if result.exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0 (stderr: %q)", result.exitCode, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Applied profile: Local") {
+	if !strings.Contains(result.stdout, `Applied profile "Local"`) {
 		t.Fatalf("stdout %q does not include apply success", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "Updated target:") || !strings.Contains(result.stdout, "updated "+targetPath) {
+		t.Fatalf("stdout %q does not include updated target marker", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "default [json]") {
+		t.Fatalf("stdout %q does not include target name and type", result.stdout)
 	}
 	if !strings.Contains(result.stdout, targetPath) {
 		t.Fatalf("stdout %q does not include target file path", result.stdout)
 	}
 	if !strings.Contains(result.stdout, "services.backend.baseUrl") {
 		t.Fatalf("stdout %q does not include target JSON path", result.stdout)
+	}
+	if strings.Contains(result.stdout, "http://localhost:8080") {
+		t.Fatalf("stdout %q must not include resolved replacement value", result.stdout)
 	}
 	if !strings.Contains(string(readFileBytes(t, targetPath)), "http://localhost:8080") {
 		t.Fatalf("target file %q was not updated", string(readFileBytes(t, targetPath)))
@@ -345,7 +426,7 @@ profiles:
 	if allowed.exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0 (stderr: %q)", allowed.exitCode, allowed.stderr)
 	}
-	if !strings.Contains(allowed.stdout, "Applied profile: Production") {
+	if !strings.Contains(allowed.stdout, `Applied profile "Production"`) {
 		t.Fatalf("stdout %q does not include protected apply success", allowed.stdout)
 	}
 	if !strings.Contains(string(readFileBytes(t, targetPath)), "https://prod.example.test") {
@@ -431,8 +512,14 @@ profiles:
 	if allowed.exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0 (stderr: %q)", allowed.exitCode, allowed.stderr)
 	}
-	if !strings.Contains(allowed.stdout, "Dry run successful: Production") {
+	if !strings.Contains(allowed.stdout, `Dry run successful for profile "Production"`) {
 		t.Fatalf("stdout %q does not include dry-run success", allowed.stdout)
+	}
+	if !strings.Contains(allowed.stdout, "Planned target:") || !strings.Contains(allowed.stdout, "would update "+targetPath) {
+		t.Fatalf("stdout %q does not include planned target marker", allowed.stdout)
+	}
+	if !strings.Contains(allowed.stdout, "default [json]") {
+		t.Fatalf("stdout %q does not include target name and type", allowed.stdout)
 	}
 	if !strings.Contains(allowed.stdout, targetPath) {
 		t.Fatalf("stdout %q does not include target file path", allowed.stdout)
@@ -442,6 +529,9 @@ profiles:
 	}
 	if !strings.Contains(allowed.stdout, "No changes were written.") {
 		t.Fatalf("stdout %q does not state that no changes were written", allowed.stdout)
+	}
+	if strings.Contains(allowed.stdout, "https://prod.example.test") {
+		t.Fatalf("stdout %q must not include resolved replacement value", allowed.stdout)
 	}
 	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
 		t.Fatal("target file changed during protected dry run")

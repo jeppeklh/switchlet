@@ -95,11 +95,17 @@ profiles:
 	if applyResult.exitCode != 0 {
 		t.Fatalf("switchlet apply exitCode = %d, want 0\nstdout: %q\nstderr: %q", applyResult.exitCode, applyResult.stdout, applyResult.stderr)
 	}
-	if !strings.Contains(applyResult.stdout, "Applied profile: Local") {
+	if !strings.Contains(applyResult.stdout, `Applied profile "Local"`) {
 		t.Fatalf("apply stdout %q does not contain success message", applyResult.stdout)
+	}
+	if !strings.Contains(applyResult.stdout, "updated "+targetPath) {
+		t.Fatalf("apply stdout %q does not contain updated target marker", applyResult.stdout)
 	}
 	if !strings.Contains(applyResult.stdout, targetPath) {
 		t.Fatalf("apply stdout %q does not contain target file path", applyResult.stdout)
+	}
+	if strings.Contains(applyResult.stdout, "https://local.example.test") {
+		t.Fatalf("apply stdout %q must not contain resolved replacement value", applyResult.stdout)
 	}
 	if !strings.Contains(string(readFileBytes(t, targetPath)), "https://local.example.test") {
 		t.Fatalf("target file %q was not updated by installed binary", string(readFileBytes(t, targetPath)))
@@ -204,13 +210,15 @@ profiles:
 	if applyResult.exitCode != 0 {
 		t.Fatalf("switchlet apply --allow-protected exitCode = %d, want 0\nstdout: %q\nstderr: %q", applyResult.exitCode, applyResult.stdout, applyResult.stderr)
 	}
-	for _, expected := range []string{"Applied profile: Staging", "Updated targets: 2", "database [json] -> " + databasePath, "frontendApi [dotenv] -> " + frontendPath} {
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated targets:", "updated " + databasePath, "  database [json]", "updated " + frontendPath, "  frontendApi [dotenv]"} {
 		if !strings.Contains(applyResult.stdout, expected) {
 			t.Fatalf("apply stdout %q does not contain %q", applyResult.stdout, expected)
 		}
 	}
-	if strings.Contains(applyResult.stdout, "super-secret") {
-		t.Fatalf("apply stdout %q must not contain resolved secret", applyResult.stdout)
+	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
+		if strings.Contains(applyResult.stdout, forbidden) {
+			t.Fatalf("apply stdout %q must not contain resolved replacement value %q", applyResult.stdout, forbidden)
+		}
 	}
 	if !strings.Contains(string(readFileBytes(t, databasePath)), "Server=staging;Database=App;Password=super-secret;") {
 		t.Fatalf("database file %q was not updated by version 3 apply", string(readFileBytes(t, databasePath)))
