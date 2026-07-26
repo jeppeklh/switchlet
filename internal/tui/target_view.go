@@ -2,6 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -51,7 +55,7 @@ func targetNamePreviewLines(values []app.ProfileValueItem, limit int) []string {
 	return lines
 }
 
-func profileValueDetailLines(values []app.ProfileValueItem) []string {
+func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []string {
 	if len(values) == 0 {
 		return []string{"No planned target changes."}
 	}
@@ -62,7 +66,7 @@ func profileValueDetailLines(values []app.ProfileValueItem) []string {
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, targetFileLabel(group.targetFile))
+		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
 		for _, valueItem := range group.values {
 			lines = append(lines, "  "+profileValueTargetSummary(valueItem))
 			lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(valueItem.Source)))
@@ -80,7 +84,7 @@ func profileValueDetailLines(values []app.ProfileValueItem) []string {
 	return lines
 }
 
-func profileValueTargetLines(values []app.ProfileValueItem) []string {
+func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []string {
 	if len(values) == 0 {
 		return []string{"No affected targets."}
 	}
@@ -91,7 +95,7 @@ func profileValueTargetLines(values []app.ProfileValueItem) []string {
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, targetFileLabel(group.targetFile))
+		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
 		for _, valueItem := range group.values {
 			lines = append(lines, "  "+profileValueTargetSummary(valueItem))
 		}
@@ -100,14 +104,15 @@ func profileValueTargetLines(values []app.ProfileValueItem) []string {
 	return lines
 }
 
-func resultChangeLines(changes []app.PlannedChange) []string {
+func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
 	}
 
 	lines := make([]string, 0, len(changes)*2)
 	for _, change := range changes {
-		lines = append(lines, fmt.Sprintf("%s%s -> %s", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType)), change.TargetFile))
+		prefix := fmt.Sprintf("%s%s -> ", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType)))
+		lines = append(lines, prefix+compactPathForDisplay(change.TargetFile, valueWidthAfterPrefix(maxLineWidth, prefix)))
 		if change.Selector != "" {
 			lines = append(lines, "  "+RenderKeyValue(selectorFieldName(change.SelectorName), change.Selector))
 		}
@@ -142,12 +147,12 @@ func groupProfileValuesByFile(values []app.ProfileValueItem) []profileValueGroup
 	return groups
 }
 
-func targetFileLabel(targetFile string) string {
+func targetFileLabel(targetFile string, maxLineWidth int) string {
 	if targetFile == "" {
 		return "Target details"
 	}
 
-	return targetFile
+	return compactPathForDisplay(targetFile, maxLineWidth)
 }
 
 func profileValueTargetSummary(valueItem app.ProfileValueItem) string {
@@ -260,4 +265,116 @@ func singleResultSelector(result app.Result) string {
 
 func (model Model) isApplyingSelectedProfile(profile app.ProfileItem) bool {
 	return model.applyingProfile != "" && model.applyingProfile == profile.Name
+}
+
+func (model Model) compactTargetFileValue(targetFile string, label string) string {
+	return compactPathForDisplay(targetFile, valueWidthForLabel(secondaryPanelContentWidth(model.width), label))
+}
+
+func compactPathForDisplay(targetPath string, maxWidth int) string {
+	displayPath := normalizedDisplayPath(targetPath)
+	if displayPath == "" || maxWidth <= 0 {
+		return ""
+	}
+	if lipgloss.Width(displayPath) <= maxWidth {
+		return displayPath
+	}
+
+	segments := pathSegments(displayPath)
+	if len(segments) == 0 {
+		return fitLine(displayPath, maxWidth)
+	}
+
+	filename := segments[len(segments)-1]
+	result := compactFilename(filename, maxWidth)
+	if filenameWithEllipsis := textEllipsis + "/" + filename; lipgloss.Width(filenameWithEllipsis) <= maxWidth {
+		result = filenameWithEllipsis
+	}
+
+	for start := len(segments) - 2; start >= 0; start-- {
+		candidate := textEllipsis + "/" + strings.Join(segments[start:], "/")
+		if lipgloss.Width(candidate) > maxWidth {
+			break
+		}
+
+		result = candidate
+	}
+
+	return result
+}
+
+func normalizedDisplayPath(targetPath string) string {
+	trimmedPath := strings.TrimSpace(targetPath)
+	if trimmedPath == "" {
+		return ""
+	}
+
+	cleanedPath := filepath.ToSlash(filepath.Clean(trimmedPath))
+	return strings.ReplaceAll(cleanedPath, `\`, "/")
+}
+
+func pathSegments(displayPath string) []string {
+	trimmedPath := strings.Trim(displayPath, "/")
+	if trimmedPath == "" {
+		return nil
+	}
+
+	return strings.Split(trimmedPath, "/")
+}
+
+func compactFilename(filename string, maxWidth int) string {
+	if lipgloss.Width(filename) <= maxWidth {
+		return filename
+	}
+
+	ellipsisWidth := lipgloss.Width(textEllipsis)
+	if maxWidth <= ellipsisWidth {
+		return fitLine(filename, maxWidth)
+	}
+
+	return textEllipsis + trailingTextWithinWidth(filename, maxWidth-ellipsisWidth)
+}
+
+func trailingTextWithinWidth(value string, maxWidth int) string {
+	runes := []rune(value)
+	for start := len(runes) - 1; start >= 0; start-- {
+		candidate := string(runes[start:])
+		if lipgloss.Width(candidate) > maxWidth {
+			return string(runes[start+1:])
+		}
+	}
+
+	return value
+}
+
+func headerMetadataWidth(shellWidth int) int {
+	return normalizedWidth(shellWidth) / 2
+}
+
+func secondaryPanelContentWidth(shellWidth int) int {
+	width := normalizedWidth(shellWidth)
+	panelWidth := width
+	if width >= splitShellWidth {
+		leftWidth := width * 55 / 100
+		panelWidth = width - leftWidth - panelGapWidth
+	}
+
+	return panelContentWidth(panelWidth, defaultStyles())
+}
+
+func fullPanelContentWidth(shellWidth int) int {
+	return panelContentWidth(normalizedWidth(shellWidth), defaultStyles())
+}
+
+func valueWidthForLabel(maxLineWidth int, label string) int {
+	return valueWidthAfterPrefix(maxLineWidth, label+": ")
+}
+
+func valueWidthAfterPrefix(maxLineWidth int, prefix string) int {
+	valueWidth := maxLineWidth - lipgloss.Width(prefix)
+	if valueWidth < lipgloss.Width(textEllipsis)+1 {
+		return maxLineWidth
+	}
+
+	return valueWidth
 }

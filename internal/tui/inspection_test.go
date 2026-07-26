@@ -71,6 +71,65 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	}
 }
 
+func TestView_InspectionAddsDetailsNotPresentInSelectedPanel(t *testing.T) {
+	t.Setenv("PRODUCTION_DATABASE_URL", "Server=prod;Database=App;Password=super-secret;")
+
+	tests := []struct {
+		name            string
+		profile         config.Profile
+		selectedMissing []string
+		inspectDetails  []string
+	}{
+		{
+			name:            "literal value",
+			profile:         config.Profile{Name: "Local", Value: stringPointer("Server=local;Database=App;Password=literal-secret;")},
+			selectedMissing: []string{"Masked value:", "Password=****", "literal-secret"},
+			inspectDetails:  []string{"Source: Literal value", "Masked value:", "Password=****"},
+		},
+		{
+			name:            "environment value",
+			profile:         config.Profile{Name: "Production", ValueFromEnv: stringPointer("PRODUCTION_DATABASE_URL"), Protected: true},
+			selectedMissing: []string{"Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret"},
+			inspectDetails:  []string{"Source: Environment variable", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "Password=****"},
+		},
+		{
+			name:            "unavailable value",
+			profile:         config.Profile{Name: "QA", ValueFromEnv: stringPointer("MISSING_DATABASE_URL")},
+			selectedMissing: []string{"Resolution error:", "Masked value:"},
+			inspectDetails:  []string{"Masked value: Unavailable", "Resolution error:", "MISSING_DATABASE_URL"},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			model := New(app.New(
+				config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+				[]config.Profile{testCase.profile},
+			))
+
+			selectedView := model.View()
+			for _, forbidden := range testCase.selectedMissing {
+				if strings.Contains(selectedView, forbidden) {
+					t.Fatalf("selected View() = %q, must not include inspection-only detail %q", selectedView, forbidden)
+				}
+			}
+
+			updatedModel, command := model.Update(runeKey('i'))
+			model = updatedModel.(Model)
+			if command != nil {
+				t.Fatal("command is not nil, want no command when opening inspection")
+			}
+
+			inspectView := model.View()
+			for _, expected := range testCase.inspectDetails {
+				if !strings.Contains(inspectView, expected) {
+					t.Fatalf("inspection View() = %q, want unique inspection detail %q", inspectView, expected)
+				}
+			}
+		})
+	}
+}
+
 func TestUpdate_InspectionShowsResolutionErrorForUnavailableProfile(t *testing.T) {
 	model := New(app.New(
 		config.Target{},

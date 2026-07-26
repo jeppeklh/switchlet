@@ -65,6 +65,33 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	}
 }
 
+func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
+	t.Setenv("PRODUCTION_DATABASE_URL", "Server=prod;Database=App;Password=super-secret;")
+
+	model := New(app.New(
+		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("PRODUCTION_DATABASE_URL"), Protected: true}},
+	))
+
+	view := model.View()
+	for _, expected := range []string{
+		"Profile: Production [protected] [env]",
+		"State: Ready to apply",
+		"Enter: Open confirmation.",
+		"Target file: config/development.json",
+		"Target JSON path: database.primary.url",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want selected-profile context %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{"Source:", "Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, selected-profile panel must not duplicate inspection detail %q", view, forbidden)
+		}
+	}
+}
+
 func TestView_ListViewUsesSplitLayoutAtComfortableWidth(t *testing.T) {
 	model := New(app.New(
 		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},

@@ -85,11 +85,7 @@ func (model Model) selectionSummaryLines() []string {
 	if selectedProfile.TargetCount > 0 {
 		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
 	}
-	lines = append(lines,
-		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
-		RenderKeyValue("Protection", protectionLabel(selectedProfile)),
-		RenderKeyValue("Enter", model.actionDescription(selectedProfile)),
-	)
+	lines = append(lines, RenderKeyValue("Enter", model.actionDescription(selectedProfile)))
 	if !selectedProfile.Available && selectedProfile.UnavailableReason != "" {
 		lines = append(lines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
 	}
@@ -127,7 +123,7 @@ func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, mod
 
 	lines = append(lines, "", "Target")
 	if targetFile != "" {
-		lines = append(lines, RenderKeyValue("Target file", targetFile))
+		lines = append(lines, RenderKeyValue("Target file", model.compactTargetFileValue(targetFile, "Target file")))
 	}
 	if selector != "" {
 		lines = append(lines, RenderKeyValue(targetSelectorDisplayLabel(selectorName), selector))
@@ -190,7 +186,7 @@ func (model Model) inspectionView() string {
 
 	if shouldShowTargetCount(selectedProfile) {
 		profileLines = append(profileLines, "", "Planned changes")
-		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values)...)
+		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values, secondaryPanelContentWidth(model.width))...)
 	} else {
 		profileLines = appendSingleTargetContextLines(profileLines, selectedProfile, model)
 
@@ -233,7 +229,7 @@ func (model Model) confirmationView() string {
 			"",
 			"Affected targets",
 		)
-		lines = append(lines, profileValueTargetLines(selectedProfile.Values)...)
+		lines = append(lines, profileValueTargetLines(selectedProfile.Values, secondaryPanelContentWidth(model.width))...)
 		lines = append(lines, "", "Press Enter or y to confirm.")
 	} else {
 		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
@@ -314,18 +310,18 @@ func (model Model) successView() string {
 	return RenderShell(Shell{
 		Title:    "Switchlet",
 		Subtitle: "Profile applied.",
-		Panels:   []Panel{{Title: "Result", Lines: successLines(model.successResult), Focused: true}},
+		Panels:   []Panel{{Title: "Result", Lines: successLines(model.successResult, fullPanelContentWidth(model.width)), Focused: true}},
 		Width:    model.width,
 	})
 }
 
-func successLines(result *app.Result) []string {
+func successLines(result *app.Result, maxLineWidth int) []string {
 	lines := []string{
 		RenderKeyValue("Applied profile", result.ProfileName),
 	}
 	if isSingleTargetResult(*result) {
 		if singleResultTargetFile(*result) != "" {
-			lines = append(lines, RenderKeyValue("Target file", singleResultTargetFile(*result)))
+			lines = append(lines, RenderKeyValue("Target file", compactPathForDisplay(singleResultTargetFile(*result), valueWidthForLabel(maxLineWidth, "Target file"))))
 		}
 		lines = append(lines, "Updated target:", singleResultSelector(*result), "", "Switchlet will now exit.")
 
@@ -333,7 +329,7 @@ func successLines(result *app.Result) []string {
 	}
 
 	lines = append(lines, RenderKeyValue("Updated targets", fmt.Sprintf("%d", len(result.Changes))))
-	lines = append(lines, resultChangeLines(result.Changes)...)
+	lines = append(lines, resultChangeLines(result.Changes, maxLineWidth)...)
 	lines = append(lines, "", "Switchlet will now exit.")
 
 	return lines
@@ -368,7 +364,7 @@ func (model Model) targetMetadata() []string {
 
 	metadata := make([]string, 0, 2)
 	if model.application.TargetFile() != "" {
-		metadata = append(metadata, model.application.TargetFile())
+		metadata = append(metadata, compactPathForDisplay(model.application.TargetFile(), headerMetadataWidth(model.width)))
 	}
 	if model.application.TargetPath() != "" {
 		metadata = append(metadata, model.application.TargetPath())

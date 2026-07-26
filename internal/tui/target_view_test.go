@@ -5,10 +5,91 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
 )
+
+func TestCompactPathForDisplay_PreservesFilenameAndUsefulTail(t *testing.T) {
+	path := "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json"
+
+	got := compactPathForDisplay(path, 52)
+
+	if lipgloss.Width(got) > 52 {
+		t.Fatalf("compactPathForDisplay() = %q with width %d, want at most 52", got, lipgloss.Width(got))
+	}
+	if !strings.Contains(got, "appsettings.Development.json") {
+		t.Fatalf("compactPathForDisplay() = %q, want filename preserved", got)
+	}
+	if !strings.HasPrefix(got, "...") {
+		t.Fatalf("compactPathForDisplay() = %q, want visible compaction marker", got)
+	}
+	if strings.Contains(got, "/very/long/project") {
+		t.Fatalf("compactPathForDisplay() = %q, must not preserve only the absolute path prefix", got)
+	}
+}
+
+func TestCompactPathForDisplay_KeepsRelativePathWhenItFits(t *testing.T) {
+	path := "backend/appsettings.Development.json"
+
+	got := compactPathForDisplay(path, 80)
+
+	if got != path {
+		t.Fatalf("compactPathForDisplay() = %q, want unchanged relative path %q", got, path)
+	}
+}
+
+func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
+	targetFile := "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json"
+	target := config.Target{File: targetFile, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"}
+	profile := config.Profile{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}
+	model := New(app.New(target, []config.Profile{profile}))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	assertTargetFilenameVisible(t, "list", model.View())
+	assertVisibleWidth(t, model.View(), 80)
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	assertTargetFilenameVisible(t, "inspection", model.View())
+	assertVisibleWidth(t, model.View(), 80)
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	assertTargetFilenameVisible(t, "confirmation", model.View())
+	assertVisibleWidth(t, model.View(), 80)
+
+	errorModel := model
+	errorModel.state = errorState
+	errorModel.errorMessage = "target file could not be updated"
+	assertTargetFilenameVisible(t, "error", errorModel.View())
+	assertVisibleWidth(t, errorModel.View(), 80)
+
+	successModel := model
+	successModel.state = successState
+	successModel.successResult = &app.Result{ProfileName: "Production", TargetFile: targetFile, TargetPath: target.JSONPath}
+	assertTargetFilenameVisible(t, "success", successModel.View())
+	assertVisibleWidth(t, successModel.View(), 80)
+}
+
+func assertTargetFilenameVisible(t *testing.T, surface string, view string) {
+	t.Helper()
+
+	if !strings.Contains(view, "appsettings.Development.json") {
+		t.Fatalf("%s View() = %q, want compacted path to preserve filename", surface, view)
+	}
+	if strings.Contains(view, "/very/long/project/path/with/many") {
+		t.Fatalf("%s View() = %q, must not preserve only the absolute path prefix", surface, view)
+	}
+}
 
 func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	model := New(app.NewWithTargets(
