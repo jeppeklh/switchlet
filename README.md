@@ -102,6 +102,10 @@ switchlet apply Local
 switchlet apply Production --dry-run --allow-protected
 ```
 
+Run `switchlet help` or `switchlet help apply` for concise command-specific
+examples. If `apply` or `inspect` is run without a profile name, Switchlet
+shows configured profiles when the project configuration can be loaded.
+
 Use `--json` on `list`, `inspect`, and `apply` for machine-readable
 target-aware output. JSON output includes profile names, target names,
 files, selectors, availability, and safe errors. It does not include

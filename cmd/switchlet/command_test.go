@@ -339,6 +339,111 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyWithoutProfileShowsConfiguredProfileGuidance(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    protected: true
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: https://api.staging.example.test
+  - name: Database Only
+    values:
+      - target: database
+        value: postgres://database-only
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply"}, projectRoot)
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{
+		"No profile specified.",
+		"Available profiles:",
+		"- Local [partial]",
+		"- Staging [protected]",
+		"- Database Only [partial]",
+		"Try:\nswitchlet apply Local --dry-run",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+	if strings.Contains(result.stderr, "postgres://") || strings.Contains(result.stderr, "https://api.staging.example.test") {
+		t.Fatalf("stderr %q must not contain resolved replacement values", result.stderr)
+	}
+}
+
+func TestRunCommand_InspectWithoutProfileShowsConfiguredProfileGuidance(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Database Only
+    values:
+      - target: database
+        value: postgres://database-only
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"inspect"}, projectRoot)
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{
+		"No profile specified.",
+		"Available profiles:",
+		"- Database Only [partial]",
+		"Try:\nswitchlet inspect \"Database Only\"",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_ApplyWithoutProfileFallsBackToUsageWhenConfigCannotLoad(t *testing.T) {
+	result := runCommandForTest(t, []string{"apply"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{"No profile specified.", "Usage:", "switchlet apply <profile-name>"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+	if strings.Contains(result.stderr, "configuration file not found") {
+		t.Fatalf("stderr %q should stay focused on the usage mistake", result.stderr)
+	}
+}
+
+func TestRunCommand_UnknownCommandSuggestsNearestCommand(t *testing.T) {
+	result := runCommandForTest(t, []string{"aply"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{`unknown command "aply"`, `Did you mean "apply"?`, "switchlet help [command]"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_UnsupportedFlagSuggestsNearestFlag(t *testing.T) {
+	result := runCommandForTest(t, []string{"apply", "Local", "--dryrun"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{`apply: unsupported flag "--dryrun"`, `Did you mean "--dry-run"?`, "switchlet apply <profile-name>"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
 func TestRunCommand_ApplyUpdatesTargetFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
@@ -647,7 +752,7 @@ func TestRunCommand_UsageErrorsReturnExitCodeTwoAndStructuredJSON(t *testing.T) 
 	if payload.Error.Kind != "usage" {
 		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "usage")
 	}
-	if !strings.Contains(payload.Error.Message, "apply requires exactly one profile name") {
+	if !strings.Contains(payload.Error.Message, "No profile specified.") {
 		t.Fatalf("error.message = %q, want usage guidance", payload.Error.Message)
 	}
 }

@@ -18,6 +18,14 @@ func usageText() string {
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 
+	Examples:
+	  switchlet
+	  switchlet init
+	  switchlet list
+	  switchlet inspect Local
+	  switchlet apply Local --dry-run
+	  switchlet help apply
+
 	Exit codes:
 	  0 success
 	  1 runtime or validation failure
@@ -44,6 +52,9 @@ func initHelpText() string {
 
 	When standard terminal interaction is unavailable, init falls back to
 	the existing line-oriented prompt flow.
+
+	Examples:
+	  switchlet init
 `
 }
 
@@ -55,6 +66,10 @@ func listHelpText() string {
 
 	Flags:
 	  --json   Write machine-readable JSON output
+
+	Examples:
+	  switchlet list
+	  switchlet list --json
 `
 }
 
@@ -66,6 +81,10 @@ func inspectHelpText() string {
 
 	Flags:
 	  --json   Write machine-readable JSON output
+
+	Examples:
+	  switchlet inspect Local
+	  switchlet inspect Local --json
 `
 }
 
@@ -82,5 +101,10 @@ func applyHelpText() string {
 	  --json               Write machine-readable JSON output
 	  --dry-run            Validate the apply operation without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+
+	Examples:
+	  switchlet apply Local --dry-run
+	  switchlet apply Production --dry-run --allow-protected
+	  switchlet apply Local --dry-run --json
 `
 }

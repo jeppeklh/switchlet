@@ -42,6 +42,15 @@ func TestRunCommand_HelpWritesUsage(t *testing.T) {
 	if !strings.Contains(output.String(), "switchlet help [command]") {
 		t.Fatalf("help output %q does not mention help topic usage", output.String())
 	}
+	if !strings.Contains(output.String(), "Examples:") {
+		t.Fatalf("help output %q does not include examples", output.String())
+	}
+	if !strings.Contains(output.String(), "switchlet apply Local --dry-run") {
+		t.Fatalf("help output %q does not include apply dry-run example", output.String())
+	}
+	if !strings.Contains(output.String(), "switchlet help apply") {
+		t.Fatalf("help output %q does not include command help example", output.String())
+	}
 	if !strings.Contains(output.String(), "--dry-run") {
 		t.Fatalf("help output %q does not mention --dry-run", output.String())
 	}
@@ -74,6 +83,9 @@ func TestRunCommand_HelpTopicWritesSubcommandUsage(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), "--allow-protected") {
 		t.Fatalf("help output %q does not mention apply flags", output.String())
+	}
+	if !strings.Contains(output.String(), "Examples:") || !strings.Contains(output.String(), "switchlet apply Production --dry-run --allow-protected") {
+		t.Fatalf("help output %q does not include apply examples", output.String())
 	}
 	if !strings.Contains(output.String(), "interactive TUI already prompt for confirmation") {
 		t.Fatalf("help output %q does not distinguish the interactive protected flow", output.String())

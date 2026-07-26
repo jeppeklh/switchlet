@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -19,6 +20,11 @@ import (
 const (
 	runtimeExitCode = 1
 	usageExitCode   = 2
+)
+
+var (
+	commandNames   = []string{"help", "init", "list", "inspect", "apply"}
+	helpTopicNames = []string{"init", "list", "inspect", "apply"}
 )
 
 type commandError struct {
@@ -73,7 +79,7 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 	case "apply":
 		return runApplyCommand(workingDirectory, args[1:], output)
 	default:
-		return usageCommandError(false, "unknown command %q\n\n%s", args[0], usageText())
+		return usageCommandError(false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
 }
 
@@ -106,7 +112,7 @@ func helpTextForTopic(topic string) (string, error) {
 	case "apply":
 		return applyHelpText(), nil
 	default:
-		return "", usageCommandError(false, "unknown help topic %q\n\n%s", topic, usageText())
+		return "", usageCommandError(false, "%s\n\n%s", unknownHelpTopicMessage(topic), usageText())
 	}
 }
 
@@ -210,6 +216,9 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer)
 	if err != nil {
 		return usageCommandError(jsonOutput, "inspect: %v\n\n%s", err, inspectHelpText())
 	}
+	if len(positionals) == 0 {
+		return noProfileUsageCommandError(workingDirectory, "inspect", jsonOutput)
+	}
 	if len(positionals) != 1 {
 		return usageCommandError(jsonOutput, "inspect requires exactly one profile name\n\n%s", inspectHelpText())
 	}
@@ -254,6 +263,9 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer) e
 	if err != nil {
 		return usageCommandError(jsonOutput, "apply: %v\n\n%s", err, applyHelpText())
 	}
+	if len(positionals) == 0 {
+		return noProfileUsageCommandError(workingDirectory, "apply", jsonOutput)
+	}
 	if len(positionals) != 1 {
 		return usageCommandError(jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
 	}
@@ -289,13 +301,38 @@ func parseArguments(args []string, allowedFlags map[string]*bool) ([]string, err
 
 		flagValue, ok := allowedFlags[arg]
 		if !ok {
-			return nil, fmt.Errorf("unsupported flag %q", arg)
+			return nil, unsupportedFlagError(arg, allowedFlagNames(allowedFlags))
 		}
 
 		*flagValue = true
 	}
 
 	return positionals, nil
+}
+
+func noProfileUsageCommandError(workingDirectory string, commandName string, jsonOutput bool) error {
+	application, err := loadApplication(workingDirectory)
+	if err != nil {
+		return usageCommandError(jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
+	}
+
+	profiles := application.Profiles()
+	if len(profiles) == 0 {
+		return usageCommandError(jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
+	}
+
+	return usageCommandError(jsonOutput, "%s", formatNoProfileMessage(commandName, profiles))
+}
+
+func profileCommandHelpText(commandName string) string {
+	switch commandName {
+	case "apply":
+		return applyHelpText()
+	case "inspect":
+		return inspectHelpText()
+	default:
+		return usageText()
+	}
 }
 
 func containsJSONFlag(args []string) bool {
@@ -374,6 +411,46 @@ func applyCommandError(jsonOutput bool, application app.Application, profileName
 	return runtimeCommandError(jsonOutput, err)
 }
 
+func unknownCommandMessage(commandName string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "unknown command %q", commandName)
+	if suggestion := suggestedName(commandName, commandNames); suggestion != "" {
+		fmt.Fprintf(&builder, "\n\nDid you mean %q?", suggestion)
+	}
+
+	return builder.String()
+}
+
+func unknownHelpTopicMessage(topic string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "unknown help topic %q", topic)
+	if suggestion := suggestedName(topic, helpTopicNames); suggestion != "" {
+		fmt.Fprintf(&builder, "\n\nDid you mean %q?", suggestion)
+	}
+
+	return builder.String()
+}
+
+func unsupportedFlagError(flag string, allowedFlags []string) error {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "unsupported flag %q", flag)
+	if suggestion := suggestedName(flag, allowedFlags); suggestion != "" {
+		fmt.Fprintf(&builder, "\n\nDid you mean %q?", suggestion)
+	}
+
+	return errors.New(builder.String())
+}
+
+func allowedFlagNames(allowedFlags map[string]*bool) []string {
+	flagNames := make([]string, 0, len(allowedFlags))
+	for flagName := range allowedFlags {
+		flagNames = append(flagNames, flagName)
+	}
+	sort.Strings(flagNames)
+
+	return flagNames
+}
+
 func commandFailure(jsonOutput bool, exitCode int, kind string, message string) error {
 	if !jsonOutput {
 		return commandError{message: message, exitCode: exitCode}
@@ -425,6 +502,100 @@ func formatMissingProfileMessage(profileName string, profiles []app.ProfileItem)
 	}
 
 	return strings.TrimRight(builder.String(), "\n")
+}
+
+func formatNoProfileMessage(commandName string, profiles []app.ProfileItem) string {
+	var builder strings.Builder
+	builder.WriteString("No profile specified.")
+	builder.WriteString("\n\nAvailable profiles:\n")
+	for _, profileItem := range profiles {
+		fmt.Fprintf(&builder, "- %s\n", profileGuidanceLabel(profileItem))
+	}
+
+	if tryCommand := tryCommandForNoProfile(commandName, profiles); tryCommand != "" {
+		fmt.Fprintf(&builder, "\nTry:\n%s", tryCommand)
+	}
+
+	return strings.TrimRight(builder.String(), "\n")
+}
+
+func profileGuidanceLabel(profileItem app.ProfileItem) string {
+	indicators := make([]string, 0, 3)
+	if profileItem.Protected {
+		indicators = append(indicators, "protected")
+	}
+	if profileItem.Partial {
+		indicators = append(indicators, "partial")
+	}
+	if !profileItem.Available {
+		indicators = append(indicators, "unavailable")
+	}
+	if len(indicators) == 0 {
+		return profileItem.Name
+	}
+
+	return fmt.Sprintf("%s [%s]", profileItem.Name, strings.Join(indicators, "] ["))
+}
+
+func tryCommandForNoProfile(commandName string, profiles []app.ProfileItem) string {
+	profileItem, ok := exampleProfileForCommand(commandName, profiles)
+	if !ok {
+		return ""
+	}
+
+	profileName := quoteCommandArgument(profileItem.Name)
+	switch commandName {
+	case "apply":
+		command := fmt.Sprintf("switchlet apply %s --dry-run", profileName)
+		if profileItem.Protected {
+			command += " --allow-protected"
+		}
+		return command
+	case "inspect":
+		return fmt.Sprintf("switchlet inspect %s", profileName)
+	default:
+		return ""
+	}
+}
+
+func exampleProfileForCommand(commandName string, profiles []app.ProfileItem) (app.ProfileItem, bool) {
+	if len(profiles) == 0 {
+		return app.ProfileItem{}, false
+	}
+
+	if commandName == "apply" {
+		for _, profileItem := range profiles {
+			if profileItem.Available && !profileItem.Protected {
+				return profileItem, true
+			}
+		}
+		for _, profileItem := range profiles {
+			if profileItem.Available {
+				return profileItem, true
+			}
+		}
+		for _, profileItem := range profiles {
+			if !profileItem.Protected {
+				return profileItem, true
+			}
+		}
+	}
+
+	return profiles[0], true
+}
+
+func quoteCommandArgument(value string) string {
+	if value != "" && !strings.ContainsAny(value, " \t\n\r\"\\$`") {
+		return value
+	}
+
+	replacer := strings.NewReplacer(
+		"\\", "\\\\",
+		"\"", "\\\"",
+		"$", "\\$",
+		"`", "\\`",
+	)
+	return `"` + replacer.Replace(value) + `"`
 }
 
 func formatUnavailableProfileMessage(profileItem app.ProfileItem) string {
@@ -493,7 +664,16 @@ func selectorValue(target config.Target) string {
 }
 
 func suggestedProfileName(profileName string, profiles []app.ProfileItem) string {
-	requested := strings.ToLower(strings.TrimSpace(profileName))
+	candidates := make([]string, 0, len(profiles))
+	for _, profileItem := range profiles {
+		candidates = append(candidates, profileItem.Name)
+	}
+
+	return suggestedName(profileName, candidates)
+}
+
+func suggestedName(requestedName string, candidates []string) string {
+	requested := strings.ToLower(strings.TrimSpace(requestedName))
 	if requested == "" {
 		return ""
 	}
@@ -501,15 +681,15 @@ func suggestedProfileName(profileName string, profiles []app.ProfileItem) string
 	bestDistance := -1
 	bestSuggestion := ""
 	bestMatches := 0
-	for _, profileItem := range profiles {
-		candidate := strings.ToLower(profileItem.Name)
+	for _, candidateName := range candidates {
+		candidate := strings.ToLower(candidateName)
 		distance := levenshteinDistance(requested, candidate)
-		if distance > profileSuggestionThreshold(requested, candidate) {
+		if distance > suggestionThreshold(requested, candidate) {
 			continue
 		}
 		if bestDistance < 0 || distance < bestDistance {
 			bestDistance = distance
-			bestSuggestion = profileItem.Name
+			bestSuggestion = candidateName
 			bestMatches = 1
 			continue
 		}
@@ -525,7 +705,7 @@ func suggestedProfileName(profileName string, profiles []app.ProfileItem) string
 	return ""
 }
 
-func profileSuggestionThreshold(requested string, candidate string) int {
+func suggestionThreshold(requested string, candidate string) int {
 	maxLength := len([]rune(requested))
 	if candidateLength := len([]rune(candidate)); candidateLength > maxLength {
 		maxLength = candidateLength
