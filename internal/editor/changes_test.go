@@ -109,6 +109,50 @@ func TestApplyTargetChanges_MergesMultipleJSONTargetsInOneFile(t *testing.T) {
 	}
 }
 
+func TestApplyTargetChanges_RejectsDuplicateTargetLocationBeforeWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://old"}}`)
+	originalContents := readFile(t, targetPath)
+
+	var writtenTargets []string
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		writtenTargets = append(writtenTargets, newPath)
+		return originalReplaceFile(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err := ApplyTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "primaryDatabase", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://secret-one",
+		},
+		{
+			Target: config.Target{Name: "replicaDatabase", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://secret-two",
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want duplicate location failure")
+	}
+	if !strings.Contains(err.Error(), `target "replicaDatabase"`) || !strings.Contains(err.Error(), `duplicates target location used by target "primaryDatabase"`) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want duplicate target-location context", err)
+	}
+	for _, forbidden := range []string{"secret-one", "secret-two"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyTargetChanges leaked secret %q in error %q", forbidden, err)
+		}
+	}
+	if len(writtenTargets) != 0 {
+		t.Fatalf("written targets = %#v, want no writes after duplicate location failure", writtenTargets)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("target file changed after duplicate target-location failure")
+	}
+}
+
 func TestApplyTargetChanges_PreparationFailureLeavesEveryFileUnchangedAndHidesSecret(t *testing.T) {
 	projectRoot := t.TempDir()
 	validPath := writeTargetFile(t, projectRoot, "valid.json", `{"database":{"url":"postgres://old"}}`)
@@ -240,5 +284,58 @@ func TestApplyTargetChanges_RenameFailureLeavesOriginalFileIntactAndCleansTempor
 	}
 	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
 		t.Fatal("temporary file was not cleaned up after rename failure")
+	}
+}
+
+func TestApplyTargetChanges_WriteFailureAfterEarlierFileReportsPartialStateAndCleansTemporaryFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		if newPath == frontendPath {
+			return errors.New("rename failed")
+		}
+
+		return originalReplaceFile(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err := ApplyTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://new",
+		},
+		{
+			Target: config.Target{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
+			Value:  "https://secret-value.example.test",
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want second-file write failure")
+	}
+	for _, expected := range []string{"after 1 file(s) were already replaced", "target files may now be partially updated", "rename failed"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
+		}
+	}
+	if strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
+	}
+
+	databaseRoot := decodeJSONRoot(t, readFile(t, databasePath))
+	database := databaseRoot["database"].(map[string]any)
+	if database["url"] != "postgres://new" {
+		t.Fatalf("database.url = %q, want first file to have been replaced before second failure", database["url"])
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("second target file changed after its replacement failed")
+	}
+	if containsTempFile(t, filepath.Dir(frontendPath), tempFilePrefix(frontendPath)) {
+		t.Fatal("temporary file was not cleaned up after second-file rename failure")
 	}
 }

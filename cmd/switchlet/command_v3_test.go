@@ -449,11 +449,73 @@ profiles:
 	if change.TargetName != "database" || change.TargetFile != databasePath || change.TargetType != "json" || change.SelectorName != "jsonPath" || change.Selector != "database.url" {
 		t.Fatalf("change = %#v, want database JSON path change", change)
 	}
+	if strings.Contains(result.stdout, "postgres://dry-run") {
+		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
 		t.Fatal("database target changed during dry run")
 	}
 	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
 		t.Fatal("frontend target changed during dry run")
+	}
+}
+
+func TestRunCommand_ApplyVersionThreeJSONDoesNotExposeReplacementValues(t *testing.T) {
+	t.Setenv("STAGING_DATABASE_URL", "Server=staging;Database=App;Password=super-secret;")
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        valueFromEnv: STAGING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--json"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			ProfileName string `json:"profileName"`
+			Status      string `json:"status"`
+			TargetCount int    `json:"targetCount"`
+			DryRun      bool   `json:"dryRun"`
+			Changes     []struct {
+				TargetName string `json:"targetName"`
+				TargetFile string `json:"targetFile"`
+				TargetType string `json:"targetType"`
+				Selector   string `json:"selector"`
+			} `json:"changes"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal apply JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.ProfileName != "Staging" || payload.Result.Status != "applied" || payload.Result.DryRun {
+		t.Fatalf("result = %#v, want applied Staging", payload.Result)
+	}
+	if payload.Result.TargetCount != 2 || len(payload.Result.Changes) != 2 {
+		t.Fatalf("target count/changes = %d/%d, want 2/2", payload.Result.TargetCount, len(payload.Result.Changes))
+	}
+	if payload.Result.Changes[0].TargetName != "database" || payload.Result.Changes[0].TargetFile != databasePath || payload.Result.Changes[0].TargetType != "json" || payload.Result.Changes[0].Selector != "database.url" {
+		t.Fatalf("database change = %#v, want database JSON target", payload.Result.Changes[0])
+	}
+	if payload.Result.Changes[1].TargetName != "frontendApi" || payload.Result.Changes[1].TargetFile != frontendPath || payload.Result.Changes[1].TargetType != "dotenv" || payload.Result.Changes[1].Selector != "VITE_API_URL" {
+		t.Fatalf("frontend change = %#v, want frontend dotenv target", payload.Result.Changes[1])
+	}
+	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	if !strings.Contains(string(readFileBytes(t, databasePath)), "Server=staging;Database=App;Password=super-secret;") {
+		t.Fatalf("database file %q was not updated", string(readFileBytes(t, databasePath)))
+	}
+	if !strings.Contains(string(readFileBytes(t, frontendPath)), "VITE_API_URL=https://api.staging.example.test") {
+		t.Fatalf("dotenv file %q was not updated", string(readFileBytes(t, frontendPath)))
 	}
 }
 

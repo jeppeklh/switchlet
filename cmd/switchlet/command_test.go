@@ -687,6 +687,9 @@ profiles:
 	if !payload.Result.DryRun {
 		t.Fatal("result.DryRun = false, want true")
 	}
+	if strings.Contains(result.stdout, "http://localhost:8080") {
+		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
 	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
 		t.Fatal("target file changed during dry run")
 	}

@@ -129,7 +129,7 @@ func (preparedChanges PreparedChanges) Write() error {
 	for index, fileChange := range preparedChanges.fileChanges {
 		if err := writeFileAtomically(fileChange.targetFile, fileChange.contents, fileChange.permissions); err != nil {
 			if index > 0 {
-				return fmt.Errorf("write prepared target file %q after %d file(s) were already replaced: %w", fileChange.targetFile, index, err)
+				return fmt.Errorf("write prepared target file %q after %d file(s) were already replaced; target files may now be partially updated: %w", fileChange.targetFile, index, err)
 			}
 
 			return fmt.Errorf("write prepared target file %q: %w", fileChange.targetFile, err)

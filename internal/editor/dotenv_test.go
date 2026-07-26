@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -96,6 +97,35 @@ VITE_FEATURES=staging
 `) + "\n"
 	if string(readFile(t, targetPath)) != wantContents {
 		t.Fatalf("dotenv contents = %q, want %q", readFile(t, targetPath), wantContents)
+	}
+}
+
+func TestApplyTargetChanges_PreservesDotenvFilePermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+
+	if err := os.Chmod(targetPath, 0o600); err != nil {
+		t.Fatalf("set file permissions: %v", err)
+	}
+	originalInfo, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat original file: %v", err)
+	}
+
+	err = ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "frontendApi", File: targetPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		Value:  "https://api.example.test",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	updatedInfo, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat updated file: %v", err)
+	}
+	if updatedInfo.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("file permissions = %o, want %o", updatedInfo.Mode().Perm(), originalInfo.Mode().Perm())
 	}
 }
 
