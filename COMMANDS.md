@@ -19,6 +19,9 @@ switchlet init
 `switchlet init` launches the terminal setup wizard when stdin and stdout are
 interactive terminals. Otherwise, it uses line-oriented prompts.
 
+The init flow supports JSON, YAML, and dotenv managed values. YAML files are
+listed only when they contain manageable existing scalar string values.
+
 ## Profile Commands
 
 List profiles:
@@ -68,6 +71,65 @@ JSON output includes profile names, target names, files, selectors,
 availability, and safe errors. It does not include unmasked resolved secret
 values.
 
+## Examples
+
+List profiles from a mixed JSON, YAML, and dotenv project:
+
+```text
+$ switchlet list
+Local [3 targets]
+Staging [3 targets, protected]
+Worker Queue Only [1 target, partial]
+```
+
+Inspect a profile with a YAML target:
+
+```text
+$ switchlet inspect Staging
+Profile: Staging
+Availability: Available
+Source: Mixed
+Protection: Protected
+
+Changes: 3 targets
+
+Planned targets:
+- database [json]
+  file: /workspace/backend/appsettings.Development.json
+  jsonPath: ConnectionStrings.DefaultConnection
+  status: available
+  source: Environment variable
+  environment variable: STAGING_DATABASE_URL
+  masked value: Server=staging;Database=App;Password=****;
+- workerQueue [yaml]
+  file: /workspace/worker/config.yaml
+  yamlPath: queue.endpoint
+  status: available
+  source: Environment variable
+  environment variable: STAGING_WORKER_QUEUE_ENDPOINT
+  masked value: https://queue.staging.example.com
+- frontendApi [dotenv]
+  file: /workspace/frontend/.env.local
+  key: VITE_API_URL
+  status: available
+  source: Literal
+  masked value: https://api.staging.example.com
+```
+
+Dry-run output identifies YAML context without printing replacement values:
+
+```text
+$ switchlet apply "Worker Queue Only" --dry-run
+Dry run successful for profile "Worker Queue Only"
+
+Planned target:
+would update /workspace/worker/config.yaml
+  workerQueue [yaml]
+  queue.endpoint
+
+No changes were written.
+```
+
 ## Exit Codes
 
 - `0` means success.
@@ -105,4 +167,5 @@ Init wizard:
 
 Switchlet validates planned changes before writing. Dry runs exercise the apply
 path without modifying files. Command output and final interactive summaries
-avoid printing replacement values.
+identify target names, files, types, and selectors without printing replacement
+values.
