@@ -239,9 +239,12 @@ func normalizeTargets(targets []config.Target) []config.Target {
 			configuredTarget.Name = defaultTargetName
 		}
 		if configuredTarget.Type == "" {
-			if configuredTarget.Key != "" {
+			switch {
+			case configuredTarget.Key != "":
 				configuredTarget.Type = config.TargetTypeDotenv
-			} else {
+			case configuredTarget.YAMLPath != "":
+				configuredTarget.Type = config.TargetTypeYAML
+			default:
 				configuredTarget.Type = config.TargetTypeJSON
 			}
 		}
@@ -325,9 +328,12 @@ func plannedChange(target config.Target) PlannedChange {
 }
 
 func targetSelector(target config.Target) (string, string) {
-	if target.Type == config.TargetTypeDotenv {
+	switch target.Type {
+	case config.TargetTypeDotenv:
 		return "key", target.Key
+	case config.TargetTypeYAML:
+		return "yamlPath", target.YAMLPath
+	default:
+		return "jsonPath", target.JSONPath
 	}
-
-	return "jsonPath", target.JSONPath
 }

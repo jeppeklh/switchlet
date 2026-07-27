@@ -656,11 +656,14 @@ func formatTargetErrorMessage(profileName string, targetErr editor.TargetError) 
 }
 
 func selectorValue(target config.Target) string {
-	if target.Type == config.TargetTypeDotenv {
+	switch target.Type {
+	case config.TargetTypeDotenv:
 		return target.Key
+	case config.TargetTypeYAML:
+		return target.YAMLPath
+	default:
+		return target.JSONPath
 	}
-
-	return target.JSONPath
 }
 
 func suggestedProfileName(profileName string, profiles []app.ProfileItem) string {

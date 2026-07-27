@@ -348,11 +348,18 @@ func singleResultSelector(result app.Result) string {
 }
 
 func singleResultSelectorLabel(result app.Result) string {
-	if len(result.Changes) == 1 && result.Changes[0].SelectorName == "key" {
-		return "Target key"
+	if len(result.Changes) != 1 {
+		return "Target JSON path"
 	}
 
-	return "Target JSON path"
+	switch result.Changes[0].SelectorName {
+	case "key":
+		return "Target key"
+	case "yamlPath":
+		return "Target YAML path"
+	default:
+		return "Target JSON path"
+	}
 }
 
 func applyResultStatus(result app.Result) string {
