@@ -27,3 +27,13 @@ type YAMLStringTargetNode struct {
 	Selectable bool
 	Children   []YAMLStringTargetNode
 }
+
+// TOMLStringTargetNode describes one browseable TOML table/key segment that
+// either resolves to a selectable string value or contains nested selectable
+// children.
+type TOMLStringTargetNode struct {
+	Name       string
+	TOMLPath   string
+	Selectable bool
+	Children   []TOMLStringTargetNode
+}

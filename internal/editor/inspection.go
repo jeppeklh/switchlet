@@ -134,6 +134,22 @@ func InspectDotenvKeys(targetPath string) ([]string, error) {
 	return keys, nil
 }
 
+// InspectTOMLStringTargets returns a hierarchical view of selectable existing
+// string-valued TOML paths inside targetPath.
+func InspectTOMLStringTargets(targetPath string) ([]TOMLStringTargetNode, error) {
+	contents, _, err := readTargetFile(targetPath)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes, err := inspectTOMLStringTargetsContents(contents)
+	if err != nil {
+		return nil, fmt.Errorf("inspect target file %q: %w", targetPath, err)
+	}
+
+	return nodes, nil
+}
+
 func hasInspectableTargetSelectors(contents []byte, targetType config.TargetType) bool {
 	switch targetType {
 	case config.TargetTypeJSON:
@@ -144,6 +160,9 @@ func hasInspectableTargetSelectors(contents []byte, targetType config.TargetType
 		return err == nil && len(keys) > 0
 	case config.TargetTypeYAML:
 		nodes, err := inspectYAMLStringTargetsContents(contents)
+		return err == nil && len(nodes) > 0
+	case config.TargetTypeTOML:
+		nodes, err := inspectTOMLStringTargetsContents(contents)
 		return err == nil && len(nodes) > 0
 	default:
 		return false

@@ -68,6 +68,11 @@ func ValidateTarget(target config.Target) error {
 			return targetError(target, err)
 		}
 		return nil
+	case config.TargetTypeTOML:
+		if err := ValidateTOMLTarget(target.File, target.TOMLPath); err != nil {
+			return targetError(target, err)
+		}
+		return nil
 	default:
 		return targetError(target, fmt.Errorf("target type %q is not supported", target.Type))
 	}
@@ -225,6 +230,15 @@ func validateTargetSelector(target config.Target) (string, error) {
 			return "", fmt.Errorf("invalid YAML path %q: %w", target.YAMLPath, err)
 		}
 		return strings.Join(pathSegments, "."), nil
+	case config.TargetTypeTOML:
+		if target.TOMLPath == "" {
+			return "", fmt.Errorf("tomlPath must be set")
+		}
+		pathSegments, err := config.ParseTOMLPath(target.TOMLPath)
+		if err != nil {
+			return "", fmt.Errorf("invalid TOML path %q: %w", target.TOMLPath, err)
+		}
+		return strings.Join(pathSegments, "."), nil
 	default:
 		return "", fmt.Errorf("target type %q is not supported", target.Type)
 	}
@@ -248,6 +262,8 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 		updatedContents, err = replaceDotenvTargetValues(contents, group.changes)
 	case config.TargetTypeYAML:
 		updatedContents, err = replaceYAMLTargetValues(contents, group.changes)
+	case config.TargetTypeTOML:
+		updatedContents, err = replaceTOMLTargetValues(contents, group.changes)
 	default:
 		err = fmt.Errorf("target type %q is not supported", group.targetType)
 	}
@@ -274,6 +290,8 @@ func targetSelectorSummary(target config.Target) (string, string) {
 		return "key", target.Key
 	case config.TargetTypeYAML:
 		return "yamlPath", target.YAMLPath
+	case config.TargetTypeTOML:
+		return "tomlPath", target.TOMLPath
 	default:
 		return "selector", ""
 	}
