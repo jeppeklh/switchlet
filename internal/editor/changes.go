@@ -63,6 +63,11 @@ func ValidateTarget(target config.Target) error {
 			return targetError(target, err)
 		}
 		return nil
+	case config.TargetTypeYAML:
+		if err := ValidateYAMLTarget(target.File, target.YAMLPath); err != nil {
+			return targetError(target, err)
+		}
+		return nil
 	default:
 		return targetError(target, fmt.Errorf("target type %q is not supported", target.Type))
 	}
@@ -211,6 +216,15 @@ func validateTargetSelector(target config.Target) (string, error) {
 			return "", fmt.Errorf("dotenv key is invalid: %w", err)
 		}
 		return target.Key, nil
+	case config.TargetTypeYAML:
+		if target.YAMLPath == "" {
+			return "", fmt.Errorf("yamlPath must be set")
+		}
+		pathSegments, err := config.ParseYAMLPath(target.YAMLPath)
+		if err != nil {
+			return "", fmt.Errorf("invalid YAML path %q: %w", target.YAMLPath, err)
+		}
+		return strings.Join(pathSegments, "."), nil
 	default:
 		return "", fmt.Errorf("target type %q is not supported", target.Type)
 	}
@@ -232,6 +246,8 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 		updatedContents, err = replaceJSONTargetValues(contents, group.changes)
 	case config.TargetTypeDotenv:
 		updatedContents, err = replaceDotenvTargetValues(contents, group.changes)
+	case config.TargetTypeYAML:
+		updatedContents, err = replaceYAMLTargetValues(contents, group.changes)
 	default:
 		err = fmt.Errorf("target type %q is not supported", group.targetType)
 	}
@@ -256,6 +272,8 @@ func targetSelectorSummary(target config.Target) (string, string) {
 		return "jsonPath", target.JSONPath
 	case config.TargetTypeDotenv:
 		return "key", target.Key
+	case config.TargetTypeYAML:
+		return "yamlPath", target.YAMLPath
 	default:
 		return "selector", ""
 	}

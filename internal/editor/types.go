@@ -18,3 +18,12 @@ type StringTargetNode struct {
 	Selectable bool
 	Children   []StringTargetNode
 }
+
+// YAMLStringTargetNode describes one browseable YAML mapping key that either
+// resolves to a selectable string scalar or contains nested selectable children.
+type YAMLStringTargetNode struct {
+	Name       string
+	YAMLPath   string
+	Selectable bool
+	Children   []YAMLStringTargetNode
+}
