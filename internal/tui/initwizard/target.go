@@ -181,10 +181,26 @@ func manualStructuredPathChoiceLabel(targetType app.InitTargetType) string {
 	return manualJSONPathChoiceLabel
 }
 
+func manualStructuredPathActionLabel(targetType app.InitTargetType) string {
+	if targetType == app.InitTargetTypeYAML {
+		return "Manual yamlPath"
+	}
+
+	return "Manual path"
+}
+
 func searchStructuredPathsChoiceLabel(targetType app.InitTargetType) string {
 	if targetType == app.InitTargetTypeYAML {
 		return searchYAMLPathsChoiceLabel
 	}
 
 	return searchJSONPathsChoiceLabel
+}
+
+func structuredBrowseNestingGuidance(targetType app.InitTargetType) string {
+	if targetType == app.InitTargetTypeYAML {
+		return "Rows ending in / open nested mappings."
+	}
+
+	return "Rows ending in / open nested objects."
 }

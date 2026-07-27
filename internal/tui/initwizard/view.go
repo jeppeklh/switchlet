@@ -283,13 +283,13 @@ func (model initWizardModel) pathBrowseView() string {
 			"Task",
 			"Only existing string values are shown.",
 			"Switchlet does not create missing values.",
-			"Rows ending in / open nested objects.",
+			structuredBrowseNestingGuidance(model.selectedFile.TargetType),
 		})},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Open/Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
 		{Key: "s or /", Label: "Search"},
-		{Key: "m", Label: "Manual path"},
+		{Key: "m", Label: manualStructuredPathActionLabel(model.selectedFile.TargetType)},
 		{Key: "Esc", Label: "Back"},
 		{Key: "q", Label: "Cancel"},
 	})
