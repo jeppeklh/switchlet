@@ -78,11 +78,26 @@ enabled = true
 			t.Fatalf("updated TOML %q does not preserve comment %q", updatedText, wantComment)
 		}
 	}
-	for _, orderedPair := range [][2]string{{"serviceUrl", "[queue]"}, {"retries", "[queue]"}, {"endpoint", "enabled"}} {
-		leftIndex := strings.Index(updatedText, orderedPair[0])
-		rightIndex := strings.Index(updatedText, orderedPair[1])
-		if leftIndex < 0 || rightIndex < 0 || leftIndex > rightIndex {
-			t.Fatalf("updated TOML does not preserve order %q before %q:\n%s", orderedPair[0], orderedPair[1], updatedText)
+	lineIndexes := map[string]int{}
+	for index, line := range strings.Split(strings.TrimSuffix(updatedText, "\n"), "\n") {
+		lineIndexes[line] = index
+	}
+	orderedLines := []string{
+		"# worker settings",
+		`serviceUrl = "http://new-service.example.test"`,
+		"retries = 3",
+		"[queue]",
+		"# queue endpoint stays documented",
+		`endpoint = "http://new-queue.example.test"`,
+		"enabled = true",
+	}
+	for index, line := range orderedLines {
+		lineIndex, ok := lineIndexes[line]
+		if !ok {
+			t.Fatalf("updated TOML does not contain line %q:\n%s", line, updatedText)
+		}
+		if index > 0 && lineIndex <= lineIndexes[orderedLines[index-1]] {
+			t.Fatalf("updated TOML does not preserve line order %q before %q:\n%s", orderedLines[index-1], line, updatedText)
 		}
 	}
 

@@ -68,6 +68,76 @@ profiles:
 	}
 }
 
+func TestRunCommand_ListAndInspectVersionThreeTOMLJSONReportTargetContext(t *testing.T) {
+	projectRoot, servicePath := writeVersionThreeTOMLCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080
+`)+"\n")
+
+	listResult := runCommandForTest(t, []string{"list", "--json"}, projectRoot)
+	if listResult.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", listResult.exitCode, listResult.stdout, listResult.stderr)
+	}
+
+	var listPayload struct {
+		Profiles []struct {
+			Name   string `json:"name"`
+			Values []struct {
+				TargetName   string `json:"targetName"`
+				TargetFile   string `json:"targetFile"`
+				TargetType   string `json:"targetType"`
+				SelectorName string `json:"selectorName"`
+				Selector     string `json:"selector"`
+				MaskedValue  string `json:"maskedValue"`
+			} `json:"values"`
+		} `json:"profiles"`
+	}
+	if err := json.Unmarshal([]byte(listResult.stdout), &listPayload); err != nil {
+		t.Fatalf("unmarshal TOML list JSON: %v\noutput: %q", err, listResult.stdout)
+	}
+	if len(listPayload.Profiles) != 1 || len(listPayload.Profiles[0].Values) != 1 {
+		t.Fatalf("list payload = %#v, want one profile with one TOML value", listPayload)
+	}
+	listValue := listPayload.Profiles[0].Values[0]
+	if listPayload.Profiles[0].Name != "Local" || listValue.TargetName != "serviceEndpoint" || listValue.TargetFile != servicePath || listValue.TargetType != "toml" || listValue.SelectorName != "tomlPath" || listValue.Selector != "services.api.endpoint" {
+		t.Fatalf("list TOML value = %#v for profiles %#v, want TOML target context", listValue, listPayload.Profiles)
+	}
+	if listValue.MaskedValue != "http://localhost:8080" {
+		t.Fatalf("list masked value = %q, want display-safe literal value", listValue.MaskedValue)
+	}
+
+	inspectResult := runCommandForTest(t, []string{"inspect", "Local", "--json"}, projectRoot)
+	if inspectResult.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", inspectResult.exitCode, inspectResult.stdout, inspectResult.stderr)
+	}
+
+	var inspectPayload struct {
+		Profile struct {
+			Name   string `json:"name"`
+			Values []struct {
+				TargetName   string `json:"targetName"`
+				TargetFile   string `json:"targetFile"`
+				TargetType   string `json:"targetType"`
+				SelectorName string `json:"selectorName"`
+				Selector     string `json:"selector"`
+			} `json:"values"`
+		} `json:"profile"`
+	}
+	if err := json.Unmarshal([]byte(inspectResult.stdout), &inspectPayload); err != nil {
+		t.Fatalf("unmarshal TOML inspect JSON: %v\noutput: %q", err, inspectResult.stdout)
+	}
+	if inspectPayload.Profile.Name != "Local" || len(inspectPayload.Profile.Values) != 1 {
+		t.Fatalf("inspect payload = %#v, want Local with one TOML value", inspectPayload)
+	}
+	inspectValue := inspectPayload.Profile.Values[0]
+	if inspectValue.TargetName != "serviceEndpoint" || inspectValue.TargetFile != servicePath || inspectValue.TargetType != "toml" || inspectValue.SelectorName != "tomlPath" || inspectValue.Selector != "services.api.endpoint" {
+		t.Fatalf("inspect TOML value = %#v, want TOML target context", inspectValue)
+	}
+}
+
 func TestRunCommand_ApplyVersionThreeTOMLDryRunTextAndJSONWriteNothing(t *testing.T) {
 	projectRoot, servicePath := writeVersionThreeTOMLCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -470,6 +540,74 @@ profiles:
 	}
 }
 
+func TestRunCommand_VersionThreeTOMLStartupValidationErrorsUseCommandOutputMode(t *testing.T) {
+	tests := []struct {
+		name       string
+		args       []string
+		jsonOutput bool
+	}{
+		{name: "list text", args: []string{"list"}},
+		{name: "inspect json", args: []string{"inspect", "Local", "--json"}, jsonOutput: true},
+		{name: "apply json", args: []string{"apply", "Local", "--json"}, jsonOutput: true},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			servicePath := writeFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`
+[services.api]
+retries = 3
+`)+"\n")
+			writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services.api.endpoint
+
+profiles:
+  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: https://api.local.example.test
+`)+"\n")
+
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != runtimeExitCode {
+				t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+			}
+
+			if testCase.jsonOutput {
+				if result.stderr != "" {
+					t.Fatalf("stderr = %q, want empty string for JSON command error", result.stderr)
+				}
+
+				var payload struct {
+					Error struct {
+						Kind    string `json:"kind"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+					t.Fatalf("unmarshal TOML startup JSON error: %v\noutput: %q", err, result.stdout)
+				}
+				if payload.Error.Kind != "runtime" {
+					t.Fatalf("error.kind = %q, want runtime", payload.Error.Kind)
+				}
+				assertTOMLStartupValidationMessage(t, payload.Error.Message, servicePath)
+				return
+			}
+
+			if result.stdout != "" {
+				t.Fatalf("stdout = %q, want empty string for text command error", result.stdout)
+			}
+			assertTOMLStartupValidationMessage(t, result.stderr, servicePath)
+		})
+	}
+}
+
 func TestRunCommand_TOMLNoProfileUsageStillReturnsUsageExitCode(t *testing.T) {
 	projectRoot, _ := writeVersionThreeTOMLCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -551,4 +689,23 @@ targets:
 `)+"\n"+profilesYAML)
 
 	return projectRoot, databasePath, workerPath, servicePath, frontendPath
+}
+
+func assertTOMLStartupValidationMessage(t *testing.T, message string, servicePath string) {
+	t.Helper()
+
+	for _, expected := range []string{
+		"validate configured targets",
+		`target "serviceEndpoint"`,
+		servicePath,
+		`tomlPath "services.api.endpoint"`,
+		`missing segment "endpoint"`,
+	} {
+		if !strings.Contains(message, expected) {
+			t.Fatalf("message %q does not contain %q", message, expected)
+		}
+	}
+	if strings.Contains(message, "https://api.local.example.test") {
+		t.Fatalf("message %q must not contain resolved replacement value", message)
+	}
 }

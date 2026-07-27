@@ -221,6 +221,74 @@ queue:
 	}
 }
 
+func TestUpdate_AppliesTOMLSelectedProfileThroughCommand(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`
+[services.api]
+endpoint = "http://old.example.test"
+retries = 3
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "serviceEndpoint", File: targetPath, Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint"}},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "serviceEndpoint", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want TOML apply command")
+	}
+	if model.applyingProfile != "Staging" {
+		t.Fatalf("applyingProfile = %q, want Staging", model.applyingProfile)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("TOML target changed before returned apply command was executed")
+	}
+
+	message := command()
+	updatedModel, quitCommand := model.Update(message)
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want TOML success quit command")
+	}
+	if model.state != successState {
+		t.Fatalf("state = %d, want successState", model.state)
+	}
+	if model.successResult == nil {
+		t.Fatal("successResult is nil, want TOML success result")
+	}
+
+	view := model.View()
+	for _, expected := range []string{"Applied profile: Staging", "Updated target:", "serviceEndpoint [toml]", "services.api.endpoint"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want TOML success detail %q", view, expected)
+		}
+	}
+	finalMessage := model.FinalMessage()
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + targetPath, "serviceEndpoint [toml]", "services.api.endpoint"} {
+		if !strings.Contains(finalMessage, expected) {
+			t.Fatalf("FinalMessage() = %q, want TOML final detail %q", finalMessage, expected)
+		}
+	}
+	if strings.Contains(view, "https://api.staging.example.test") || strings.Contains(finalMessage, "https://api.staging.example.test") {
+		t.Fatalf("TOML success output must not contain resolved value\nview: %q\nfinal: %q", view, finalMessage)
+	}
+	updatedContents := string(readFile(t, targetPath))
+	if !strings.Contains(updatedContents, `endpoint = "https://api.staging.example.test"`) {
+		t.Fatalf("TOML target = %q, want updated endpoint", updatedContents)
+	}
+	if !strings.Contains(updatedContents, "retries = 3") {
+		t.Fatalf("TOML target = %q, want unrelated value preserved", updatedContents)
+	}
+}
+
 func TestFinalMessage_IsEmptyUnlessApplicationSucceeded(t *testing.T) {
 	model := New(app.New(
 		config.Target{},

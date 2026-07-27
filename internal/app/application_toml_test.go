@@ -73,6 +73,88 @@ func TestApplication_Profiles_ReturnsUnavailableTOMLProfileValue(t *testing.T) {
 	}
 }
 
+func TestApplication_ValidateStartup_ReturnsTOMLTargetErrors(t *testing.T) {
+	tests := []struct {
+		name           string
+		targetContents string
+		tomlPath       string
+		wantError      string
+	}{
+		{
+			name:           "invalid TOML",
+			targetContents: `endpoint = "unterminated`,
+			tomlPath:       "services.api.endpoint",
+			wantError:      "contains invalid TOML",
+		},
+		{
+			name:           "missing path",
+			targetContents: "[services.api]\nother = \"http://old.example.test\"\n",
+			tomlPath:       "services.api.endpoint",
+			wantError:      `missing segment "endpoint"`,
+		},
+		{
+			name:           "non-table intermediate",
+			targetContents: "services = \"http://old.example.test\"\n",
+			tomlPath:       "services.api.endpoint",
+			wantError:      `cannot continue through "services" because it is not a table`,
+		},
+		{
+			name:           "array intermediate",
+			targetContents: "[services]\napi = [\"http://old.example.test\"]\n",
+			tomlPath:       "services.api.endpoint",
+			wantError:      `cannot continue through "services.api" because arrays are not supported`,
+		},
+		{
+			name:           "array table path",
+			targetContents: "[[services.api]]\nendpoint = \"http://old.example.test\"\n",
+			tomlPath:       "services.api.endpoint",
+			wantError:      `uses unsupported array table at "services.api"`,
+		},
+		{
+			name:           "inline table member",
+			targetContents: "[services]\napi = { endpoint = \"http://old.example.test\" }\n",
+			tomlPath:       "services.api.endpoint",
+			wantError:      `cannot continue through "services.api" because inline tables are not supported`,
+		},
+		{
+			name:           "non-string final value",
+			targetContents: "[services.api]\nretries = 3\n",
+			tomlPath:       "services.api.retries",
+			wantError:      `TOML path "services.api.retries" must resolve to a string`,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			targetPath := writeTargetFile(t, projectRoot, "services/development.toml", testCase.targetContents)
+
+			application := app.NewWithTargets(
+				[]config.Target{{Name: "serviceEndpoint", File: targetPath, Type: config.TargetTypeTOML, TOMLPath: testCase.tomlPath}},
+				[]config.Profile{{
+					Name: "Local",
+					Values: []config.ProfileValue{
+						{Target: "serviceEndpoint", Value: stringPointer("https://secret.example.test")},
+					},
+				}},
+			)
+
+			err := application.ValidateStartup()
+			if err == nil {
+				t.Fatal("ValidateStartup returned nil error, want TOML target validation error")
+			}
+			for _, expected := range []string{`validate configured targets`, `target "serviceEndpoint"`, `tomlPath "` + testCase.tomlPath + `"`, testCase.wantError} {
+				if !strings.Contains(err.Error(), expected) {
+					t.Fatalf("ValidateStartup returned error %q, want substring %q", err, expected)
+				}
+			}
+			if strings.Contains(err.Error(), "secret.example.test") {
+				t.Fatalf("ValidateStartup leaked replacement value in error %q", err)
+			}
+		})
+	}
+}
+
 func TestApplication_ApplyProfile_AppliesTOMLTarget(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`

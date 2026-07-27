@@ -742,6 +742,68 @@ func TestLoad_AllowsDuplicateSelectorAcrossDifferentTargetTypes(t *testing.T) {
 	}
 }
 
+func TestParseTOMLPath_ValidatesBareKeySelectorContract(t *testing.T) {
+	tests := []struct {
+		name         string
+		tomlPath     string
+		wantSegments []string
+		wantError    string
+	}{
+		{
+			name:         "letters digits underscores and hyphens",
+			tomlPath:     "services.api-v1.endpoint_url",
+			wantSegments: []string{"services", "api-v1", "endpoint_url"},
+		},
+		{
+			name:      "empty segment",
+			tomlPath:  "services..endpoint",
+			wantError: "path must contain non-empty dot-separated segments",
+		},
+		{
+			name:      "leading whitespace in segment",
+			tomlPath:  "services. api.endpoint",
+			wantError: `segment " api" must not contain leading or trailing whitespace`,
+		},
+		{
+			name:      "wildcard selector",
+			tomlPath:  "services.*.endpoint",
+			wantError: "wildcard selectors are not supported",
+		},
+		{
+			name:      "array selector",
+			tomlPath:  "services[0].endpoint",
+			wantError: "array selectors are not supported",
+		},
+		{
+			name:      "quoted key selector",
+			tomlPath:  `services."api".endpoint`,
+			wantError: "must use unquoted TOML bare-key syntax",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			segments, err := config.ParseTOMLPath(testCase.tomlPath)
+			if testCase.wantError != "" {
+				if err == nil {
+					t.Fatal("ParseTOMLPath returned nil error, want validation error")
+				}
+				if !strings.Contains(err.Error(), testCase.wantError) {
+					t.Fatalf("ParseTOMLPath returned error %q, want substring %q", err, testCase.wantError)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("ParseTOMLPath returned error: %v", err)
+			}
+			if fmt.Sprint(segments) != fmt.Sprint(testCase.wantSegments) {
+				t.Fatalf("segments = %#v, want %#v", segments, testCase.wantSegments)
+			}
+		})
+	}
+}
+
 func legacyConfig(version int, targetFile string, connectionName string, profilesBlock string) string {
 	return fmt.Sprintf(strings.TrimSpace(`
 version: %d
