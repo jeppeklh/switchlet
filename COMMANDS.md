@@ -16,8 +16,19 @@ Create project configuration:
 switchlet init
 ```
 
+Replace project configuration without the interactive overwrite prompt:
+
+```bash
+switchlet init --overwrite
+```
+
 `switchlet init` launches the terminal setup wizard when stdin and stdout are
 interactive terminals. Otherwise, it uses line-oriented prompts.
+
+When `.switchlet.yaml` already exists in the current directory, interactive
+init asks before replacing it. Non-interactive replacement requires
+`--overwrite`. Configurations discovered only in parent directories are not
+replaced from a nested directory.
 
 The init flow supports JSON, YAML, TOML, and dotenv managed values. YAML and TOML
 files are listed only when they contain manageable existing string values.

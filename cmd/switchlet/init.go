@@ -28,6 +28,7 @@ type initDependencies struct {
 	validateTOMLTarget           func(string, string) error
 	validateDotenvTarget         func(string, string) error
 	createConfig                 func(string, []config.Target, []config.Profile) (string, config.Config, error)
+	prepareReplacementConfig     func(string, []config.Target, []config.Profile) (config.PreparedReplacement, error)
 	ensureConfigIgnored          func(string) (bool, error)
 	validateCreatedConfig        func(config.Config) error
 	removeFile                   func(string) error
@@ -36,6 +37,15 @@ type initDependencies struct {
 type initPrompter struct {
 	reader *bufio.Reader
 	writer io.Writer
+}
+
+type initOptions struct {
+	OverwriteExistingConfig bool
+}
+
+type initCreateLocationDecision struct {
+	Continue                bool
+	OverwriteExistingConfig bool
 }
 
 const initStepCount = 5
@@ -53,6 +63,7 @@ func defaultInitDependencies() initDependencies {
 		validateTOMLTarget:           editor.ValidateTOMLTarget,
 		validateDotenvTarget:         editor.ValidateDotenvTarget,
 		createConfig:                 config.Create,
+		prepareReplacementConfig:     config.PrepareReplacement,
 		ensureConfigIgnored:          config.EnsureConfigIgnored,
 		validateCreatedConfig: func(loadedConfig config.Config) error {
 			return app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles).ValidateStartup()
@@ -62,11 +73,20 @@ func defaultInitDependencies() initDependencies {
 }
 
 func runInit(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies) error {
-	if err := dependencies.validateCreateLocation(workingDirectory); err != nil {
+	return runInitWithOptions(workingDirectory, input, output, dependencies, initOptions{})
+}
+
+func runInitWithOptions(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies, options initOptions) error {
+	createDecision, err := resolveInitCreateLocation(workingDirectory, input, output, dependencies, options)
+	if err != nil {
 		return err
 	}
+	if !createDecision.Continue {
+		return nil
+	}
+
 	if shouldUseInitWizard(input, output) {
-		result, err := runInitWizard(workingDirectory, input, output, dependencies)
+		result, err := runInitWizard(workingDirectory, input, output, dependencies, createDecision.OverwriteExistingConfig)
 		if err != nil {
 			return err
 		}
@@ -75,13 +95,78 @@ func runInit(workingDirectory string, input io.Reader, output io.Writer, depende
 			return err
 		}
 
-		return createInitConfiguration(workingDirectory, output, result.Targets, result.Profiles, result.ShouldIgnoreConfig, dependencies)
+		return createInitConfiguration(workingDirectory, output, result.Targets, result.Profiles, result.ShouldIgnoreConfig, createDecision.OverwriteExistingConfig, dependencies)
 	}
 
-	return runPromptInit(workingDirectory, input, output, dependencies)
+	return runPromptInit(workingDirectory, input, output, createDecision.OverwriteExistingConfig, dependencies)
 }
 
-func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies) error {
+func resolveInitCreateLocation(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies, options initOptions) (initCreateLocationDecision, error) {
+	err := dependencies.validateCreateLocation(workingDirectory)
+	if err == nil {
+		return initCreateLocationDecision{Continue: true}, nil
+	}
+
+	var existingConfigError config.ExistingConfigError
+	if !errors.As(err, &existingConfigError) {
+		return initCreateLocationDecision{}, err
+	}
+
+	currentConfigPath, err := currentDirectoryConfigPath(workingDirectory)
+	if err != nil {
+		return initCreateLocationDecision{}, err
+	}
+	if existingConfigError.ConfigPath != currentConfigPath {
+		return initCreateLocationDecision{}, existingParentConfigMessage(existingConfigError.ConfigPath)
+	}
+
+	if options.OverwriteExistingConfig {
+		return initCreateLocationDecision{Continue: true, OverwriteExistingConfig: true}, nil
+	}
+
+	if !shouldUseInitWizard(input, output) {
+		return initCreateLocationDecision{}, existingCurrentConfigMessage(existingConfigError.ConfigPath)
+	}
+
+	confirmationResult, err := runInitOverwriteConfirmation(input, output, existingConfigError.ConfigPath)
+	if err != nil {
+		return initCreateLocationDecision{}, err
+	}
+	if confirmationResult.Cancelled {
+		_, err := fmt.Fprintln(output, "\nInitialization cancelled.")
+		return initCreateLocationDecision{Continue: false}, err
+	}
+	if !confirmationResult.Replace {
+		if _, err := fmt.Fprintln(output, "\nNothing changed."); err != nil {
+			return initCreateLocationDecision{}, err
+		}
+		if _, err := fmt.Fprintln(output, "Run `switchlet` to use the existing configuration."); err != nil {
+			return initCreateLocationDecision{}, err
+		}
+		return initCreateLocationDecision{Continue: false}, nil
+	}
+
+	return initCreateLocationDecision{Continue: true, OverwriteExistingConfig: true}, nil
+}
+
+func currentDirectoryConfigPath(workingDirectory string) (string, error) {
+	resolvedWorkingDirectory, err := filepath.Abs(workingDirectory)
+	if err != nil {
+		return "", fmt.Errorf("resolve working directory %q: %w", workingDirectory, err)
+	}
+
+	return filepath.Join(resolvedWorkingDirectory, ".switchlet.yaml"), nil
+}
+
+func existingCurrentConfigMessage(configPath string) error {
+	return fmt.Errorf("Switchlet is already configured.\n\nExisting configuration:\n  %s\n\nNothing changed.\n\nRun `switchlet` to use it, or run:\n  switchlet init --overwrite\nto replace it.", configPath)
+}
+
+func existingParentConfigMessage(configPath string) error {
+	return fmt.Errorf("Switchlet found an existing configuration in a parent directory.\n\nExisting configuration:\n  %s\n\nRun `switchlet init` from that directory if you want to replace it.", configPath)
+}
+
+func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, overwriteExistingConfig bool, dependencies initDependencies) error {
 	prompter := initPrompter{
 		reader: bufio.NewReader(input),
 		writer: output,
@@ -115,9 +200,14 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	if err := writeInitStep(output, 5, "Review and create configuration",
-		"Review the managed values and profiles below before creating .switchlet.yaml.",
-	); err != nil {
+	reviewDescription := "Review the managed values and profiles below before creating .switchlet.yaml."
+	createPrompt := "Create .switchlet.yaml now?"
+	if overwriteExistingConfig {
+		reviewDescription = "Review the managed values and profiles below before replacing .switchlet.yaml."
+		createPrompt = "Replace .switchlet.yaml now?"
+	}
+
+	if err := writeInitStep(output, 5, "Review and create configuration", reviewDescription); err != nil {
 		return err
 	}
 
@@ -125,7 +215,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 
-	confirmed, err := prompter.promptYesNo(formatYesNoPrompt("Create .switchlet.yaml now?", true), true)
+	confirmed, err := prompter.promptYesNo(formatYesNoPrompt(createPrompt, true), true)
 	if err != nil {
 		return err
 	}
@@ -146,10 +236,14 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		}
 	}
 
-	return createInitConfiguration(workingDirectory, output, targets, profiles, shouldIgnoreConfig, dependencies)
+	return createInitConfiguration(workingDirectory, output, targets, profiles, shouldIgnoreConfig, overwriteExistingConfig, dependencies)
 }
 
-func createInitConfiguration(workingDirectory string, output io.Writer, targets []config.Target, profiles []config.Profile, shouldIgnoreConfig bool, dependencies initDependencies) error {
+func createInitConfiguration(workingDirectory string, output io.Writer, targets []config.Target, profiles []config.Profile, shouldIgnoreConfig bool, overwriteExistingConfig bool, dependencies initDependencies) error {
+	if overwriteExistingConfig {
+		return replaceInitConfiguration(workingDirectory, output, targets, profiles, shouldIgnoreConfig, dependencies)
+	}
+
 	configPath, loadedConfig, err := dependencies.createConfig(workingDirectory, targets, profiles)
 	if err != nil {
 		return err
@@ -163,17 +257,39 @@ func createInitConfiguration(workingDirectory string, output io.Writer, targets 
 		return fmt.Errorf("validate created configuration file %q: %w", configPath, err)
 	}
 
-	if _, err := fmt.Fprintf(output, "\nCreated configuration: %s\n", configPath); err != nil {
+	return finishInitConfiguration(workingDirectory, output, configPath, shouldIgnoreConfig, "Created configuration", dependencies)
+}
+
+func replaceInitConfiguration(workingDirectory string, output io.Writer, targets []config.Target, profiles []config.Profile, shouldIgnoreConfig bool, dependencies initDependencies) error {
+	replacement, err := dependencies.prepareReplacementConfig(workingDirectory, targets, profiles)
+	if err != nil {
+		return err
+	}
+
+	configPath := replacement.ConfigPath()
+	if err := dependencies.validateCreatedConfig(replacement.Config()); err != nil {
+		return fmt.Errorf("validate replacement configuration file %q: %w", configPath, err)
+	}
+
+	if err := replacement.Commit(); err != nil {
+		return fmt.Errorf("replace configuration file %q: %w", configPath, err)
+	}
+
+	return finishInitConfiguration(workingDirectory, output, configPath, shouldIgnoreConfig, "Replaced configuration", dependencies)
+}
+
+func finishInitConfiguration(workingDirectory string, output io.Writer, configPath string, shouldIgnoreConfig bool, successLabel string, dependencies initDependencies) error {
+	if _, err := fmt.Fprintf(output, "\n%s: %s\n", successLabel, configPath); err != nil {
 		return err
 	}
 	if shouldIgnoreConfig {
 		if dependencies.ensureConfigIgnored == nil {
-			return fmt.Errorf("configuration file %q was created, but project .gitignore protection is not configured", configPath)
+			return fmt.Errorf("configuration file %q was written, but project .gitignore protection is not configured", configPath)
 		}
 
 		changed, err := dependencies.ensureConfigIgnored(workingDirectory)
 		if err != nil {
-			return fmt.Errorf("configuration file %q was created, but update project .gitignore: %w", configPath, err)
+			return fmt.Errorf("configuration file %q was written, but update project .gitignore: %w", configPath, err)
 		}
 
 		message := "Project .gitignore already ignores .switchlet.yaml."
@@ -184,7 +300,7 @@ func createInitConfiguration(workingDirectory string, output io.Writer, targets 
 			return err
 		}
 	}
-	_, err = fmt.Fprintln(output, "Run `switchlet` to choose and apply a profile.")
+	_, err := fmt.Fprintln(output, "Run `switchlet` to choose and apply a profile.")
 	return err
 }
 

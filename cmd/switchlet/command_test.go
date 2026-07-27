@@ -930,6 +930,7 @@ func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
 
 	commands := readDocumentation("COMMANDS.md")
 	for _, expected := range []string{
+		"switchlet init --overwrite",
 		"switchlet list",
 		"switchlet inspect Local",
 		"switchlet apply Local",

@@ -34,11 +34,156 @@ profiles:
 	if err == nil {
 		t.Fatal("ValidateCreateLocation returned nil error, want existing configuration error")
 	}
+	var existingConfigError config.ExistingConfigError
+	if !errors.As(err, &existingConfigError) {
+		t.Fatalf("ValidateCreateLocation returned error %T, want ExistingConfigError", err)
+	}
 	if !strings.Contains(err.Error(), `discovered existing configuration file`) {
 		t.Fatalf("ValidateCreateLocation returned error %q, want existing configuration error", err)
 	}
 	if !strings.Contains(err.Error(), filepath.Join(projectRoot, ".switchlet.yaml")) {
 		t.Fatalf("ValidateCreateLocation returned error %q, want existing configuration path", err)
+	}
+	if existingConfigError.ConfigPath != filepath.Join(projectRoot, ".switchlet.yaml") {
+		t.Fatalf("ExistingConfigError.ConfigPath = %q, want parent config path", existingConfigError.ConfigPath)
+	}
+}
+
+func TestPrepareReplacement_DoesNotModifyExistingConfigurationBeforeCommit(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: existing
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Existing
+    values:
+      - target: existing
+        value: https://existing.example.test
+`)+"\n")
+	originalContents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read original configuration: %v", err)
+	}
+
+	replacement, err := config.PrepareReplacement(
+		projectRoot,
+		[]config.Target{{Name: "service", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "service.baseUrl"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://local.example.test")}}}},
+	)
+	if err != nil {
+		t.Fatalf("PrepareReplacement returned error: %v", err)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read configuration after PrepareReplacement: %v", err)
+	}
+	if string(contents) != string(originalContents) {
+		t.Fatalf("configuration file was modified before commit: %q", string(contents))
+	}
+	if replacement.ConfigPath() != configPath {
+		t.Fatalf("ConfigPath = %q, want %q", replacement.ConfigPath(), configPath)
+	}
+	if replacement.Config().Targets[0].Name != "service" {
+		t.Fatalf("replacement config target = %#v, want service target", replacement.Config().Targets[0])
+	}
+}
+
+func TestPrepareReplacement_CommitsReplacementWithExistingPermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: existing
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Existing
+    values:
+      - target: existing
+        value: https://existing.example.test
+`)+"\n")
+	if err := os.Chmod(configPath, 0o640); err != nil {
+		t.Fatalf("chmod configuration file: %v", err)
+	}
+	originalInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat original configuration: %v", err)
+	}
+
+	replacement, err := config.PrepareReplacement(
+		projectRoot,
+		[]config.Target{{Name: "service", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "service.baseUrl"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://local.example.test")}}}},
+	)
+	if err != nil {
+		t.Fatalf("PrepareReplacement returned error: %v", err)
+	}
+	if err := replacement.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read replacement configuration: %v", err)
+	}
+	if !strings.Contains(string(contents), "name: service") || strings.Contains(string(contents), "name: existing") {
+		t.Fatalf("configuration contents = %q, want committed replacement", string(contents))
+	}
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat replacement configuration: %v", err)
+	}
+	if configInfo.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("configuration permissions = %o, want %o", configInfo.Mode().Perm(), originalInfo.Mode().Perm())
+	}
+}
+
+func TestPrepareReplacement_RefusesParentConfiguration(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	projectRoot := filepath.Join(workspaceRoot, "project")
+	nestedDirectory := filepath.Join(projectRoot, "src", "MyApplication")
+	if err := os.MkdirAll(nestedDirectory, 0o755); err != nil {
+		t.Fatalf("create nested directory: %v", err)
+	}
+	targetPath := writeFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test
+`)+"\n")
+
+	_, err := config.PrepareReplacement(
+		nestedDirectory,
+		[]config.Target{{Name: "service", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "service.baseUrl"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://local.example.test")}}}},
+	)
+	if err == nil {
+		t.Fatal("PrepareReplacement returned nil error, want parent configuration refusal")
+	}
+	if !strings.Contains(err.Error(), "parent directory") {
+		t.Fatalf("PrepareReplacement returned error %q, want parent-directory refusal", err)
 	}
 }
 

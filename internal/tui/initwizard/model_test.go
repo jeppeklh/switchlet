@@ -1838,6 +1838,39 @@ func TestInitWizardModel_ProfileSummaryAndReviewKeepFocusedTaskPrimary(t *testin
 	assertWizardViewWidth(t, reviewView, 120)
 }
 
+func TestInitWizardModel_ReviewUsesReplaceCopyWhenOverwriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	model := initWizardModel{
+		workingDirectory:        projectRoot,
+		step:                    initWizardStepReview,
+		width:                   120,
+		height:                  24,
+		overwriteExistingConfig: true,
+		shouldIgnoreConfig:      false,
+		shouldIgnoreConfigSet:   false,
+		targets: []app.InitTarget{{
+			Name:     "database",
+			File:     filepath.Join(projectRoot, "config.json"),
+			Type:     app.InitTargetTypeJSON,
+			JSONPath: "database.primary.url",
+		}},
+		profiles: []app.InitProfile{{
+			Name:   "Local",
+			Values: []app.InitProfileValue{{Target: "database", ValueFromEnv: stringPointer("LOCAL_DATABASE_URL")}},
+		}},
+	}
+
+	view := model.View()
+	for _, expected := range []string{"* Replace", "Ready to replace .switchlet.yaml.", "Replace .switchlet.yaml"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "Create .switchlet.yaml") {
+		t.Fatalf("View() = %q, want replacement copy instead of create copy", view)
+	}
+}
+
 func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) {
 	projectRoot := t.TempDir()
 	databaseValue := "Server=db;Database=App;Password=secret;"

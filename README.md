@@ -34,6 +34,10 @@ The setup wizard creates `.switchlet.yaml` by asking which existing JSON, YAML,
 TOML, or dotenv values Switchlet may manage and which profiles should be
 available.
 
+If `.switchlet.yaml` already exists in the project root, interactive init asks
+before replacing it. Use `switchlet init --overwrite` to replace it without that
+initial prompt.
+
 Then run:
 
 ```bash

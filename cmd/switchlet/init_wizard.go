@@ -11,8 +11,10 @@ import (
 	"github.com/jeppeklh/switchlet/internal/tui/initwizard"
 )
 
-func runInitWizard(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies) (initwizard.Result, error) {
-	model, err := initwizard.NewModel(workingDirectory, initWorkflowFromDependencies(dependencies))
+func runInitWizard(workingDirectory string, input io.Reader, output io.Writer, dependencies initDependencies, overwriteExistingConfig bool) (initwizard.Result, error) {
+	model, err := initwizard.NewModelWithOptions(workingDirectory, initWorkflowFromDependencies(dependencies), initwizard.Options{
+		OverwriteExistingConfig: overwriteExistingConfig,
+	})
 	if err != nil {
 		return initwizard.Result{}, err
 	}
@@ -31,6 +33,27 @@ func runInitWizard(workingDirectory string, input io.Reader, output io.Writer, d
 	result, ok := completedModel.Result()
 	if !ok {
 		return initwizard.Result{}, fmt.Errorf("run init wizard: finished without a result")
+	}
+
+	return result, nil
+}
+
+func runInitOverwriteConfirmation(input io.Reader, output io.Writer, configPath string) (initwizard.OverwriteConfirmationResult, error) {
+	model := initwizard.NewOverwriteConfirmationModel(configPath)
+	finalModel, err := runFullScreenTerminalProgram(model, tea.WithInput(input), tea.WithOutput(output))
+	if err != nil {
+		return initwizard.OverwriteConfirmationResult{}, fmt.Errorf("run init overwrite confirmation: %w", err)
+	}
+
+	completedModel, ok := finalModel.(interface {
+		Result() (initwizard.OverwriteConfirmationResult, bool)
+	})
+	if !ok {
+		return initwizard.OverwriteConfirmationResult{}, fmt.Errorf("run init overwrite confirmation: unexpected final model type %T", finalModel)
+	}
+	result, ok := completedModel.Result()
+	if !ok {
+		return initwizard.OverwriteConfirmationResult{}, fmt.Errorf("run init overwrite confirmation: finished without a result")
 	}
 
 	return result, nil

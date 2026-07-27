@@ -67,11 +67,17 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 			_, err := io.WriteString(output, initHelpText())
 			return err
 		}
-		if len(args) != 1 {
-			return usageCommandError(false, "init does not accept additional arguments\n\n%s", initHelpText())
+
+		overwriteExistingConfig := false
+		positionals, err := parseArguments(args[1:], map[string]*bool{"--overwrite": &overwriteExistingConfig})
+		if err != nil {
+			return usageCommandError(false, "init: %v\n\n%s", err, initHelpText())
+		}
+		if len(positionals) != 0 {
+			return usageCommandError(false, "init does not accept a positional argument\n\n%s", initHelpText())
 		}
 
-		return runInit(workingDirectory, input, output, defaultInitDependencies())
+		return runInitWithOptions(workingDirectory, input, output, defaultInitDependencies(), initOptions{OverwriteExistingConfig: overwriteExistingConfig})
 	case "list":
 		return runListCommand(workingDirectory, args[1:], output)
 	case "inspect":

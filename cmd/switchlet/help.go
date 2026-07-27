@@ -3,7 +3,7 @@ package main
 func usageText() string {
 	return `Usage:
 	  switchlet                                      Launch the profile switcher
-	  switchlet init                                 Guided setup for a new .switchlet.yaml in the current directory
+	  switchlet init [--overwrite]                   Guided setup for a .switchlet.yaml in the current directory
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
@@ -21,6 +21,7 @@ func usageText() string {
 	Examples:
 	  switchlet
 	  switchlet init
+	  switchlet init --overwrite
 	  switchlet list
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
@@ -35,9 +36,13 @@ func usageText() string {
 
 func initHelpText() string {
 	return `Usage:
-	  switchlet init
+	  switchlet init [--overwrite]
 
 	Create a new .switchlet.yaml in the current directory.
+	When .switchlet.yaml already exists in the current directory, interactive init
+	asks before replacing it. Use --overwrite to replace it without that prompt.
+	Configurations discovered only in parent directories are not replaced from a
+	nested directory.
 
 	The init flow guides you through target-file selection, selector selection,
 	named target entry, profile entry, and final review. When stdin and stdout are
@@ -53,8 +58,12 @@ func initHelpText() string {
 	When standard terminal interaction is unavailable, init falls back to
 	the existing line-oriented prompt flow.
 
+	Flags:
+	  --overwrite   Replace an existing .switchlet.yaml in the current directory without prompting
+
 	Examples:
 	  switchlet init
+	  switchlet init --overwrite
 `
 }
 

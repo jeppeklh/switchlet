@@ -70,6 +70,11 @@ type initWizardPendingEffect struct {
 	FileFilter        string
 }
 
+// Options configures init wizard presentation for command-level init decisions.
+type Options struct {
+	OverwriteExistingConfig bool
+}
+
 // Result describes the completed interactive init wizard outcome.
 type Result struct {
 	Targets            []app.InitTarget
@@ -79,50 +84,61 @@ type Result struct {
 }
 
 type initWizardModel struct {
-	workingDirectory      string
-	workflow              app.InitWorkflow
-	step                  initWizardStep
-	width                 int
-	height                int
-	cursor                int
-	errorDetail           ui.RecoverableError
-	inputValue            string
-	inputCursor           int
-	fileFilter            string
-	fileCandidates        []app.InitTargetFileCandidate
-	selectedFile          app.InitTargetFileSelection
-	browseNodes           []targetSelectorNode
-	browseAncestors       []targetBrowseLevel
-	selectedJSONPath      string
-	selectedYAMLPath      string
-	selectedTOMLPath      string
-	selectedDotenvKey     string
-	targets               []app.InitTarget
-	profiles              []app.InitProfile
-	draftProfile          initWizardProfileDraft
-	shouldIgnoreConfig    bool
-	shouldIgnoreConfigSet bool
-	effectRequestID       int
-	pendingEffect         *initWizardPendingEffect
-	result                *Result
+	workingDirectory        string
+	workflow                app.InitWorkflow
+	step                    initWizardStep
+	width                   int
+	height                  int
+	cursor                  int
+	errorDetail             ui.RecoverableError
+	inputValue              string
+	inputCursor             int
+	fileFilter              string
+	fileCandidates          []app.InitTargetFileCandidate
+	selectedFile            app.InitTargetFileSelection
+	browseNodes             []targetSelectorNode
+	browseAncestors         []targetBrowseLevel
+	selectedJSONPath        string
+	selectedYAMLPath        string
+	selectedTOMLPath        string
+	selectedDotenvKey       string
+	targets                 []app.InitTarget
+	profiles                []app.InitProfile
+	draftProfile            initWizardProfileDraft
+	shouldIgnoreConfig      bool
+	shouldIgnoreConfigSet   bool
+	overwriteExistingConfig bool
+	effectRequestID         int
+	pendingEffect           *initWizardPendingEffect
+	result                  *Result
 }
 
 // NewModel creates the Bubble Tea model for the interactive init wizard.
 func NewModel(workingDirectory string, workflow app.InitWorkflow) (tea.Model, error) {
-	return newInitWizardModel(workingDirectory, workflow)
+	return NewModelWithOptions(workingDirectory, workflow, Options{})
+}
+
+// NewModelWithOptions creates the Bubble Tea model for init wizard command options.
+func NewModelWithOptions(workingDirectory string, workflow app.InitWorkflow, options Options) (tea.Model, error) {
+	return newInitWizardModelWithOptions(workingDirectory, workflow, options)
 }
 
 func newInitWizardModel(workingDirectory string, workflow app.InitWorkflow) (initWizardModel, error) {
+	return newInitWizardModelWithOptions(workingDirectory, workflow, Options{})
+}
+
+func newInitWizardModelWithOptions(workingDirectory string, workflow app.InitWorkflow, options Options) (initWizardModel, error) {
 	fileCandidates, err := workflow.DiscoverTargetFileCandidates(workingDirectory)
 	if err != nil {
 		return initWizardModel{}, err
 	}
 
 	return initWizardModel{
-		workingDirectory: workingDirectory,
-		workflow:         workflow,
-		step:             initWizardStepFileSelect,
-		fileCandidates:   fileCandidates,
+		workingDirectory:        workingDirectory,
+		workflow:                workflow,
+		step:                    initWizardStepFileSelect,
+		fileCandidates:          fileCandidates,
+		overwriteExistingConfig: options.OverwriteExistingConfig,
 	}, nil
 }
 

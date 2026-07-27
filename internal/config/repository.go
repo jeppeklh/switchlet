@@ -14,6 +14,46 @@ import (
 
 const gitignoreFileName = ".gitignore"
 
+// ErrConfigAlreadyExists indicates that init found an existing Switchlet configuration.
+var ErrConfigAlreadyExists = errors.New("configuration already exists")
+
+// ExistingConfigError identifies the discovered configuration that prevents creating a new one.
+type ExistingConfigError struct {
+	ProjectRoot string
+	ConfigPath  string
+}
+
+func (err ExistingConfigError) Error() string {
+	return fmt.Sprintf("cannot create %s in %q: discovered existing configuration file %q", configFileName, err.ProjectRoot, err.ConfigPath)
+}
+
+func (err ExistingConfigError) Unwrap() error {
+	return ErrConfigAlreadyExists
+}
+
+// PreparedReplacement is a validated configuration replacement that has not yet been committed.
+type PreparedReplacement struct {
+	configPath   string
+	contents     []byte
+	permissions  fs.FileMode
+	loadedConfig Config
+}
+
+// ConfigPath returns the configuration file path that will be replaced.
+func (replacement PreparedReplacement) ConfigPath() string {
+	return replacement.configPath
+}
+
+// Config returns the loaded generated configuration.
+func (replacement PreparedReplacement) Config() Config {
+	return replacement.loadedConfig
+}
+
+// Commit replaces the existing configuration with the prepared contents.
+func (replacement PreparedReplacement) Commit() error {
+	return writePreparedReplacement(replacement.configPath, replacement.contents, replacement.permissions)
+}
+
 // ValidateCreateLocation verifies that a project directory can host a new
 // Switchlet configuration file.
 func ValidateCreateLocation(projectRoot string) error {
@@ -57,6 +97,31 @@ func Create(projectRoot string, targets []Target, profiles []Profile) (configPat
 	removeCreatedFile = false
 
 	return configPath, loadedConfig, nil
+}
+
+// PrepareReplacement prepares and validates a replacement configuration without modifying the existing file.
+func PrepareReplacement(projectRoot string, targets []Target, profiles []Profile) (PreparedReplacement, error) {
+	resolvedProjectRoot, configPath, permissions, err := resolveReplacementLocation(projectRoot)
+	if err != nil {
+		return PreparedReplacement{}, err
+	}
+
+	contents, err := marshalCreatedConfig(resolvedProjectRoot, targets, profiles)
+	if err != nil {
+		return PreparedReplacement{}, err
+	}
+
+	loadedConfig, err := loadConfigContents(configPath, contents)
+	if err != nil {
+		return PreparedReplacement{}, fmt.Errorf("verify replacement configuration file %q: %w", configPath, err)
+	}
+
+	return PreparedReplacement{
+		configPath:   configPath,
+		contents:     contents,
+		permissions:  permissions,
+		loadedConfig: loadedConfig,
+	}, nil
 }
 
 // EnsureConfigIgnored creates or updates the project-root .gitignore so it
@@ -129,13 +194,41 @@ func resolveCreateLocation(projectRoot string) (string, string, error) {
 	existingConfigPath, err := Discover(resolvedProjectRoot)
 	switch {
 	case err == nil:
-		return "", "", fmt.Errorf("cannot create %s in %q: discovered existing configuration file %q", configFileName, resolvedProjectRoot, existingConfigPath)
+		return "", "", ExistingConfigError{ProjectRoot: resolvedProjectRoot, ConfigPath: existingConfigPath}
 	case errors.Is(err, ErrConfigNotFound):
 	default:
 		return "", "", fmt.Errorf("check for existing configuration from %q: %w", resolvedProjectRoot, err)
 	}
 
 	return resolvedProjectRoot, filepath.Join(resolvedProjectRoot, configFileName), nil
+}
+
+func resolveReplacementLocation(projectRoot string) (string, string, fs.FileMode, error) {
+	resolvedProjectRoot, err := resolveProjectRoot(projectRoot)
+	if err != nil {
+		return "", "", 0, err
+	}
+
+	configPath := filepath.Join(resolvedProjectRoot, configFileName)
+	existingConfigPath, err := Discover(resolvedProjectRoot)
+	switch {
+	case errors.Is(err, ErrConfigNotFound):
+		return "", "", 0, fmt.Errorf("cannot replace %s in %q: no existing configuration file was found", configFileName, resolvedProjectRoot)
+	case err != nil:
+		return "", "", 0, fmt.Errorf("check for existing configuration from %q: %w", resolvedProjectRoot, err)
+	case existingConfigPath != configPath:
+		return "", "", 0, fmt.Errorf("cannot replace %s in %q: discovered existing configuration file %q in a parent directory", configFileName, resolvedProjectRoot, existingConfigPath)
+	}
+
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		return "", "", 0, fmt.Errorf("stat configuration file %q: %w", configPath, err)
+	}
+	if configInfo.IsDir() {
+		return "", "", 0, fmt.Errorf("configuration path %q is a directory", configPath)
+	}
+
+	return resolvedProjectRoot, configPath, configInfo.Mode().Perm(), nil
 }
 
 func gitignoreContainsConfigEntry(contents []byte) bool {
@@ -276,4 +369,50 @@ func writeCreatedConfig(configPath string, contents []byte) (returnErr error) {
 	}
 
 	return nil
+}
+
+func writePreparedReplacement(configPath string, contents []byte, permissions fs.FileMode) (returnErr error) {
+	configDirectory := filepath.Dir(configPath)
+	temporaryFile, err := os.CreateTemp(configDirectory, tempConfigFilePattern(configPath))
+	if err != nil {
+		return fmt.Errorf("create temporary configuration file in %q: %w", configDirectory, err)
+	}
+
+	temporaryFilePath := temporaryFile.Name()
+	defer func() {
+		if returnErr == nil {
+			return
+		}
+
+		if temporaryFile != nil {
+			_ = temporaryFile.Close()
+		}
+
+		if err := os.Remove(temporaryFilePath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			returnErr = fmt.Errorf("%w; remove temporary configuration file %q: %v", returnErr, temporaryFilePath, err)
+		}
+	}()
+
+	if _, err := temporaryFile.Write(contents); err != nil {
+		return fmt.Errorf("write temporary configuration file %q: %w", temporaryFilePath, err)
+	}
+
+	if err := temporaryFile.Close(); err != nil {
+		return fmt.Errorf("close temporary configuration file %q: %w", temporaryFilePath, err)
+	}
+	temporaryFile = nil
+
+	if err := os.Chmod(temporaryFilePath, permissions); err != nil {
+		return fmt.Errorf("apply permissions to temporary configuration file %q: %w", temporaryFilePath, err)
+	}
+
+	if err := replaceExistingConfigFile(temporaryFilePath, configPath); err != nil {
+		return fmt.Errorf("replace configuration file with temporary file %q: %w", temporaryFilePath, err)
+	}
+
+	return nil
+}
+
+func tempConfigFilePattern(configPath string) string {
+	return "." + filepath.Base(configPath) + ".switchlet-*"
 }

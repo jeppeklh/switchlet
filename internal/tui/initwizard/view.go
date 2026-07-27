@@ -447,7 +447,7 @@ func (model initWizardModel) profileSummaryView() string {
 
 func (model initWizardModel) reviewView() string {
 	hasLiteralValues := app.InitProfilesHaveLiteralValues(model.profiles)
-	choices := []string{"Create .switchlet.yaml"}
+	choices := []string{model.reviewActionLabel()}
 	if hasLiteralValues {
 		choices = append(choices, "Toggle ignore")
 	}
@@ -466,7 +466,7 @@ func (model initWizardModel) reviewView() string {
 		)
 	} else {
 		decisionLines = append(decisionLines,
-			"Ready to create .switchlet.yaml.",
+			model.reviewReadyLine(),
 			"All profile values use environment variables.",
 			"",
 		)
@@ -474,7 +474,7 @@ func (model initWizardModel) reviewView() string {
 	decisionLines = append(decisionLines, model.choiceLines(choices, model.cursor, len(choices))...)
 
 	return model.initWizardShell(5, "Review", []ui.Panel{
-		{Title: "Create", Lines: model.withErrorLines(decisionLines), Focused: true},
+		{Title: model.reviewPanelTitle(), Lines: model.withErrorLines(decisionLines), Focused: true},
 		{Title: "Setup summary", Lines: model.reviewSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -482,6 +482,30 @@ func (model initWizardModel) reviewView() string {
 		{Key: "Esc", Label: "Profiles"},
 		{Key: "q", Label: "Cancel"},
 	})
+}
+
+func (model initWizardModel) reviewPanelTitle() string {
+	if model.overwriteExistingConfig {
+		return "Replace"
+	}
+
+	return "Create"
+}
+
+func (model initWizardModel) reviewActionLabel() string {
+	if model.overwriteExistingConfig {
+		return "Replace .switchlet.yaml"
+	}
+
+	return "Create .switchlet.yaml"
+}
+
+func (model initWizardModel) reviewReadyLine() string {
+	if model.overwriteExistingConfig {
+		return "Ready to replace .switchlet.yaml."
+	}
+
+	return "Ready to create .switchlet.yaml."
 }
 
 func (model initWizardModel) profileChoiceView(stepNumber int, title string, details []string, choices []string) string {

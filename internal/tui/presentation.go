@@ -67,6 +67,7 @@ type Panel struct {
 	Title   string
 	Lines   []string
 	Focused bool
+	Width   int
 }
 
 // Shell describes the common application surface used by Switchlet screens.
@@ -482,7 +483,7 @@ func renderStackedPanels(panels []Panel, width int, styles styleSet, heightBudge
 func renderUnboundedStackedPanels(panels []Panel, width int, styles styleSet) []string {
 	lines := make([]string, 0)
 	for index, panel := range panels {
-		lines = append(lines, renderPanel(panel, width, styles, unboundedPanelBodyHeight)...)
+		lines = append(lines, renderAlignedPanel(panel, width, styles, unboundedPanelBodyHeight)...)
 		if index != len(panels)-1 {
 			lines = append(lines, "")
 		}
@@ -528,19 +529,42 @@ func renderSplitPanels(leftPanel Panel, rightPanel Panel, width int, styles styl
 
 func renderPanelWithinHeight(panel Panel, width int, styles styleSet, heightBudget int) []string {
 	if heightBudget < 0 {
-		return renderPanel(panel, width, styles, unboundedPanelBodyHeight)
+		return renderAlignedPanel(panel, width, styles, unboundedPanelBodyHeight)
 	}
 	if heightBudget == 0 {
 		return nil
 	}
 
 	bodyHeight := panelBodyHeightBudget(panel, styles, heightBudget)
-	panelLines := renderPanel(panel, width, styles, bodyHeight)
+	panelLines := renderAlignedPanel(panel, width, styles, bodyHeight)
 	if len(panelLines) > heightBudget {
 		return panelLines[:heightBudget]
 	}
 
 	return panelLines
+}
+
+func renderAlignedPanel(panel Panel, width int, styles styleSet, bodyHeight int) []string {
+	panelWidth := panelRenderWidth(panel, width)
+	panelLines := renderPanel(panel, panelWidth, styles, bodyHeight)
+	if panelWidth >= width {
+		return panelLines
+	}
+
+	leftPadding := strings.Repeat(" ", (width-panelWidth)/2)
+	for index, line := range panelLines {
+		panelLines[index] = fitLine(leftPadding+line, width)
+	}
+
+	return panelLines
+}
+
+func panelRenderWidth(panel Panel, shellWidth int) int {
+	if panel.Width <= 0 || panel.Width >= shellWidth {
+		return shellWidth
+	}
+
+	return panel.Width
 }
 
 func renderPanel(panel Panel, width int, styles styleSet, bodyHeight int) []string {

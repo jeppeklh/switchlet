@@ -780,7 +780,7 @@ func TestFilterTargetFileCandidates_FiltersTOMLFilesByBasenameAndPath(t *testing
 	}
 }
 
-func TestRunCommand_InitReturnsErrorWhenConfigurationExistsInParentDirectory(t *testing.T) {
+func TestRunCommand_InitReturnsFriendlyMessageWhenConfigurationExistsInParentDirectory(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	projectRoot := filepath.Join(workspaceRoot, "project")
 	nestedDirectory := filepath.Join(projectRoot, "src", "MyApplication")
@@ -808,8 +808,115 @@ profiles:
 	if err == nil {
 		t.Fatal("runCommand returned nil error, want existing configuration error")
 	}
-	if !strings.Contains(err.Error(), "discovered existing configuration file") {
-		t.Fatalf("runCommand returned error %q, want existing configuration error", err)
+	if !strings.Contains(err.Error(), "Switchlet found an existing configuration in a parent directory.") {
+		t.Fatalf("runCommand returned error %q, want friendly parent configuration error", err)
+	}
+	if !strings.Contains(err.Error(), filepath.Join(projectRoot, ".switchlet.yaml")) {
+		t.Fatalf("runCommand returned error %q, want existing configuration path", err)
+	}
+}
+
+func TestRunCommand_InitReturnsFriendlyMessageWhenCurrentDirectoryConfigurationExistsWithoutOverwrite(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", "previous: true\n")
+
+	result := runCommandForTest(t, []string{"init"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	for _, expected := range []string{
+		"Switchlet is already configured.",
+		configPath,
+		"switchlet init --overwrite",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_InitOverwriteReplacesCurrentDirectoryConfiguration(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", "previous: true\n")
+	writeFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"1",
+		"1",
+		"1",
+		"1",
+		"database",
+		"n",
+		"Local",
+		"1",
+		"postgres://localhost:5432/myapp",
+		"n",
+		"n",
+		"",
+		"",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init", "--overwrite"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v\noutput: %s", err, output.String())
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
+	}
+	if len(loadedConfig.Targets) != 1 || loadedConfig.Targets[0].Name != "database" {
+		t.Fatalf("targets = %#v, want replacement database target", loadedConfig.Targets)
+	}
+	if !strings.Contains(output.String(), "Replace .switchlet.yaml now? [Y/n]: ") {
+		t.Fatalf("init output %q does not show replacement confirmation", output.String())
+	}
+	if !strings.Contains(output.String(), "Replaced configuration:") {
+		t.Fatalf("init output %q does not report replacement", output.String())
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	if strings.Contains(string(contents), "previous: true") {
+		t.Fatalf("configuration file contents %q still contain old configuration", string(contents))
+	}
+}
+
+func TestRunCommand_InitOverwriteRefusesParentDirectoryConfiguration(t *testing.T) {
+	workspaceRoot := t.TempDir()
+	projectRoot := filepath.Join(workspaceRoot, "project")
+	nestedDirectory := filepath.Join(projectRoot, "src", "MyApplication")
+	if err := os.MkdirAll(nestedDirectory, 0o755); err != nil {
+		t.Fatalf("create nested directory: %v", err)
+	}
+	writeFile(t, projectRoot, ".switchlet.yaml", "previous: true\n")
+
+	result := runCommandForTest(t, []string{"init", "--overwrite"}, nestedDirectory)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(result.stderr, "Switchlet found an existing configuration in a parent directory.") {
+		t.Fatalf("stderr %q does not contain parent-directory refusal", result.stderr)
+	}
+	if _, statErr := os.Stat(filepath.Join(nestedDirectory, ".switchlet.yaml")); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("nested configuration stat error = %v, want not-exist", statErr)
 	}
 }
 

@@ -57,6 +57,10 @@ func Load(configPath string) (Config, error) {
 		return Config{}, fmt.Errorf("read configuration file %q: %w", resolvedConfigPath, err)
 	}
 
+	return loadConfigContents(resolvedConfigPath, contents)
+}
+
+func loadConfigContents(resolvedConfigPath string, contents []byte) (Config, error) {
 	var parsed fileConfig
 	if err := yaml.Unmarshal(contents, &parsed); err != nil {
 		return Config{}, fmt.Errorf("parse configuration file %q: %w", resolvedConfigPath, err)
