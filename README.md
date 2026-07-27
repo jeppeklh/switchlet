@@ -3,7 +3,7 @@
 Switchlet is a small terminal tool for switching project configuration
 profiles safely.
 
-It changes only the JSON, YAML, or dotenv values you explicitly choose, then
+It changes only the JSON, YAML, TOML, or dotenv values you explicitly choose, then
 exits so you can continue your normal development workflow.
 
 ## Install
@@ -31,7 +31,8 @@ switchlet init
 ```
 
 The setup wizard creates `.switchlet.yaml` by asking which existing JSON, YAML,
-or dotenv values Switchlet may manage and which profiles should be available.
+TOML, or dotenv values Switchlet may manage and which profiles should be
+available.
 
 Then run:
 

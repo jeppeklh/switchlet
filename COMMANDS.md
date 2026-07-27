@@ -19,8 +19,8 @@ switchlet init
 `switchlet init` launches the terminal setup wizard when stdin and stdout are
 interactive terminals. Otherwise, it uses line-oriented prompts.
 
-The init flow supports JSON, YAML, and dotenv managed values. YAML files are
-listed only when they contain manageable existing scalar string values.
+The init flow supports JSON, YAML, TOML, and dotenv managed values. YAML and TOML
+files are listed only when they contain manageable existing string values.
 
 ## Profile Commands
 
@@ -73,16 +73,16 @@ values.
 
 ## Examples
 
-List profiles from a mixed JSON, YAML, and dotenv project:
+List profiles from a mixed JSON, YAML, TOML, and dotenv project:
 
 ```text
 $ switchlet list
-Local [3 targets]
-Staging [3 targets, protected]
-Worker Queue Only [1 target, partial]
+Local [4 targets]
+Staging [4 targets, protected]
+Service Endpoint Only [1 target, partial]
 ```
 
-Inspect a profile with a YAML target:
+Inspect a profile with mixed target types:
 
 ```text
 $ switchlet inspect Staging
@@ -91,7 +91,7 @@ Availability: Available
 Source: Mixed
 Protection: Protected
 
-Changes: 3 targets
+Changes: 4 targets
 
 Planned targets:
 - database [json]
@@ -108,6 +108,13 @@ Planned targets:
   source: Environment variable
   environment variable: STAGING_WORKER_QUEUE_ENDPOINT
   masked value: https://queue.staging.example.com
+- serviceEndpoint [toml]
+  file: /workspace/services/development.toml
+  tomlPath: services.api.endpoint
+  status: available
+  source: Environment variable
+  environment variable: STAGING_SERVICE_ENDPOINT
+  masked value: https://services.staging.example.com
 - frontendApi [dotenv]
   file: /workspace/frontend/.env.local
   key: VITE_API_URL
@@ -116,16 +123,16 @@ Planned targets:
   masked value: https://api.staging.example.com
 ```
 
-Dry-run output identifies YAML context without printing replacement values:
+Dry-run output identifies TOML context without printing replacement values:
 
 ```text
-$ switchlet apply "Worker Queue Only" --dry-run
-Dry run successful for profile "Worker Queue Only"
+$ switchlet apply "Service Endpoint Only" --dry-run
+Dry run successful for profile "Service Endpoint Only"
 
 Planned target:
-would update /workspace/worker/config.yaml
-  workerQueue [yaml]
-  queue.endpoint
+would update /workspace/services/development.toml
+  serviceEndpoint [toml]
+  services.api.endpoint
 
 No changes were written.
 ```
