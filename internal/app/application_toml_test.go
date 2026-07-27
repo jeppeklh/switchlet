@@ -337,3 +337,58 @@ retries = 3
 		t.Fatalf("TOML target failure leaked resolved replacement value: err=%q reason=%q", err, failure.Reason)
 	}
 }
+
+func TestInitWorkflow_InspectTargetFileCandidateSupportsTOML(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`
+[services.api]
+endpoint = "http://old.example.test"
+retries = 3
+`)+"\n")
+
+	selection, err := app.DefaultInitWorkflow().InspectTargetFileCandidate(app.InitTargetFileCandidate{
+		Path:         targetPath,
+		RelativePath: "services/development.toml",
+		Type:         app.InitTargetTypeTOML,
+	})
+	if err != nil {
+		t.Fatalf("InspectTargetFileCandidate returned error: %v", err)
+	}
+
+	if selection.TargetType != app.InitTargetTypeTOML {
+		t.Fatalf("TargetType = %q, want toml", selection.TargetType)
+	}
+	if len(selection.TOMLNodes) != 1 || selection.TOMLNodes[0].TOMLPath != "services" {
+		t.Fatalf("TOMLNodes = %#v, want services root", selection.TOMLNodes)
+	}
+	apiNodes := selection.TOMLNodes[0].Children
+	if len(apiNodes) != 1 || apiNodes[0].TOMLPath != "services.api" {
+		t.Fatalf("api TOML nodes = %#v, want services.api", apiNodes)
+	}
+	endpointNodes := apiNodes[0].Children
+	if len(endpointNodes) != 1 || endpointNodes[0].TOMLPath != "services.api.endpoint" || !endpointNodes[0].Selectable {
+		t.Fatalf("endpoint TOML nodes = %#v, want selectable endpoint", endpointNodes)
+	}
+}
+
+func TestInitWorkflow_ValidateTOMLTargetUsesTOMLSelectorRules(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`
+[services.api]
+endpoint = "http://old.example.test"
+retries = 3
+`)+"\n")
+
+	workflow := app.DefaultInitWorkflow()
+	if err := workflow.ValidateTOMLTarget(targetPath, "services.api.endpoint"); err != nil {
+		t.Fatalf("ValidateTOMLTarget returned error: %v", err)
+	}
+
+	err := workflow.ValidateTOMLTarget(targetPath, "services.api.retries")
+	if err == nil {
+		t.Fatal("ValidateTOMLTarget returned nil error, want non-string error")
+	}
+	if !strings.Contains(err.Error(), `TOML path "services.api.retries" must resolve to a string`) {
+		t.Fatalf("ValidateTOMLTarget returned error %q, want TOML selector context", err)
+	}
+}

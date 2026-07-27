@@ -591,7 +591,7 @@ queue:
 
 	outputText := output.String()
 	for _, expected := range []string{
-		"No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered",
+		"No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered",
 		"File type cannot be inferred",
 		"Choose YAML value in worker.config",
 		`Error: validate YAML target file`,
@@ -615,6 +615,168 @@ queue:
 	}
 	if strings.Contains(string(contents), "jsonPath:") || strings.Contains(string(contents), "key:") {
 		t.Fatalf("configuration file contents %q should not contain JSON path or dotenv key fields", string(contents))
+	}
+}
+
+func TestRunCommand_InitCreatesTOMLTargetFromGuidedSelection(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "services.toml", strings.TrimSpace(`
+[services.api]
+endpoint = "http://old.example.test"
+retries = 3
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"1",
+		"1",
+		"1",
+		"1",
+		"serviceEndpoint",
+		"n",
+		"Local",
+		"1",
+		"http://localhost:8080",
+		"n",
+		"n",
+		"",
+		"",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	target := loadedConfig.Targets[0]
+	if target.Name != "serviceEndpoint" || target.Type != config.TargetTypeTOML || target.TOMLPath != "services.api.endpoint" {
+		t.Fatalf("target = %#v, want serviceEndpoint TOML target", target)
+	}
+	if target.JSONPath != "" || target.YAMLPath != "" || target.Key != "" {
+		t.Fatalf("target = %#v, want no JSON path, YAML path, or dotenv key", target)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	for _, expected := range []string{"type: toml", "tomlPath: services.api.endpoint", "target: serviceEndpoint"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("configuration file contents %q do not contain %q", string(contents), expected)
+		}
+	}
+	if strings.Contains(string(contents), "jsonPath:") || strings.Contains(string(contents), "yamlPath:") || strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q should not contain JSON path, YAML path, or dotenv key fields", string(contents))
+	}
+	if !strings.Contains(output.String(), "Detected format: TOML") || !strings.Contains(output.String(), "TOML path: services.api.endpoint") {
+		t.Fatalf("init output %q does not summarize TOML target selection", output.String())
+	}
+}
+
+func TestRunCommand_InitCreatesTOMLTargetFromManualFileTypeAndPathFallback(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "service.config", strings.TrimSpace(`
+[services.api]
+endpoint = "http://old.example.test"
+retries = 3
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"service.config",
+		"3",
+		"2",
+		"services.api.missing",
+		"2",
+		"services.api.endpoint",
+		"serviceEndpoint",
+		"n",
+		"Local",
+		"1",
+		"http://localhost:8080",
+		"n",
+		"n",
+		"",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v\noutput: %s", err, output.String())
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	target := loadedConfig.Targets[0]
+	if target.Name != "serviceEndpoint" || target.File != filepath.Join(projectRoot, "service.config") || target.Type != config.TargetTypeTOML || target.TOMLPath != "services.api.endpoint" {
+		t.Fatalf("target = %#v, want service.config TOML target", target)
+	}
+	if target.JSONPath != "" || target.YAMLPath != "" || target.Key != "" {
+		t.Fatalf("target = %#v, want no JSON path, YAML path, or dotenv key", target)
+	}
+
+	outputText := output.String()
+	for _, expected := range []string{
+		"No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered",
+		"File type cannot be inferred",
+		"Choose TOML value in service.config",
+		`Error: validate TOML target file`,
+		`missing segment "missing"`,
+		"TOML path: services.api.endpoint",
+		"Created configuration:",
+	} {
+		if !strings.Contains(outputText, expected) {
+			t.Fatalf("init output %q does not contain %q", outputText, expected)
+		}
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	for _, expected := range []string{"file: service.config", "type: toml", "tomlPath: services.api.endpoint", "target: serviceEndpoint"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("configuration file contents %q do not contain %q", string(contents), expected)
+		}
+	}
+	if strings.Contains(string(contents), "jsonPath:") || strings.Contains(string(contents), "yamlPath:") || strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q should not contain JSON path, YAML path, or dotenv key fields", string(contents))
+	}
+}
+
+func TestFilterTargetFileCandidates_FiltersTOMLFilesByBasenameAndPath(t *testing.T) {
+	candidates := []editor.TargetFileCandidate{
+		{RelativePath: filepath.Join("backend", "settings.json"), Type: config.TargetTypeJSON},
+		{RelativePath: filepath.Join("services", "development.toml"), Type: config.TargetTypeTOML},
+		{RelativePath: filepath.Join("workers", "queue.toml"), Type: config.TargetTypeTOML},
+	}
+
+	basenameMatches := filterTargetFileCandidates(candidates, "develop")
+	if len(basenameMatches) != 1 || basenameMatches[0].RelativePath != filepath.Join("services", "development.toml") {
+		t.Fatalf("basename matches = %#v, want development.toml", basenameMatches)
+	}
+
+	pathMatches := filterTargetFileCandidates(candidates, "workers")
+	if len(pathMatches) != 1 || pathMatches[0].RelativePath != filepath.Join("workers", "queue.toml") {
+		t.Fatalf("path matches = %#v, want workers/queue.toml", pathMatches)
 	}
 }
 
@@ -836,7 +998,7 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered") {
+	if !strings.Contains(output.String(), "No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered") {
 		t.Fatalf("init output %q does not report empty discovery results", output.String())
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {

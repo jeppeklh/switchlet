@@ -41,9 +41,11 @@ func initWorkflowFromDependencies(dependencies initDependencies) app.InitWorkflo
 		DiscoverTargetFileCandidates: dependencies.discoverTargetFileCandidates,
 		InspectStringTargets:         dependencies.inspectStringTargets,
 		InspectYAMLStringTargets:     dependencies.inspectYAMLStringTargets,
+		InspectTOMLStringTargets:     dependencies.inspectTOMLStringTargets,
 		InspectDotenvKeys:            dependencies.inspectDotenvKeys,
 		ValidateStringTarget:         dependencies.validateStringTarget,
 		ValidateYAMLTarget:           dependencies.validateYAMLTarget,
+		ValidateTOMLTarget:           dependencies.validateTOMLTarget,
 		ValidateDotenvTarget:         dependencies.validateDotenvTarget,
 	})
 }

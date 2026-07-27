@@ -21,9 +21,11 @@ type initDependencies struct {
 	discoverTargetFileCandidates func(string) ([]editor.TargetFileCandidate, error)
 	inspectStringTargets         func(string) ([]editor.StringTargetNode, error)
 	inspectYAMLStringTargets     func(string) ([]editor.YAMLStringTargetNode, error)
+	inspectTOMLStringTargets     func(string) ([]editor.TOMLStringTargetNode, error)
 	inspectDotenvKeys            func(string) ([]string, error)
 	validateStringTarget         func(string, string) error
 	validateYAMLTarget           func(string, string) error
+	validateTOMLTarget           func(string, string) error
 	validateDotenvTarget         func(string, string) error
 	createConfig                 func(string, []config.Target, []config.Profile) (string, config.Config, error)
 	ensureConfigIgnored          func(string) (bool, error)
@@ -44,9 +46,11 @@ func defaultInitDependencies() initDependencies {
 		discoverTargetFileCandidates: editor.DiscoverTargetFileCandidates,
 		inspectStringTargets:         editor.InspectStringTargets,
 		inspectYAMLStringTargets:     editor.InspectYAMLStringTargets,
+		inspectTOMLStringTargets:     editor.InspectTOMLStringTargets,
 		inspectDotenvKeys:            editor.InspectDotenvKeys,
 		validateStringTarget:         editor.ValidateStringTarget,
 		validateYAMLTarget:           editor.ValidateYAMLTarget,
+		validateTOMLTarget:           editor.ValidateTOMLTarget,
 		validateDotenvTarget:         editor.ValidateDotenvTarget,
 		createConfig:                 config.Create,
 		ensureConfigIgnored:          config.EnsureConfigIgnored,
@@ -87,7 +91,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, d
 		return err
 	}
 	if err := writeInitStep(output, 1, "Choose configuration file",
-		"Pick the JSON, YAML, or dotenv file containing a value Switchlet should manage.",
+		"Pick the JSON, YAML, TOML, or dotenv file containing a value Switchlet should manage.",
 		"When many files are discovered, narrow the list by name or path.",
 		"You can also enter a file path manually.",
 	); err != nil {

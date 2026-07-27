@@ -27,6 +27,8 @@ const (
 	InitTargetTypeDotenv InitTargetType = config.TargetTypeDotenv
 	// InitTargetTypeYAML identifies a YAML target selected by yamlPath.
 	InitTargetTypeYAML InitTargetType = config.TargetTypeYAML
+	// InitTargetTypeTOML identifies a TOML target selected by tomlPath.
+	InitTargetTypeTOML InitTargetType = config.TargetTypeTOML
 )
 
 // InitTargetFileCandidate describes one discovered init target file candidate.
@@ -38,6 +40,9 @@ type InitStringTargetNode = editor.StringTargetNode
 // InitYAMLStringTargetNode describes one browseable YAML target node during init.
 type InitYAMLStringTargetNode = editor.YAMLStringTargetNode
 
+// InitTOMLStringTargetNode describes one browseable TOML target node during init.
+type InitTOMLStringTargetNode = editor.TOMLStringTargetNode
+
 // InitTargetFileSelection contains the inspected file data needed by the init wizard.
 type InitTargetFileSelection struct {
 	Path        string
@@ -45,6 +50,7 @@ type InitTargetFileSelection struct {
 	TargetType  InitTargetType
 	Nodes       []InitStringTargetNode
 	YAMLNodes   []InitYAMLStringTargetNode
+	TOMLNodes   []InitTOMLStringTargetNode
 	DotenvKeys  []string
 }
 
@@ -53,9 +59,11 @@ type InitWorkflowDependencies struct {
 	DiscoverTargetFileCandidates func(string) ([]InitTargetFileCandidate, error)
 	InspectStringTargets         func(string) ([]InitStringTargetNode, error)
 	InspectYAMLStringTargets     func(string) ([]InitYAMLStringTargetNode, error)
+	InspectTOMLStringTargets     func(string) ([]InitTOMLStringTargetNode, error)
 	InspectDotenvKeys            func(string) ([]string, error)
 	ValidateStringTarget         func(string, string) error
 	ValidateYAMLTarget           func(string, string) error
+	ValidateTOMLTarget           func(string, string) error
 	ValidateDotenvTarget         func(string, string) error
 }
 
@@ -124,6 +132,12 @@ func (workflow InitWorkflow) InspectTargetFile(targetPath string, displayPath st
 			return InitTargetFileSelection{}, err
 		}
 		selection.YAMLNodes = nodes
+	case config.TargetTypeTOML:
+		nodes, err := workflow.inspectTOMLStringTargets(targetPath)
+		if err != nil {
+			return InitTargetFileSelection{}, err
+		}
+		selection.TOMLNodes = nodes
 	default:
 		return InitTargetFileSelection{}, fmt.Errorf("target type %q is not supported", targetType)
 	}
@@ -156,6 +170,15 @@ func (workflow InitWorkflow) ValidateYAMLTarget(targetPath string, yamlPath stri
 	}
 
 	return editor.ValidateYAMLTarget(targetPath, yamlPath)
+}
+
+// ValidateTOMLTarget validates an explicit TOML selector for init.
+func (workflow InitWorkflow) ValidateTOMLTarget(targetPath string, tomlPath string) error {
+	if workflow.dependencies.ValidateTOMLTarget != nil {
+		return workflow.dependencies.ValidateTOMLTarget(targetPath, tomlPath)
+	}
+
+	return editor.ValidateTOMLTarget(targetPath, tomlPath)
 }
 
 // InferInitTargetType infers a target type from a path using config ownership rules.
@@ -221,4 +244,12 @@ func (workflow InitWorkflow) inspectYAMLStringTargets(targetPath string) ([]Init
 	}
 
 	return editor.InspectYAMLStringTargets(targetPath)
+}
+
+func (workflow InitWorkflow) inspectTOMLStringTargets(targetPath string) ([]InitTOMLStringTargetNode, error) {
+	if workflow.dependencies.InspectTOMLStringTargets != nil {
+		return workflow.dependencies.InspectTOMLStringTargets(targetPath)
+	}
+
+	return editor.InspectTOMLStringTargets(targetPath)
 }

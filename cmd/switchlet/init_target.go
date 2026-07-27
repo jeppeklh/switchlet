@@ -14,6 +14,7 @@ const (
 	manualTargetFileChoiceLabel  = "Enter configuration file manually"
 	manualJSONPathChoiceLabel    = "Enter JSON value path manually"
 	manualYAMLPathChoiceLabel    = "Enter YAML value path manually"
+	manualTOMLPathChoiceLabel    = "Enter TOML value path manually"
 	manualDotenvKeyChoiceLabel   = "Enter dotenv value key manually"
 	chooseDifferentFileLabel     = "Back to file selection"
 	goBackChoiceLabel            = "Back up one level"
@@ -27,6 +28,8 @@ const (
 	jsonPathChoiceWindowSize     = 12
 	searchYAMLPathsChoiceLabel   = "Search YAML values"
 	browseYAMLPathsChoiceLabel   = "Browse YAML path hierarchy"
+	searchTOMLPathsChoiceLabel   = "Search TOML values"
+	browseTOMLPathsChoiceLabel   = "Browse TOML path hierarchy"
 	filterDotenvKeysChoiceLabel  = "Filter dotenv keys"
 	dotenvKeyChoiceWindowSize    = 12
 )
@@ -88,7 +91,7 @@ func promptTargets(prompter initPrompter, workingDirectory string, dependencies 
 		}
 
 		if err := writeInitStep(prompter.writer, 1, "Choose configuration file",
-			"Pick the next JSON, YAML, or dotenv file containing a value Switchlet should manage.",
+			"Pick the next JSON, YAML, TOML, or dotenv file containing a value Switchlet should manage.",
 			"You can also enter a file path manually.",
 		); err != nil {
 			return nil, err
@@ -142,6 +145,8 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 			target.Key = selector
 		case config.TargetTypeYAML:
 			target.YAMLPath = selector
+		case config.TargetTypeTOML:
+			target.TOMLPath = selector
 		default:
 			target.JSONPath = selector
 		}
@@ -156,6 +161,8 @@ func targetSelectorStepTitle(targetType config.TargetType) string {
 		return "Choose dotenv value"
 	case config.TargetTypeYAML:
 		return "Choose YAML value"
+	case config.TargetTypeTOML:
+		return "Choose TOML value"
 	default:
 		return "Choose JSON value"
 	}
@@ -167,6 +174,8 @@ func targetSelectorStepGuidance(targetType config.TargetType) string {
 		return "Choose an existing dotenv key that appears once. Switchlet does not create missing keys."
 	case config.TargetTypeYAML:
 		return "Choose an existing string-valued YAML path. Switchlet does not create missing values. Browse the mapping hierarchy, search when the file has many selectable values, or enter a path manually."
+	case config.TargetTypeTOML:
+		return "Choose an existing string-valued TOML path. Switchlet does not create missing values. Browse the table hierarchy, search when the file has many selectable values, or enter a path manually."
 	default:
 		return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
 	}
@@ -178,6 +187,8 @@ func targetSelectorLabel(target config.Target) (string, string) {
 		return "Key", target.Key
 	case config.TargetTypeYAML:
 		return "YAML path", target.YAMLPath
+	case config.TargetTypeTOML:
+		return "TOML path", target.TOMLPath
 	default:
 		return "JSON path", target.JSONPath
 	}
@@ -189,6 +200,8 @@ func targetTypeDisplayName(targetType config.TargetType) string {
 		return "JSON"
 	case config.TargetTypeYAML:
 		return "YAML"
+	case config.TargetTypeTOML:
+		return "TOML"
 	case config.TargetTypeDotenv:
 		return "dotenv"
 	default:
@@ -205,7 +218,7 @@ discoveryLoop:
 		}
 
 		if len(candidates) == 0 {
-			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
+			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
 				return targetFileSelection{}, err
 			}
 
@@ -369,12 +382,15 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 }
 
 func promptExplicitTargetType(prompter initPrompter, targetPath string) (config.TargetType, error) {
-	choice, err := prompter.promptChoice(fmt.Sprintf("File type cannot be inferred from %s. Choose file type:", targetPath), []string{"JSON", "YAML", "dotenv"})
+	choice, err := prompter.promptChoice(fmt.Sprintf("File type cannot be inferred from %s. Choose file type:", targetPath), []string{"JSON", "YAML", "TOML", "dotenv"})
 	if err != nil {
 		return "", err
 	}
 	if choice == "YAML" {
 		return config.TargetTypeYAML, nil
+	}
+	if choice == "TOML" {
+		return config.TargetTypeTOML, nil
 	}
 	if choice == "dotenv" {
 		return config.TargetTypeDotenv, nil
@@ -422,6 +438,12 @@ func inspectTargetFile(targetPath string, displayPath string, targetType config.
 			return targetFileSelection{}, err
 		}
 		selection.nodes = yamlTargetSelectorNodes(nodes)
+	case config.TargetTypeTOML:
+		nodes, err := dependencies.inspectTOMLStringTargets(targetPath)
+		if err != nil {
+			return targetFileSelection{}, err
+		}
+		selection.nodes = tomlTargetSelectorNodes(nodes)
 	default:
 		return targetFileSelection{}, fmt.Errorf("target type %q is not supported", targetType)
 	}
@@ -434,6 +456,8 @@ func promptTargetSelector(prompter initPrompter, selectedFile targetFileSelectio
 	case config.TargetTypeJSON:
 		return promptTargetStructuredPath(prompter, selectedFile, dependencies)
 	case config.TargetTypeYAML:
+		return promptTargetStructuredPath(prompter, selectedFile, dependencies)
+	case config.TargetTypeTOML:
 		return promptTargetStructuredPath(prompter, selectedFile, dependencies)
 	case config.TargetTypeDotenv:
 		return promptTargetDotenvKey(prompter, selectedFile, dependencies)
@@ -840,41 +864,70 @@ func yamlTargetSelectorNodes(nodes []editor.YAMLStringTargetNode) []targetSelect
 	return convertedNodes
 }
 
+func tomlTargetSelectorNodes(nodes []editor.TOMLStringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.TOMLPath,
+			selectable: node.Selectable,
+			children:   tomlTargetSelectorNodes(node.Children),
+		})
+	}
+
+	return convertedNodes
+}
+
 func searchStructuredPathsChoiceLabel(targetType config.TargetType) string {
-	if targetType == config.TargetTypeYAML {
+	switch targetType {
+	case config.TargetTypeYAML:
 		return searchYAMLPathsChoiceLabel
+	case config.TargetTypeTOML:
+		return searchTOMLPathsChoiceLabel
 	}
 
 	return searchJSONPathsChoiceLabel
 }
 
 func manualStructuredPathChoiceLabel(targetType config.TargetType) string {
-	if targetType == config.TargetTypeYAML {
+	switch targetType {
+	case config.TargetTypeYAML:
 		return manualYAMLPathChoiceLabel
+	case config.TargetTypeTOML:
+		return manualTOMLPathChoiceLabel
 	}
 
 	return manualJSONPathChoiceLabel
 }
 
 func browseStructuredPathsChoiceLabel(targetType config.TargetType) string {
-	if targetType == config.TargetTypeYAML {
+	switch targetType {
+	case config.TargetTypeYAML:
 		return browseYAMLPathsChoiceLabel
+	case config.TargetTypeTOML:
+		return browseTOMLPathsChoiceLabel
 	}
 
 	return browseJSONPathsChoiceLabel
 }
 
 func manualStructuredPathInputPrompt(targetType config.TargetType) string {
-	if targetType == config.TargetTypeYAML {
+	switch targetType {
+	case config.TargetTypeYAML:
 		return "YAML value path: "
+	case config.TargetTypeTOML:
+		return "TOML value path: "
 	}
 
 	return "JSON value path: "
 }
 
 func validateStructuredTargetSelector(dependencies initDependencies, targetType config.TargetType, targetPath string, selector string) error {
-	if targetType == config.TargetTypeYAML {
+	switch targetType {
+	case config.TargetTypeYAML:
 		return dependencies.validateYAMLTarget(targetPath, selector)
+	case config.TargetTypeTOML:
+		return dependencies.validateTOMLTarget(targetPath, selector)
 	}
 
 	return dependencies.validateStringTarget(targetPath, selector)
