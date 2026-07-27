@@ -244,6 +244,8 @@ func normalizeTargets(targets []config.Target) []config.Target {
 				configuredTarget.Type = config.TargetTypeDotenv
 			case configuredTarget.YAMLPath != "":
 				configuredTarget.Type = config.TargetTypeYAML
+			case configuredTarget.TOMLPath != "":
+				configuredTarget.Type = config.TargetTypeTOML
 			default:
 				configuredTarget.Type = config.TargetTypeJSON
 			}
@@ -333,6 +335,8 @@ func targetSelector(target config.Target) (string, string) {
 		return "key", target.Key
 	case config.TargetTypeYAML:
 		return "yamlPath", target.YAMLPath
+	case config.TargetTypeTOML:
+		return "tomlPath", target.TOMLPath
 	default:
 		return "jsonPath", target.JSONPath
 	}

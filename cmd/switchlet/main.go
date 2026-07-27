@@ -661,6 +661,8 @@ func selectorValue(target config.Target) string {
 		return target.Key
 	case config.TargetTypeYAML:
 		return target.YAMLPath
+	case config.TargetTypeTOML:
+		return target.TOMLPath
 	default:
 		return target.JSONPath
 	}

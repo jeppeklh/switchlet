@@ -357,6 +357,8 @@ func singleResultSelectorLabel(result app.Result) string {
 		return "Target key"
 	case "yamlPath":
 		return "Target YAML path"
+	case "tomlPath":
+		return "Target TOML path"
 	default:
 		return "Target JSON path"
 	}
