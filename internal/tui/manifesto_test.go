@@ -19,6 +19,7 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 		[]config.Target{
 			{Name: "database-with-a-very-long-target-name", File: "/very/long/project/path/backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
 			{Name: "worker-queue-with-a-very-long-target-name", File: "/very/long/project/path/worker/configuration/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "services.worker.queue.primary.endpoint.with.many.segments"},
+			{Name: "service-endpoint-with-a-very-long-target-name", File: "/very/long/project/path/services/configuration/development.toml", Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint.with.many.segments"},
 			{Name: "frontend-api-with-a-very-long-target-name", File: "/very/long/project/path/frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
 		},
 		[]config.Profile{{
@@ -27,6 +28,7 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 			Values: []config.ProfileValue{
 				{Target: "database-with-a-very-long-target-name", ValueFromEnv: stringPointer("LONG_DATABASE_URL")},
 				{Target: "worker-queue-with-a-very-long-target-name", Value: stringPointer("https://queue.production.example.test/with/a/long/path")},
+				{Target: "service-endpoint-with-a-very-long-target-name", Value: stringPointer("https://service.production.example.test/with/a/long/path")},
 				{Target: "frontend-api-with-a-very-long-target-name", Value: stringPointer("https://api.production.example.test/with/a/long/path")},
 			},
 		}},
@@ -86,7 +88,7 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 			model = updatedModel.(Model)
 			view := model.View()
 			assertManifestoMainView(t, view, size.width, size.height, "Cancel")
-			for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test/with/a/long/path", "https://api.production.example.test/with/a/long/path"} {
+			for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test/with/a/long/path", "https://service.production.example.test/with/a/long/path", "https://api.production.example.test/with/a/long/path"} {
 				if strings.Contains(view, forbidden) {
 					t.Fatalf("confirmation View() = %q, must not contain resolved value %q", view, forbidden)
 				}
@@ -117,13 +119,14 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 				Changes: []app.PlannedChange{
 					{TargetName: "database-with-a-very-long-target-name", TargetFile: "/very/long/project/path/backend/appsettings.Development.json", TargetType: config.TargetTypeJSON, SelectorName: "jsonPath", Selector: "services.database.primary.connectionStrings.defaultConnection.value"},
 					{TargetName: "worker-queue-with-a-very-long-target-name", TargetFile: "/very/long/project/path/worker/configuration/config.yaml", TargetType: config.TargetTypeYAML, SelectorName: "yamlPath", Selector: "services.worker.queue.primary.endpoint.with.many.segments"},
+					{TargetName: "service-endpoint-with-a-very-long-target-name", TargetFile: "/very/long/project/path/services/configuration/development.toml", TargetType: config.TargetTypeTOML, SelectorName: "tomlPath", Selector: "services.api.endpoint.with.many.segments"},
 					{TargetName: "frontend-api-with-a-very-long-target-name", TargetFile: "/very/long/project/path/frontend/.env.local", TargetType: config.TargetTypeDotenv, SelectorName: "key", Selector: "VITE_APPLICATION_BACKEND_API_URL"},
 				},
 			}
 			view := model.View()
 			assertVisibleWidth(t, view, size.width)
 			assertVisibleHeight(t, view, size.height)
-			for _, forbidden := range []string{"super-secret", "https://queue.production.example.test/with/a/long/path", "https://api.production.example.test/with/a/long/path"} {
+			for _, forbidden := range []string{"super-secret", "https://queue.production.example.test/with/a/long/path", "https://service.production.example.test/with/a/long/path", "https://api.production.example.test/with/a/long/path"} {
 				if strings.Contains(view, forbidden) || strings.Contains(model.FinalMessage(), forbidden) {
 					t.Fatalf("success output must not contain resolved value %q\nview: %q\nfinal: %q", forbidden, view, model.FinalMessage())
 				}

@@ -368,6 +368,9 @@ func targetSelectorDisplayLabel(selectorName string) string {
 	if selectorName == "yamlPath" {
 		return "yamlPath"
 	}
+	if selectorName == "tomlPath" {
+		return "tomlPath"
+	}
 
 	if selectorName == "jsonPath" || selectorName == "" {
 		return "Target JSON path"
@@ -385,7 +388,7 @@ func selectorFieldName(selectorName string) string {
 }
 
 func selectorSummary(selectorName string, selector string) string {
-	if selectorName == "yamlPath" {
+	if selectorName == "yamlPath" || selectorName == "tomlPath" {
 		return selectorFieldName(selectorName) + ": " + selector
 	}
 
@@ -401,7 +404,7 @@ func plannedChangeSelectorLine(change app.PlannedChange) string {
 }
 
 func targetFailureSelectorLabel(selectorName string) string {
-	if selectorName == "yamlPath" {
+	if selectorName == "yamlPath" || selectorName == "tomlPath" {
 		return selectorFieldName(selectorName)
 	}
 

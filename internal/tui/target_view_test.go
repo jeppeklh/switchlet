@@ -137,6 +137,65 @@ func TestView_LongYAMLTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T
 	assertVisibleWidth(t, successModel.View(), 80)
 }
 
+func TestView_LongTOMLTargetPathAndSelectorStayContainedAcrossMainSurfaces(t *testing.T) {
+	targetFile := "/very/long/project/path/with/many/segments/services/configuration/development.toml"
+	target := config.Target{Name: "serviceEndpoint", File: targetFile, Type: config.TargetTypeTOML, TOMLPath: "services.worker.queues.primary.connection.endpoint.with.many.segments"}
+	profile := config.Profile{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}
+	model := New(app.New(target, []config.Profile{profile}))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	assertTargetFilenameVisible(t, "list", model.View(), "development.toml")
+	assertVisibleWidth(t, model.View(), 80)
+	if !strings.Contains(model.View(), "tomlPath:") {
+		t.Fatalf("list View() = %q, want TOML selector label", model.View())
+	}
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	assertTargetFilenameVisible(t, "inspection", model.View(), "development.toml")
+	assertVisibleWidth(t, model.View(), 80)
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	assertTargetFilenameVisible(t, "confirmation", model.View(), "development.toml")
+	assertVisibleWidth(t, model.View(), 80)
+
+	errorModel := model
+	errorModel.state = errorState
+	errorModel.recoverableError = errorModel.targetFailureError("Production", app.TargetFailure{
+		TargetName:   "serviceEndpoint",
+		TargetFile:   targetFile,
+		TargetType:   config.TargetTypeTOML,
+		SelectorName: "tomlPath",
+		Selector:     target.TOMLPath,
+		Reason:       "missing segment \"endpoint\"",
+	}, nil)
+	assertTargetFilenameVisible(t, "error", errorModel.View(), "development.toml")
+	assertVisibleWidth(t, errorModel.View(), 80)
+
+	successModel := model
+	successModel.state = successState
+	successModel.successResult = &app.Result{
+		ProfileName: "Production",
+		Changes: []app.PlannedChange{{
+			TargetName:   "serviceEndpoint",
+			TargetFile:   targetFile,
+			TargetType:   config.TargetTypeTOML,
+			SelectorName: "tomlPath",
+			Selector:     target.TOMLPath,
+		}},
+	}
+	assertTargetFilenameVisible(t, "success", successModel.View(), "development.toml")
+	assertVisibleWidth(t, successModel.View(), 80)
+}
+
 func assertTargetFilenameVisible(t *testing.T, surface string, view string, filename string) {
 	t.Helper()
 
@@ -198,11 +257,13 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 
 	databasePath := "/workspace/backend/appsettings.Development.json"
 	workerPath := "/workspace/worker/config.yaml"
+	servicePath := "/workspace/services/development.toml"
 	frontendPath := "/workspace/frontend/.env.local"
 	model := New(app.NewWithTargets(
 		[]config.Target{
 			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
 			{Name: "workerQueue", File: workerPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			{Name: "serviceEndpoint", File: servicePath, Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint"},
 			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
 		},
 		[]config.Profile{{
@@ -211,6 +272,7 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 			Values: []config.ProfileValue{
 				{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")},
 				{Target: "workerQueue", Value: stringPointer("https://queue.staging.example.test")},
+				{Target: "serviceEndpoint", Value: stringPointer("https://service.staging.example.test")},
 				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
 			},
 		}},
@@ -225,7 +287,7 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 	view := model.View()
 	for _, expected := range []string{
 		"Inspect Profile",
-		"Changes: 3 targets",
+		"Changes: 4 targets",
 		databasePath,
 		"database [json] -> database.url",
 		"Environment variable: STAGING_DATABASE_URL",
@@ -233,6 +295,9 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 		workerPath,
 		"workerQueue [yaml] -> yamlPath: queue.endpoint",
 		"Value: https://queue.staging.example.test",
+		servicePath,
+		"serviceEndpoint [toml] -> tomlPath: services.api.endpoint",
+		"Value: https://service.staging.example.test",
 		frontendPath,
 		"frontendApi [dotenv] -> VITE_API_URL",
 		"Value: https://api.staging.example.test",
@@ -249,11 +314,13 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 	databasePath := "/workspace/backend/appsettings.Development.json"
 	workerPath := "/workspace/worker/config.yaml"
+	servicePath := "/workspace/services/development.toml"
 	frontendPath := "/workspace/frontend/.env.local"
 	model := New(app.NewWithTargets(
 		[]config.Target{
 			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
 			{Name: "workerQueue", File: workerPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			{Name: "serviceEndpoint", File: servicePath, Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint"},
 			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
 		},
 		[]config.Profile{{
@@ -262,6 +329,7 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 			Values: []config.ProfileValue{
 				{Target: "database", Value: stringPointer("Server=prod;Database=App;Password=super-secret;")},
 				{Target: "workerQueue", Value: stringPointer("https://queue.production.example.test")},
+				{Target: "serviceEndpoint", Value: stringPointer("https://service.production.example.test")},
 				{Target: "frontendApi", Value: stringPointer("https://api.production.example.test")},
 			},
 		}},
@@ -279,13 +347,15 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 	view := model.View()
 	for _, expected := range []string{
 		"Apply protected profile?",
-		"Changes: 3 targets",
+		"Changes: 4 targets",
 		"This will update configured targets only.",
 		"Resolved values are intentionally hidden.",
 		databasePath,
 		"database [json] -> database.url",
 		workerPath,
 		"workerQueue [yaml] -> yamlPath: queue.endpoint",
+		servicePath,
+		"serviceEndpoint [toml] -> tomlPath: services.api.endpoint",
 		frontendPath,
 		"frontendApi [dotenv] -> VITE_API_URL",
 	} {
@@ -293,7 +363,7 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 			t.Fatalf("View() = %q, want confirmation detail %q", view, expected)
 		}
 	}
-	for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test", "https://api.production.example.test"} {
+	for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test", "https://service.production.example.test", "https://api.production.example.test"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, must not contain resolved value %q", view, forbidden)
 		}

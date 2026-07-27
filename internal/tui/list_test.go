@@ -100,158 +100,216 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 	}
 }
 
-func TestView_YAMLSingleTargetContextUsesYAMLSelectorLabel(t *testing.T) {
-	model := New(app.New(
-		config.Target{Name: "workerQueue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
-		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}},
-	))
-
-	view := model.View()
-	for _, expected := range []string{
-		"Name: workerQueue [yaml]",
-		"Target file: worker/config.yaml",
-		"yamlPath: queue.endpoint",
-	} {
-		if !strings.Contains(view, expected) {
-			t.Fatalf("View() = %q, want YAML selected-profile context %q", view, expected)
-		}
-	}
-	for _, forbidden := range []string{"Target JSON path", "Target selector", "super-secret", "Password=****"} {
-		if strings.Contains(view, forbidden) {
-			t.Fatalf("View() = %q, must not contain %q", view, forbidden)
-		}
-	}
-
-	updatedModel, command := model.Update(runeKey('i'))
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want no command when opening inspection")
+func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) {
+	tests := []struct {
+		name         string
+		target       config.Target
+		selectorName string
+		selector     string
+	}{
+		{
+			name:         "YAML",
+			target:       config.Target{Name: "workerQueue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			selectorName: "yamlPath",
+			selector:     "queue.endpoint",
+		},
+		{
+			name:         "TOML",
+			target:       config.Target{Name: "serviceEndpoint", File: "services/development.toml", Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint"},
+			selectorName: "tomlPath",
+			selector:     "services.api.endpoint",
+		},
 	}
 
-	inspectionView := model.View()
-	for _, expected := range []string{
-		"Inspect Profile",
-		"Name: workerQueue [yaml]",
-		"Target file: worker/config.yaml",
-		"yamlPath: queue.endpoint",
-		"Masked value: Server=prod;Password=****;",
-	} {
-		if !strings.Contains(inspectionView, expected) {
-			t.Fatalf("inspection View() = %q, want YAML inspection context %q", inspectionView, expected)
-		}
-	}
-	if strings.Contains(inspectionView, "super-secret") {
-		t.Fatalf("inspection View() = %q, must not contain unmasked secret", inspectionView)
-	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			model := New(app.New(
+				testCase.target,
+				[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}},
+			))
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
+			view := model.View()
+			for _, expected := range []string{
+				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				"Target file: " + testCase.target.File,
+				testCase.selectorName + ": " + testCase.selector,
+			} {
+				if !strings.Contains(view, expected) {
+					t.Fatalf("View() = %q, want %s selected-profile context %q", view, testCase.name, expected)
+				}
+			}
+			for _, forbidden := range []string{"Target JSON path", "Target selector", "super-secret", "Password=****"} {
+				if strings.Contains(view, forbidden) {
+					t.Fatalf("View() = %q, must not contain %q", view, forbidden)
+				}
+			}
 
-	confirmationView := model.View()
-	for _, expected := range []string{
-		"Apply protected profile?",
-		"Name: workerQueue [yaml]",
-		"Target file: worker/config.yaml",
-		"yamlPath: queue.endpoint",
-		"resolved value is intentionally hidden",
-	} {
-		if !strings.Contains(confirmationView, expected) {
-			t.Fatalf("confirmation View() = %q, want YAML confirmation context %q", confirmationView, expected)
-		}
-	}
-	for _, forbidden := range []string{"super-secret", "Password=****"} {
-		if strings.Contains(confirmationView, forbidden) {
-			t.Fatalf("confirmation View() = %q, must not contain resolved value %q", confirmationView, forbidden)
-		}
+			updatedModel, command := model.Update(runeKey('i'))
+			model = updatedModel.(Model)
+			if command != nil {
+				t.Fatal("command is not nil, want no command when opening inspection")
+			}
+
+			inspectionView := model.View()
+			for _, expected := range []string{
+				"Inspect Profile",
+				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				"Target file: " + testCase.target.File,
+				testCase.selectorName + ": " + testCase.selector,
+				"Masked value: Server=prod;Password=****;",
+			} {
+				if !strings.Contains(inspectionView, expected) {
+					t.Fatalf("inspection View() = %q, want %s inspection context %q", inspectionView, testCase.name, expected)
+				}
+			}
+			if strings.Contains(inspectionView, "super-secret") {
+				t.Fatalf("inspection View() = %q, must not contain unmasked secret", inspectionView)
+			}
+
+			updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			model = updatedModel.(Model)
+			if command != nil {
+				t.Fatal("command is not nil, want confirmation before apply")
+			}
+			if model.state != confirmState {
+				t.Fatalf("state = %d, want confirmState", model.state)
+			}
+
+			confirmationView := model.View()
+			for _, expected := range []string{
+				"Apply protected profile?",
+				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				"Target file: " + testCase.target.File,
+				testCase.selectorName + ": " + testCase.selector,
+				"resolved value is intentionally hidden",
+			} {
+				if !strings.Contains(confirmationView, expected) {
+					t.Fatalf("confirmation View() = %q, want %s confirmation context %q", confirmationView, testCase.name, expected)
+				}
+			}
+			for _, forbidden := range []string{"super-secret", "Password=****"} {
+				if strings.Contains(confirmationView, forbidden) {
+					t.Fatalf("confirmation View() = %q, must not contain resolved value %q", confirmationView, forbidden)
+				}
+			}
+		})
 	}
 }
 
-func TestView_YAMLSuccessFinalMessageAndErrorsUseSafeTargetContext(t *testing.T) {
-	model := New(app.New(
-		config.Target{Name: "workerQueue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("https://secret.queue.example.test")}},
-	))
-	model.state = successState
-	model.successResult = &app.Result{
-		ProfileName: "Local",
-		Changes: []app.PlannedChange{{
-			TargetName:   "workerQueue",
-			TargetFile:   "worker/config.yaml",
-			TargetType:   config.TargetTypeYAML,
-			SelectorName: "yamlPath",
-			Selector:     "queue.endpoint",
-		}},
+func TestView_PathTargetSuccessFinalMessageAndErrorsUseSafeTargetContext(t *testing.T) {
+	tests := []struct {
+		name            string
+		targetName      string
+		targetFile      string
+		targetType      config.TargetType
+		selectorName    string
+		selector        string
+		missingSelector string
+		secretValue     string
+	}{
+		{
+			name:            "YAML",
+			targetName:      "workerQueue",
+			targetFile:      "worker/config.yaml",
+			targetType:      config.TargetTypeYAML,
+			selectorName:    "yamlPath",
+			selector:        "queue.endpoint",
+			missingSelector: "queue.missing",
+			secretValue:     "https://secret.queue.example.test",
+		},
+		{
+			name:            "TOML",
+			targetName:      "serviceEndpoint",
+			targetFile:      "services/development.toml",
+			targetType:      config.TargetTypeTOML,
+			selectorName:    "tomlPath",
+			selector:        "services.api.endpoint",
+			missingSelector: "services.api.missing",
+			secretValue:     "https://secret.service.example.test",
+		},
 	}
 
-	view := model.View()
-	for _, expected := range []string{
-		"Applied profile: Local",
-		"Updated target:",
-		"updated worker/config.yaml",
-		"workerQueue [yaml]",
-		"yamlPath: queue.endpoint",
-	} {
-		if !strings.Contains(view, expected) {
-			t.Fatalf("View() = %q, want YAML success context %q", view, expected)
-		}
-	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			model := New(app.New(
+				config.Target{Name: testCase.targetName, File: testCase.targetFile, Type: testCase.targetType},
+				[]config.Profile{{Name: "Local", Value: stringPointer(testCase.secretValue)}},
+			))
+			model.state = successState
+			model.successResult = &app.Result{
+				ProfileName: "Local",
+				Changes: []app.PlannedChange{{
+					TargetName:   testCase.targetName,
+					TargetFile:   testCase.targetFile,
+					TargetType:   testCase.targetType,
+					SelectorName: testCase.selectorName,
+					Selector:     testCase.selector,
+				}},
+			}
 
-	finalMessage := model.FinalMessage()
-	for _, expected := range []string{
-		"Applied profile \"Local\"",
-		"Updated target:",
-		"updated worker/config.yaml",
-		"workerQueue [yaml]",
-		"yamlPath: queue.endpoint",
-	} {
-		if !strings.Contains(finalMessage, expected) {
-			t.Fatalf("FinalMessage() = %q, want YAML final context %q", finalMessage, expected)
-		}
-	}
-	for _, forbidden := range []string{"https://secret.queue.example.test"} {
-		if strings.Contains(view, forbidden) || strings.Contains(finalMessage, forbidden) {
-			t.Fatalf("YAML success output must not contain resolved value %q\nview: %q\nfinal: %q", forbidden, view, finalMessage)
-		}
-	}
+			view := model.View()
+			for _, expected := range []string{
+				"Applied profile: Local",
+				"Updated target:",
+				"updated " + testCase.targetFile,
+				testCase.targetName + " [" + string(testCase.targetType) + "]",
+				testCase.selectorName + ": " + testCase.selector,
+			} {
+				if !strings.Contains(view, expected) {
+					t.Fatalf("View() = %q, want %s success context %q", view, testCase.name, expected)
+				}
+			}
 
-	errorModel := New(app.New(
-		config.Target{Name: "workerQueue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.missing"},
-		[]config.Profile{{Name: "Local", Value: stringPointer("https://secret.queue.example.test")}},
-	))
-	errorModel.state = errorState
-	errorModel.recoverableError = errorModel.targetFailureError("Local", app.TargetFailure{
-		TargetName:   "workerQueue",
-		TargetFile:   "worker/config.yaml",
-		TargetType:   config.TargetTypeYAML,
-		SelectorName: "yamlPath",
-		Selector:     "queue.missing",
-		Reason:       "missing segment \"missing\"",
-	}, nil)
+			finalMessage := model.FinalMessage()
+			for _, expected := range []string{
+				"Applied profile \"Local\"",
+				"Updated target:",
+				"updated " + testCase.targetFile,
+				testCase.targetName + " [" + string(testCase.targetType) + "]",
+				testCase.selectorName + ": " + testCase.selector,
+			} {
+				if !strings.Contains(finalMessage, expected) {
+					t.Fatalf("FinalMessage() = %q, want %s final context %q", finalMessage, testCase.name, expected)
+				}
+			}
+			if strings.Contains(view, testCase.secretValue) || strings.Contains(finalMessage, testCase.secretValue) {
+				t.Fatalf("%s success output must not contain resolved value %q\nview: %q\nfinal: %q", testCase.name, testCase.secretValue, view, finalMessage)
+			}
 
-	errorView := errorModel.View()
-	for _, expected := range []string{
-		"Could not prepare target \"workerQueue\".",
-		"Context:",
-		"Profile: Local",
-		"Target: workerQueue [yaml]",
-		"File: worker/config.yaml",
-		"yamlPath: queue.missing",
-		"Reason:",
-		"missing segment \"missing\"",
-		"Recovery:",
-	} {
-		if !strings.Contains(errorView, expected) {
-			t.Fatalf("error View() = %q, want YAML error context %q", errorView, expected)
-		}
-	}
-	if strings.Contains(errorView, "https://secret.queue.example.test") {
-		t.Fatalf("error View() = %q, must not contain resolved value", errorView)
+			errorModel := New(app.New(
+				config.Target{Name: testCase.targetName, File: testCase.targetFile, Type: testCase.targetType},
+				[]config.Profile{{Name: "Local", Value: stringPointer(testCase.secretValue)}},
+			))
+			errorModel.state = errorState
+			errorModel.recoverableError = errorModel.targetFailureError("Local", app.TargetFailure{
+				TargetName:   testCase.targetName,
+				TargetFile:   testCase.targetFile,
+				TargetType:   testCase.targetType,
+				SelectorName: testCase.selectorName,
+				Selector:     testCase.missingSelector,
+				Reason:       "missing segment \"missing\"",
+			}, nil)
+
+			errorView := errorModel.View()
+			for _, expected := range []string{
+				"Could not prepare target \"" + testCase.targetName + "\".",
+				"Context:",
+				"Profile: Local",
+				"Target: " + testCase.targetName + " [" + string(testCase.targetType) + "]",
+				"File: " + testCase.targetFile,
+				testCase.selectorName + ": " + testCase.missingSelector,
+				"Reason:",
+				"missing segment \"missing\"",
+				"Recovery:",
+			} {
+				if !strings.Contains(errorView, expected) {
+					t.Fatalf("error View() = %q, want %s error context %q", errorView, testCase.name, expected)
+				}
+			}
+			if strings.Contains(errorView, testCase.secretValue) {
+				t.Fatalf("error View() = %q, must not contain resolved value", errorView)
+			}
+		})
 	}
 }
 
