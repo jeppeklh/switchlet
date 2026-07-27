@@ -37,7 +37,7 @@ func (model initWizardModel) View() string {
 	case initWizardStepManualFile:
 		return model.textInputView(1, "Enter configuration file path", []string{
 			"Task",
-			"Enter a relative or absolute JSON, YAML, or dotenv file path.",
+			"Enter a relative or absolute JSON, YAML, TOML, or dotenv file path.",
 			"Switchlet inspects it before continuing.",
 		}, "Configuration file", "Validate file")
 	case initWizardStepTypeSelect:
@@ -50,7 +50,7 @@ func (model initWizardModel) View() string {
 				"Task",
 				"Choose the file type because the format cannot be inferred safely.",
 			},
-			[]string{"JSON", "YAML", "dotenv"},
+			[]string{"JSON", "YAML", "TOML", "dotenv"},
 		)
 	case initWizardStepPathBrowse:
 		return model.pathBrowseView()
@@ -144,7 +144,7 @@ func pendingEffectContextLines(pendingEffect initWizardPendingEffect) []string {
 	}
 	if pendingEffect.Selector != "" {
 		selectorLabel := "Value"
-		if pendingEffect.Kind == initWizardEffectJSONSelectorValidation || pendingEffect.Kind == initWizardEffectYAMLSelectorValidation {
+		if pendingEffect.Kind == initWizardEffectJSONSelectorValidation || pendingEffect.Kind == initWizardEffectYAMLSelectorValidation || pendingEffect.Kind == initWizardEffectTOMLSelectorValidation {
 			selectorLabel = structuredPathSummaryLabel(pendingEffect.TargetType)
 		}
 		if pendingEffect.Kind == initWizardEffectDotenvKeyValidation {
@@ -198,7 +198,7 @@ func (model initWizardModel) fileSelectionView() string {
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines,
 			"No supported configuration files were discovered.",
-			"Need existing JSON/YAML strings or unique dotenv keys.",
+			"Need existing JSON/YAML/TOML strings or unique dotenv keys.",
 			"Press m to enter a file path manually.",
 		)
 	} else {
@@ -214,7 +214,7 @@ func (model initWizardModel) fileSelectionView() string {
 	guidanceLines := []string{
 		"Task",
 		"Choose a supported configuration file.",
-		"JSON, YAML, and dotenv files are supported.",
+		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
 		"",
 		"Manual fallback",
@@ -344,7 +344,7 @@ func (model initWizardModel) dotenvKeySelectView() string {
 }
 
 func (model initWizardModel) managedValueNameGuidanceLines() []string {
-	_, selector := initTargetSelectorLabel(app.InitTarget{Type: model.selectedFile.TargetType, JSONPath: model.selectedJSONPath, YAMLPath: model.selectedYAMLPath, Key: model.selectedDotenvKey})
+	_, selector := initTargetSelectorLabel(app.InitTarget{Type: model.selectedFile.TargetType, JSONPath: model.selectedJSONPath, YAMLPath: model.selectedYAMLPath, TOMLPath: model.selectedTOMLPath, Key: model.selectedDotenvKey})
 	lines := []string{
 		ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 		ui.RenderKeyValue("Selected value", selector),
@@ -535,6 +535,8 @@ func initTargetSelectorLabel(target app.InitTarget) (string, string) {
 		return "Key", target.Key
 	case app.InitTargetTypeYAML:
 		return "YAML path", target.YAMLPath
+	case app.InitTargetTypeTOML:
+		return "TOML path", target.TOMLPath
 	default:
 		return "JSON path", target.JSONPath
 	}
@@ -546,6 +548,8 @@ func initTargetTypeDisplayName(targetType app.InitTargetType) string {
 		return "JSON"
 	case app.InitTargetTypeYAML:
 		return "YAML"
+	case app.InitTargetTypeTOML:
+		return "TOML"
 	case app.InitTargetTypeDotenv:
 		return "dotenv"
 	default:

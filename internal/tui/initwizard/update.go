@@ -18,6 +18,8 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.handleJSONSelectorValidated(message)
 	case yamlSelectorValidatedMsg:
 		return model.handleYAMLSelectorValidated(message)
+	case tomlSelectorValidatedMsg:
+		return model.handleTOMLSelectorValidated(message)
 	case dotenvKeyValidatedMsg:
 		return model.handleDotenvKeyValidated(message)
 	case tea.WindowSizeMsg:
@@ -157,6 +159,24 @@ func (model initWizardModel) handleYAMLSelectorValidated(message yamlSelectorVal
 	return model, nil
 }
 
+func (model initWizardModel) handleTOMLSelectorValidated(message tomlSelectorValidatedMsg) (tea.Model, tea.Cmd) {
+	if model.staleTOMLSelectorValidated(message) {
+		return model, nil
+	}
+
+	pendingEffect := *model.pendingEffect
+	model.pendingEffect = nil
+	if message.err != nil {
+		model.restorePendingContext(pendingEffect)
+		model.errorDetail = tomlSelectorValidationError(pendingEffect, message.err)
+		return model, nil
+	}
+
+	model.selectStructuredPath(message.tomlPath)
+	model.beginManagedValueName()
+	return model, nil
+}
+
 func (model initWizardModel) handleDotenvKeyValidated(message dotenvKeyValidatedMsg) (tea.Model, tea.Cmd) {
 	if model.staleDotenvKeyValidated(message) {
 		return model, nil
@@ -250,12 +270,34 @@ func (model initWizardModel) startYAMLSelectorValidation(yamlPath string) (tea.M
 	return model, validateYAMLSelector(model.workflow, requestID, model.selectedFile.Path, yamlPath)
 }
 
-func (model initWizardModel) startStructuredSelectorValidation(selector string) (tea.Model, tea.Cmd) {
-	if model.selectedFile.TargetType == app.InitTargetTypeYAML {
-		return model.startYAMLSelectorValidation(selector)
-	}
+func (model initWizardModel) startTOMLSelectorValidation(tomlPath string) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectTOMLSelectorValidation,
+		StepNumber:        2,
+		Title:             "Validating TOML value path",
+		Message:           "Checking " + tomlPath + ".",
+		ReturnStep:        initWizardStepManualPath,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        model.selectedFile.Path,
+		DisplayPath:       model.selectedFile.DisplayPath,
+		TargetType:        model.selectedFile.TargetType,
+		Selector:          tomlPath,
+	})
 
-	return model.startJSONSelectorValidation(selector)
+	return model, validateTOMLSelector(model.workflow, requestID, model.selectedFile.Path, tomlPath)
+}
+
+func (model initWizardModel) startStructuredSelectorValidation(selector string) (tea.Model, tea.Cmd) {
+	switch model.selectedFile.TargetType {
+	case app.InitTargetTypeYAML:
+		return model.startYAMLSelectorValidation(selector)
+	case app.InitTargetTypeTOML:
+		return model.startTOMLSelectorValidation(selector)
+	default:
+		return model.startJSONSelectorValidation(selector)
+	}
 }
 
 func (model initWizardModel) startDotenvKeyValidation(key string) (tea.Model, tea.Cmd) {
@@ -412,7 +454,7 @@ func (model *initWizardModel) beginSelectorForSelectedFile() {
 }
 
 func (model initWizardModel) handleTypeSelectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	targetTypes := []app.InitTargetType{app.InitTargetTypeJSON, app.InitTargetTypeYAML, app.InitTargetTypeDotenv}
+	targetTypes := []app.InitTargetType{app.InitTargetTypeJSON, app.InitTargetTypeYAML, app.InitTargetTypeTOML, app.InitTargetTypeDotenv}
 	model.clampCursor(len(targetTypes))
 
 	switch {
@@ -675,14 +717,22 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model *initWizardModel) selectStructuredPath(selector string) {
-	if model.selectedFile.TargetType == app.InitTargetTypeYAML {
+	switch model.selectedFile.TargetType {
+	case app.InitTargetTypeYAML:
 		model.selectedYAMLPath = selector
 		model.selectedJSONPath = ""
+		model.selectedTOMLPath = ""
+		return
+	case app.InitTargetTypeTOML:
+		model.selectedTOMLPath = selector
+		model.selectedJSONPath = ""
+		model.selectedYAMLPath = ""
 		return
 	}
 
 	model.selectedJSONPath = selector
 	model.selectedYAMLPath = ""
+	model.selectedTOMLPath = ""
 }
 
 func (model initWizardModel) handleManualPathKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {

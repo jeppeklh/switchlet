@@ -87,6 +87,9 @@ func (model initWizardModel) selectedValueSelector() string {
 	if model.selectedYAMLPath != "" {
 		return model.selectedYAMLPath
 	}
+	if model.selectedTOMLPath != "" {
+		return model.selectedTOMLPath
+	}
 
 	return model.selectedJSONPath
 }
@@ -114,6 +117,16 @@ func jsonSelectorValidationError(pendingEffect initWizardPendingEffect, err erro
 func yamlSelectorValidationError(pendingEffect initWizardPendingEffect, err error) ui.RecoverableError {
 	return ui.RecoverableError{
 		Problem:  "Could not use this YAML value.",
+		Context:  pendingErrorContextLines(pendingEffect),
+		Reason:   errorReason(err),
+		Recovery: "Choose an existing string value or enter another path.",
+		Cause:    err,
+	}
+}
+
+func tomlSelectorValidationError(pendingEffect initWizardPendingEffect, err error) ui.RecoverableError {
+	return ui.RecoverableError{
+		Problem:  "Could not use this TOML value.",
 		Context:  pendingErrorContextLines(pendingEffect),
 		Reason:   errorReason(err),
 		Recovery: "Choose an existing string value or enter another path.",

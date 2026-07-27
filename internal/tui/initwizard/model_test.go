@@ -260,7 +260,7 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	fileView := model.View()
 	for _, expected := range []string{
 		"Choose configuration file",
-		"JSON, YAML, and dotenv files are supported.",
+		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
 		"backend/settings.json [json]",
 		"frontend/.env.local [dotenv]",
@@ -1442,7 +1442,7 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInitWizardModel returned error: %v", err)
 	}
-	if !strings.Contains(model.View(), "No supported configuration files were discovered.") || !strings.Contains(model.View(), "Need existing JSON/YAML strings or unique dotenv keys.") {
+	if !strings.Contains(model.View(), "No supported configuration files were discovered.") || !strings.Contains(model.View(), "Need existing JSON/YAML/TOML strings or unique dotenv keys.") {
 		t.Fatalf("View() = %q, want empty-discovery guidance", model.View())
 	}
 
@@ -2080,6 +2080,12 @@ func executeWizardEffectCommand(t *testing.T, model initWizardModel, command tea
 		}
 		return updatedModel.(initWizardModel)
 	case yamlSelectorValidatedMsg:
+		updatedModel, nextCommand := model.Update(message)
+		if nextCommand != nil {
+			t.Fatal("effect completion returned an unexpected command")
+		}
+		return updatedModel.(initWizardModel)
+	case tomlSelectorValidatedMsg:
 		updatedModel, nextCommand := model.Update(message)
 		if nextCommand != nil {
 			t.Fatal("effect completion returned an unexpected command")

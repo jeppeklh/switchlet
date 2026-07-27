@@ -49,6 +49,7 @@ const (
 	initWizardEffectFileInspection initWizardEffectKind = iota + 1
 	initWizardEffectJSONSelectorValidation
 	initWizardEffectYAMLSelectorValidation
+	initWizardEffectTOMLSelectorValidation
 	initWizardEffectDotenvKeyValidation
 )
 
@@ -94,6 +95,7 @@ type initWizardModel struct {
 	browseAncestors       []targetBrowseLevel
 	selectedJSONPath      string
 	selectedYAMLPath      string
+	selectedTOMLPath      string
 	selectedDotenvKey     string
 	targets               []app.InitTarget
 	profiles              []app.InitProfile
@@ -173,6 +175,7 @@ func (model *initWizardModel) beginPathBrowse() {
 	model.browseAncestors = nil
 	model.selectedJSONPath = ""
 	model.selectedYAMLPath = ""
+	model.selectedTOMLPath = ""
 	model.selectedDotenvKey = ""
 }
 
@@ -183,6 +186,7 @@ func (model *initWizardModel) beginDotenvKeySelect() {
 	model.clearInputValue()
 	model.selectedJSONPath = ""
 	model.selectedYAMLPath = ""
+	model.selectedTOMLPath = ""
 	model.selectedDotenvKey = ""
 }
 
@@ -273,6 +277,8 @@ func (model *initWizardModel) appendTarget(name string) {
 		target.Key = model.selectedDotenvKey
 	case app.InitTargetTypeYAML:
 		target.YAMLPath = model.selectedYAMLPath
+	case app.InitTargetTypeTOML:
+		target.TOMLPath = model.selectedTOMLPath
 	default:
 		target.JSONPath = model.selectedJSONPath
 	}

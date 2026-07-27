@@ -30,7 +30,7 @@ func TestInitWizardModel_YAMLFileSelectionShowsPeerFileTypes(t *testing.T) {
 	view := model.View()
 	for _, expected := range []string{
 		"Choose configuration file",
-		"JSON, YAML, and dotenv files are supported.",
+		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
 		"backend/settings.json [json]",
 		"worker/config.yaml [yaml]",

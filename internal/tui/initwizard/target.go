@@ -10,10 +10,12 @@ import (
 const (
 	manualJSONPathChoiceLabel  = "Enter JSON value path manually"
 	manualYAMLPathChoiceLabel  = "Enter YAML value path manually"
+	manualTOMLPathChoiceLabel  = "Enter TOML value path manually"
 	manualDotenvKeyChoiceLabel = "Enter dotenv value key manually"
 	targetFileChoiceWindowSize = 12
 	searchJSONPathsChoiceLabel = "Search JSON values"
 	searchYAMLPathsChoiceLabel = "Search YAML values"
+	searchTOMLPathsChoiceLabel = "Search TOML values"
 	jsonPathChoiceWindowSize   = 12
 	dotenvKeyChoiceWindowSize  = 12
 )
@@ -122,11 +124,14 @@ func targetNodeChoiceLabel(node targetSelectorNode) string {
 }
 
 func targetSelectorNodesForSelection(selection app.InitTargetFileSelection) []targetSelectorNode {
-	if selection.TargetType == app.InitTargetTypeYAML {
+	switch selection.TargetType {
+	case app.InitTargetTypeYAML:
 		return yamlTargetSelectorNodes(selection.YAMLNodes)
+	case app.InitTargetTypeTOML:
+		return tomlTargetSelectorNodes(selection.TOMLNodes)
+	default:
+		return jsonTargetSelectorNodes(selection.Nodes)
 	}
-
-	return jsonTargetSelectorNodes(selection.Nodes)
 }
 
 func jsonTargetSelectorNodes(nodes []app.InitStringTargetNode) []targetSelectorNode {
@@ -157,12 +162,29 @@ func yamlTargetSelectorNodes(nodes []app.InitYAMLStringTargetNode) []targetSelec
 	return convertedNodes
 }
 
-func structuredValueFormatName(targetType app.InitTargetType) string {
-	if targetType == app.InitTargetTypeYAML {
-		return "YAML"
+func tomlTargetSelectorNodes(nodes []app.InitTOMLStringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.TOMLPath,
+			selectable: node.Selectable,
+			children:   tomlTargetSelectorNodes(node.Children),
+		})
 	}
 
-	return "JSON"
+	return convertedNodes
+}
+
+func structuredValueFormatName(targetType app.InitTargetType) string {
+	switch targetType {
+	case app.InitTargetTypeYAML:
+		return "YAML"
+	case app.InitTargetTypeTOML:
+		return "TOML"
+	default:
+		return "JSON"
+	}
 }
 
 func structuredPathSummaryLabel(targetType app.InitTargetType) string {
@@ -174,33 +196,45 @@ func structuredPathInputLabel(targetType app.InitTargetType) string {
 }
 
 func manualStructuredPathChoiceLabel(targetType app.InitTargetType) string {
-	if targetType == app.InitTargetTypeYAML {
+	switch targetType {
+	case app.InitTargetTypeYAML:
 		return manualYAMLPathChoiceLabel
+	case app.InitTargetTypeTOML:
+		return manualTOMLPathChoiceLabel
+	default:
+		return manualJSONPathChoiceLabel
 	}
-
-	return manualJSONPathChoiceLabel
 }
 
 func manualStructuredPathActionLabel(targetType app.InitTargetType) string {
-	if targetType == app.InitTargetTypeYAML {
+	switch targetType {
+	case app.InitTargetTypeYAML:
 		return "Manual yamlPath"
+	case app.InitTargetTypeTOML:
+		return "Manual tomlPath"
+	default:
+		return "Manual path"
 	}
-
-	return "Manual path"
 }
 
 func searchStructuredPathsChoiceLabel(targetType app.InitTargetType) string {
-	if targetType == app.InitTargetTypeYAML {
+	switch targetType {
+	case app.InitTargetTypeYAML:
 		return searchYAMLPathsChoiceLabel
+	case app.InitTargetTypeTOML:
+		return searchTOMLPathsChoiceLabel
+	default:
+		return searchJSONPathsChoiceLabel
 	}
-
-	return searchJSONPathsChoiceLabel
 }
 
 func structuredBrowseNestingGuidance(targetType app.InitTargetType) string {
-	if targetType == app.InitTargetTypeYAML {
+	switch targetType {
+	case app.InitTargetTypeYAML:
 		return "Rows ending in / open nested mappings."
+	case app.InitTargetTypeTOML:
+		return "Rows ending in / open nested tables."
+	default:
+		return "Rows ending in / open nested objects."
 	}
-
-	return "Rows ending in / open nested objects."
 }

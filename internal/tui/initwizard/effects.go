@@ -29,6 +29,13 @@ type yamlSelectorValidatedMsg struct {
 	err        error
 }
 
+type tomlSelectorValidatedMsg struct {
+	requestID  int
+	targetPath string
+	tomlPath   string
+	err        error
+}
+
 type dotenvKeyValidatedMsg struct {
 	requestID  int
 	targetPath string
@@ -82,6 +89,17 @@ func validateYAMLSelector(workflow app.InitWorkflow, requestID int, targetPath s
 			targetPath: targetPath,
 			yamlPath:   yamlPath,
 			err:        workflow.ValidateYAMLTarget(targetPath, yamlPath),
+		}
+	}
+}
+
+func validateTOMLSelector(workflow app.InitWorkflow, requestID int, targetPath string, tomlPath string) tea.Cmd {
+	return func() tea.Msg {
+		return tomlSelectorValidatedMsg{
+			requestID:  requestID,
+			targetPath: targetPath,
+			tomlPath:   tomlPath,
+			err:        workflow.ValidateTOMLTarget(targetPath, tomlPath),
 		}
 	}
 }
@@ -162,6 +180,14 @@ func (model initWizardModel) staleYAMLSelectorValidated(message yamlSelectorVali
 	}
 
 	return model.pendingEffect.RequestID != message.requestID || model.pendingEffect.TargetPath != message.targetPath || model.pendingEffect.Selector != message.yamlPath
+}
+
+func (model initWizardModel) staleTOMLSelectorValidated(message tomlSelectorValidatedMsg) bool {
+	if model.pendingEffect == nil || model.pendingEffect.Kind != initWizardEffectTOMLSelectorValidation {
+		return true
+	}
+
+	return model.pendingEffect.RequestID != message.requestID || model.pendingEffect.TargetPath != message.targetPath || model.pendingEffect.Selector != message.tomlPath
 }
 
 func (model initWizardModel) staleDotenvKeyValidated(message dotenvKeyValidatedMsg) bool {
