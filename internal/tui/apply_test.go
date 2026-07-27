@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
@@ -147,6 +148,76 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	updatedContents := readFile(t, targetPath)
 	if !strings.Contains(string(updatedContents), "https://new.example.test") {
 		t.Fatalf("updated target = %q, want applied profile value", string(updatedContents))
+	}
+}
+
+func TestUpdate_AppliesYAMLSelectedProfileThroughCommand(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+queue:
+  endpoint: old-queue
+  retries: 3
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"}},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "workerQueue", Value: stringPointer("staging-queue")},
+			},
+		}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want YAML apply command")
+	}
+	if model.applyingProfile != "Staging" {
+		t.Fatalf("applyingProfile = %q, want Staging", model.applyingProfile)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("YAML target changed before returned apply command was executed")
+	}
+
+	message := command()
+	updatedModel, quitCommand := model.Update(message)
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want YAML success quit command")
+	}
+	if model.state != successState {
+		t.Fatalf("state = %d, want successState", model.state)
+	}
+	if model.successResult == nil {
+		t.Fatal("successResult is nil, want YAML success result")
+	}
+
+	view := model.View()
+	for _, expected := range []string{"Applied profile: Staging", "Updated target:", "workerQueue [yaml]", "queue.endpoint"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want YAML success detail %q", view, expected)
+		}
+	}
+	finalMessage := model.FinalMessage()
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + targetPath, "workerQueue [yaml]", "queue.endpoint"} {
+		if !strings.Contains(finalMessage, expected) {
+			t.Fatalf("FinalMessage() = %q, want YAML final detail %q", finalMessage, expected)
+		}
+	}
+	for _, forbidden := range []string{"staging-queue"} {
+		if strings.Contains(view, forbidden) || strings.Contains(finalMessage, forbidden) {
+			t.Fatalf("YAML success output must not contain resolved value %q\nview: %q\nfinal: %q", forbidden, view, finalMessage)
+		}
+	}
+	updatedContents := string(readFile(t, targetPath))
+	if !strings.Contains(updatedContents, "endpoint: staging-queue") {
+		t.Fatalf("YAML target = %q, want updated endpoint", updatedContents)
+	}
+	if !strings.Contains(updatedContents, "retries: 3") {
+		t.Fatalf("YAML target = %q, want unrelated value preserved", updatedContents)
 	}
 }
 

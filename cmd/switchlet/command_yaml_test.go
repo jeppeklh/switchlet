@@ -230,6 +230,61 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyVersionThreeMixedJSONYAMLDotenvProfileDryRunWritesNothing(t *testing.T) {
+	projectRoot, databasePath, workerPath, frontendPath := writeVersionThreeMixedCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        value: postgres-staging
+      - target: workerQueue
+        value: staging-queue
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalWorkerContents := readFileBytes(t, workerPath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--dry-run"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	for _, expected := range []string{
+		`Dry run successful for profile "Staging"`,
+		"Planned targets:",
+		"would update " + databasePath,
+		"  database [json]",
+		"  database.url",
+		"would update " + workerPath,
+		"  workerQueue [yaml]",
+		"  queue.endpoint",
+		"would update " + frontendPath,
+		"  frontendApi [dotenv]",
+		"  VITE_API_URL",
+		"No changes were written.",
+	} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres-staging", "staging-queue", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed during mixed dry run")
+	}
+	if !bytes.Equal(readFileBytes(t, workerPath), originalWorkerContents) {
+		t.Fatal("YAML target changed during mixed dry run")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("dotenv target changed during mixed dry run")
+	}
+}
+
 func TestRunCommand_ApplyVersionThreeYAMLPartialProfilesModifyOnlyIncludedTargets(t *testing.T) {
 	projectRoot, databasePath, workerPath, frontendPath := writeVersionThreeMixedCommandProject(t, strings.TrimSpace(`
 profiles:

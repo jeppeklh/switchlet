@@ -539,6 +539,85 @@ queue:
 	}
 }
 
+func TestRunCommand_InitCreatesYAMLTargetFromManualFileTypeAndPathFallback(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "worker.config", strings.TrimSpace(`
+queue:
+  endpoint: https://old.example.test
+  retries: 3
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"worker.config",
+		"2",
+		"2",
+		"queue.missing",
+		"2",
+		"queue.endpoint",
+		"workerQueue",
+		"n",
+		"Local",
+		"1",
+		"https://queue.local",
+		"n",
+		"n",
+		"",
+		"n",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v\noutput: %s", err, output.String())
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	target := loadedConfig.Targets[0]
+	if target.Name != "workerQueue" || target.File != filepath.Join(projectRoot, "worker.config") || target.Type != config.TargetTypeYAML || target.YAMLPath != "queue.endpoint" {
+		t.Fatalf("target = %#v, want worker.config YAML target", target)
+	}
+	if target.JSONPath != "" || target.Key != "" {
+		t.Fatalf("target = %#v, want no JSON path or dotenv key", target)
+	}
+
+	outputText := output.String()
+	for _, expected := range []string{
+		"No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered",
+		"File type cannot be inferred",
+		"Choose YAML value in worker.config",
+		`Error: validate YAML target file`,
+		`missing segment "missing"`,
+		"YAML path: queue.endpoint",
+		"Created configuration:",
+	} {
+		if !strings.Contains(outputText, expected) {
+			t.Fatalf("init output %q does not contain %q", outputText, expected)
+		}
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	for _, expected := range []string{"file: worker.config", "type: yaml", "yamlPath: queue.endpoint", "target: workerQueue"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("configuration file contents %q do not contain %q", string(contents), expected)
+		}
+	}
+	if strings.Contains(string(contents), "jsonPath:") || strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q should not contain JSON path or dotenv key fields", string(contents))
+	}
+}
+
 func TestRunCommand_InitReturnsErrorWhenConfigurationExistsInParentDirectory(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	projectRoot := filepath.Join(workspaceRoot, "project")

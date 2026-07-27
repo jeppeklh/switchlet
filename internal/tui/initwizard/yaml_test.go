@@ -192,6 +192,61 @@ func TestInitWizardModel_YAMLManualValidationErrorShowsStructuredRecovery(t *tes
 	}
 }
 
+func TestInitWizardModel_YAMLManualValidationCompletesToManagedValueName(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := filepath.Join(projectRoot, "worker", "config.yaml")
+	validationCount := 0
+	model := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow: app.NewInitWorkflow(app.InitWorkflowDependencies{
+			ValidateYAMLTarget: func(path string, yamlPath string) error {
+				validationCount++
+				if path != targetPath || yamlPath != "queue.endpoint" {
+					return fmt.Errorf("unexpected YAML validation %q %q", path, yamlPath)
+				}
+
+				return nil
+			},
+		}),
+		step:   initWizardStepManualPath,
+		width:  120,
+		height: 32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        targetPath,
+			DisplayPath: filepath.Join("worker", "config.yaml"),
+			TargetType:  app.InitTargetTypeYAML,
+		},
+	}
+	model.setInputValue("queue.endpoint")
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want YAML selector validation command")
+	}
+	model = updatedModel.(initWizardModel)
+	for _, expected := range []string{"Validating YAML value path", "Detected format: YAML", "YAML path: queue.endpoint"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("pending YAML validation View() = %q, want %q", model.View(), expected)
+		}
+	}
+
+	model = executeWizardEffectCommand(t, model, command)
+	if validationCount != 1 {
+		t.Fatalf("validationCount = %d, want one YAML validation", validationCount)
+	}
+	if model.step != initWizardStepManagedValueName {
+		t.Fatalf("step = %d, want managed value name", model.step)
+	}
+	if model.selectedYAMLPath != "queue.endpoint" || model.selectedJSONPath != "" || model.selectedDotenvKey != "" {
+		t.Fatalf("selected paths = json %q yaml %q dotenv %q, want only YAML path", model.selectedJSONPath, model.selectedYAMLPath, model.selectedDotenvKey)
+	}
+	for _, expected := range []string{"Name this managed value", "Selected file: worker/config.yaml", "Selected value: queue.endpoint"} {
+		if !strings.Contains(model.View(), expected) {
+			t.Fatalf("YAML managed-value name View() = %q, want %q", model.View(), expected)
+		}
+	}
+}
+
 func TestInitWizardModel_StaleYAMLValidationResultIsIgnoredAfterBacktrackingAndEditing(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := filepath.Join(projectRoot, "worker.yaml")

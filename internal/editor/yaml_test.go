@@ -153,6 +153,50 @@ func TestApplyTargetChanges_PreservesYAMLFilePermissions(t *testing.T) {
 	}
 }
 
+func TestApplyTargetChanges_RejectsDuplicateYAMLTargetLocationBeforeWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", "queue:\n  endpoint: http://old-queue.example.test\n")
+	originalContents := readFile(t, targetPath)
+
+	var writtenTargets []string
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		writtenTargets = append(writtenTargets, newPath)
+		return originalReplaceFile(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err := ApplyTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			Value:  "http://secret-queue-one.example.test",
+		},
+		{
+			Target: config.Target{Name: "reportingQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			Value:  "http://secret-queue-two.example.test",
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want duplicate YAML target-location failure")
+	}
+	if !strings.Contains(err.Error(), `target "reportingQueue"`) || !strings.Contains(err.Error(), `duplicates target location used by target "workerQueue"`) || !strings.Contains(err.Error(), `yamlPath "queue.endpoint"`) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want duplicate YAML target-location context", err)
+	}
+	for _, forbidden := range []string{"secret-queue-one", "secret-queue-two"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyTargetChanges leaked secret %q in error %q", forbidden, err)
+		}
+	}
+	if len(writtenTargets) != 0 {
+		t.Fatalf("written targets = %#v, want no writes after duplicate YAML location failure", writtenTargets)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("YAML file changed after duplicate YAML target-location failure")
+	}
+}
+
 func TestApplyTargetChanges_YAMLValidationFailuresLeaveFileUnchangedAndHideSecrets(t *testing.T) {
 	tests := []struct {
 		name           string
@@ -325,6 +369,48 @@ features:
 	}
 }
 
+func TestInspectYAMLStringTargets_SkipsUnsupportedPathShapeKeys(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+queue:
+  endpoint: http://queue.example.test
+  "endpoint.with.dot": http://hidden.example.test
+" leadingSpace": http://hidden.example.test
+"trailingSpace ": http://hidden.example.test
+nested:
+  visible: local
+`)+"\n")
+
+	nodes, err := InspectYAMLStringTargets(targetPath)
+	if err != nil {
+		t.Fatalf("InspectYAMLStringTargets returned error: %v", err)
+	}
+
+	wantNodes := []YAMLStringTargetNode{
+		{
+			Name:     "queue",
+			YAMLPath: "queue",
+			Children: []YAMLStringTargetNode{{
+				Name:       "endpoint",
+				YAMLPath:   "queue.endpoint",
+				Selectable: true,
+			}},
+		},
+		{
+			Name:     "nested",
+			YAMLPath: "nested",
+			Children: []YAMLStringTargetNode{{
+				Name:       "visible",
+				YAMLPath:   "nested.visible",
+				Selectable: true,
+			}},
+		},
+	}
+	if !reflect.DeepEqual(nodes, wantNodes) {
+		t.Fatalf("nodes = %#v, want %#v", nodes, wantNodes)
+	}
+}
+
 func TestInspectYAMLStringTargets_ReturnsErrorWhenNoSelectablePathsExist(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
@@ -465,6 +551,41 @@ func TestApplyTargetChanges_WriteFailureAfterYAMLSuccessReportsPartialStateAndCl
 	}
 	if containsTempFile(t, filepath.Dir(jsonPath), tempFilePrefix(jsonPath)) {
 		t.Fatal("temporary file was not cleaned up after second-file rename failure")
+	}
+}
+
+func TestApplyTargetChanges_YAMLRenameFailureLeavesOriginalFileIntactAndCleansTemporaryFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", "queue:\n  endpoint: http://old-queue.example.test\n")
+	originalContents := readFile(t, targetPath)
+
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		return errors.New("rename failed")
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err := ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+		Value:  "http://secret-queue.example.test",
+	}})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want YAML rename failure")
+	}
+	if !strings.Contains(err.Error(), "rename failed") || !strings.Contains(err.Error(), targetPath) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want YAML rename failure context", err)
+	}
+	if strings.Contains(err.Error(), "secret-queue") {
+		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
+	}
+
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("YAML target changed after rename failure")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("temporary file was not cleaned up after YAML rename failure")
 	}
 }
 

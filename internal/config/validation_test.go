@@ -336,6 +336,17 @@ profiles:
 			wantError: "targets[0].yamlPath is invalid",
 		},
 		{
+			name: "yaml target rejects path segment with leading whitespace",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: "queue. endpoint"`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: `targets[0].yamlPath is invalid: segment " endpoint" must not contain leading or trailing whitespace`,
+		},
+		{
 			name: "yaml target rejects json path",
 			configContent: versionThreeConfig(`  - name: workerQueue
     file: worker/config.yaml
