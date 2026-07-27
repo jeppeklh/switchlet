@@ -231,10 +231,10 @@ profiles:
 		{
 			name: "unsupported target type",
 			configContent: versionThreeConfig(`  - name: database
-    file: config.yaml
-    type: yaml
+    file: config.toml
+    type: toml
     jsonPath: database.url`, validVersionThreeProfiles()),
-			wantError: `targets[0].type "yaml" is not supported`,
+			wantError: `targets[0].type "toml" is not supported`,
 		},
 		{
 			name: "ambiguous target type inference",
@@ -249,6 +249,15 @@ profiles:
     file: config.json
     type: json`, validVersionThreeProfiles()),
 			wantError: "targets[0].jsonPath must be set for json targets",
+		},
+		{
+			name: "json target rejects yaml path",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+    yamlPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].yamlPath is only supported for yaml targets",
 		},
 		{
 			name: "json target rejects key",
@@ -294,6 +303,63 @@ profiles:
 			wantError: "targets[0].jsonPath is only supported for json targets",
 		},
 		{
+			name: "dotenv target rejects yaml path",
+			configContent: versionThreeConfig(`  - name: frontendApi
+    file: .env
+    type: dotenv
+    key: VITE_API_URL
+    yamlPath: services.api.url`, `  - name: Local
+    values:
+      - target: frontendApi
+        value: http://localhost:5173`),
+			wantError: "targets[0].yamlPath is only supported for yaml targets",
+		},
+		{
+			name: "yaml target missing yaml path",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: "targets[0].yamlPath must be set for yaml targets",
+		},
+		{
+			name: "yaml target rejects invalid yaml path",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue..endpoint`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: "targets[0].yamlPath is invalid",
+		},
+		{
+			name: "yaml target rejects json path",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    jsonPath: queue.endpoint
+    yamlPath: queue.endpoint`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: "targets[0].jsonPath is only supported for json targets",
+		},
+		{
+			name: "yaml target rejects key",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue.endpoint
+    key: QUEUE_ENDPOINT`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: "targets[0].key is only supported for dotenv targets",
+		},
+		{
 			name: "duplicate target location",
 			configContent: versionThreeConfig(`  - name: primaryDatabase
     file: config.json
@@ -306,6 +372,21 @@ profiles:
     values:
       - target: primaryDatabase
         value: postgres://localhost:5432/myapp`),
+			wantError: "duplicates target location",
+		},
+		{
+			name: "duplicate yaml target location",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue.endpoint
+  - name: reportingQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue.endpoint`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
 			wantError: "duplicates target location",
 		},
 		{
@@ -392,6 +473,12 @@ targets:
   - name: frontendApi
     file: frontend/.env.local
     key: VITE_API_URL
+  - name: workerQueue
+    file: worker/config.yaml
+    yamlPath: queue.endpoint
+  - name: workerMode
+    file: worker/settings.yml
+    yamlPath: worker.mode
 
 profiles:
   - name: Local
@@ -400,6 +487,10 @@ profiles:
         value: Server=localhost;Database=App;
       - target: frontendApi
         value: http://localhost:5173
+      - target: workerQueue
+        value: http://localhost:4566/queue
+      - target: workerMode
+        value: local
 `)+"\n")
 
 	loadedConfig, err := config.Load(configPath)
@@ -412,6 +503,64 @@ profiles:
 	}
 	if loadedConfig.Targets[1].Type != config.TargetTypeDotenv {
 		t.Fatalf("Targets[1].Type = %q, want %q", loadedConfig.Targets[1].Type, config.TargetTypeDotenv)
+	}
+	if loadedConfig.Targets[2].Type != config.TargetTypeYAML {
+		t.Fatalf("Targets[2].Type = %q, want %q", loadedConfig.Targets[2].Type, config.TargetTypeYAML)
+	}
+	if loadedConfig.Targets[3].Type != config.TargetTypeYAML {
+		t.Fatalf("Targets[3].Type = %q, want %q", loadedConfig.Targets[3].Type, config.TargetTypeYAML)
+	}
+	if loadedConfig.Targets[2].YAMLPath != "queue.endpoint" {
+		t.Fatalf("Targets[2].YAMLPath = %q, want %q", loadedConfig.Targets[2].YAMLPath, "queue.endpoint")
+	}
+}
+
+func TestLoad_AcceptsExplicitVersionThreeYAMLTargetForUnusualFileName(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", versionThreeConfig(`  - name: workerQueue
+    file: worker/config.local
+    type: yaml
+    yamlPath: queue.endpoint`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`))
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Targets[0].Type != config.TargetTypeYAML {
+		t.Fatalf("Targets[0].Type = %q, want %q", loadedConfig.Targets[0].Type, config.TargetTypeYAML)
+	}
+	if loadedConfig.Targets[0].YAMLPath != "queue.endpoint" {
+		t.Fatalf("Targets[0].YAMLPath = %q, want %q", loadedConfig.Targets[0].YAMLPath, "queue.endpoint")
+	}
+}
+
+func TestLoad_AllowsDuplicateSelectorAcrossDifferentTargetTypes(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", versionThreeConfig(`  - name: jsonConfig
+    file: config/shared.data
+    type: json
+    jsonPath: service.url
+  - name: yamlConfig
+    file: config/shared.data
+    type: yaml
+    yamlPath: service.url`, `  - name: Local
+    values:
+      - target: jsonConfig
+        value: http://localhost:8080
+      - target: yamlConfig
+        value: http://localhost:8080`))
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if len(loadedConfig.Targets) != 2 {
+		t.Fatalf("len(Targets) = %d, want 2", len(loadedConfig.Targets))
 	}
 }
 

@@ -244,6 +244,54 @@ profiles:
 	}
 }
 
+func TestLoad_LoadsVersionThreeYAMLTargetConfiguration(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue.endpoint
+
+profiles:
+  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue
+`)+"\n")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(Targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+
+	target := loadedConfig.Targets[0]
+	if target.Name != "workerQueue" {
+		t.Fatalf("Targets[0].Name = %q, want %q", target.Name, "workerQueue")
+	}
+	if target.File != filepath.Join(projectRoot, "worker", "config.yaml") {
+		t.Fatalf("Targets[0].File = %q, want resolved YAML target path", target.File)
+	}
+	if target.Type != config.TargetTypeYAML {
+		t.Fatalf("Targets[0].Type = %q, want %q", target.Type, config.TargetTypeYAML)
+	}
+	if target.YAMLPath != "queue.endpoint" {
+		t.Fatalf("Targets[0].YAMLPath = %q, want %q", target.YAMLPath, "queue.endpoint")
+	}
+	if len(loadedConfig.Profiles) != 1 || loadedConfig.Profiles[0].Values[0].Target != "workerQueue" {
+		t.Fatalf("Profiles = %#v, want profile value for workerQueue", loadedConfig.Profiles)
+	}
+}
+
 func TestLoad_LoadsVersionTwoNestedDatabaseExampleFixture(t *testing.T) {
 	configPath := fixturePath(t, "valid", "generic-database", ".switchlet.yaml")
 

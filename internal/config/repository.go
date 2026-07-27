@@ -187,6 +187,7 @@ func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profi
 			Type:     string(targetType),
 			JSONPath: target.JSONPath,
 			Key:      target.Key,
+			YAMLPath: target.YAMLPath,
 		}
 
 		configuredTargets = append(configuredTargets, configuredTarget)

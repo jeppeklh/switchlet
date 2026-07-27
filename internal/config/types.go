@@ -18,6 +18,8 @@ const (
 	TargetTypeJSON TargetType = "json"
 	// TargetTypeDotenv identifies a dotenv target selected by Key.
 	TargetTypeDotenv TargetType = "dotenv"
+	// TargetTypeYAML identifies a YAML target selected by YAMLPath.
+	TargetTypeYAML TargetType = "yaml"
 )
 
 // Target defines one named configuration value Switchlet may modify.
@@ -27,6 +29,7 @@ type Target struct {
 	Type     TargetType
 	JSONPath string
 	Key      string
+	YAMLPath string
 }
 
 // Profile defines one available configuration profile.

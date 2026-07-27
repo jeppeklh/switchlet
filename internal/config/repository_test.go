@@ -226,6 +226,52 @@ func TestCreate_WritesConfigurationForGenericJSONTarget(t *testing.T) {
 	}
 }
 
+func TestCreate_WritesConfigurationForYAMLTarget(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+queue:
+  endpoint: http://localhost:4566/old-queue
+`)+"\n")
+
+	configPath, loadedConfig, err := config.Create(
+		projectRoot,
+		[]config.Target{{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "workerQueue", Value: stringPointer("http://localhost:4566/queue")}}}},
+	)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if loadedConfig.Version != 3 {
+		t.Fatalf("loaded version = %d, want 3", loadedConfig.Version)
+	}
+	if loadedConfig.Targets[0].Type != config.TargetTypeYAML {
+		t.Fatalf("loaded target type = %q, want %q", loadedConfig.Targets[0].Type, config.TargetTypeYAML)
+	}
+	if loadedConfig.Targets[0].YAMLPath != "queue.endpoint" {
+		t.Fatalf("loaded YAML path = %q, want %q", loadedConfig.Targets[0].YAMLPath, "queue.endpoint")
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	if !strings.Contains(string(contents), "file: worker/config.yaml") {
+		t.Fatalf("configuration file contents %q do not contain relative YAML target path", string(contents))
+	}
+	if !strings.Contains(string(contents), "type: yaml") {
+		t.Fatalf("configuration file contents %q do not contain YAML target type", string(contents))
+	}
+	if !strings.Contains(string(contents), "yamlPath: queue.endpoint") {
+		t.Fatalf("configuration file contents %q do not contain YAML path", string(contents))
+	}
+	if strings.Contains(string(contents), "jsonPath:") {
+		t.Fatalf("configuration file contents %q must not contain JSON path for YAML target", string(contents))
+	}
+	if strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q must not contain dotenv key for YAML target", string(contents))
+	}
+}
+
 func TestEnsureConfigIgnored_CreatesGitignoreWhenMissing(t *testing.T) {
 	projectRoot := t.TempDir()
 

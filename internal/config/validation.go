@@ -197,6 +197,8 @@ func validateVersionThreeTarget(index int, parsedTarget fileTarget, projectRoot 
 		return validateVersionThreeJSONTarget(index, name, targetFile, parsedTarget)
 	case TargetTypeDotenv:
 		return validateVersionThreeDotenvTarget(index, name, targetFile, parsedTarget)
+	case TargetTypeYAML:
+		return validateVersionThreeYAMLTarget(index, name, targetFile, parsedTarget)
 	default:
 		return Target{}, fmt.Errorf("targets[%d].type %q is not supported", index, targetType)
 	}
@@ -218,6 +220,8 @@ func validateVersionThreeTargetType(index int, rawTargetType string, targetFile 
 		return TargetTypeJSON, nil
 	case TargetTypeDotenv:
 		return TargetTypeDotenv, nil
+	case TargetTypeYAML:
+		return TargetTypeYAML, nil
 	default:
 		return "", fmt.Errorf("targets[%d].type %q is not supported", index, targetType)
 	}
@@ -233,6 +237,9 @@ func InferTargetType(targetFile string) (TargetType, bool) {
 	if fileName == ".env" || strings.HasPrefix(fileName, ".env.") {
 		return TargetTypeDotenv, true
 	}
+	if strings.HasSuffix(fileName, ".yaml") || strings.HasSuffix(fileName, ".yml") {
+		return TargetTypeYAML, true
+	}
 
 	return "", false
 }
@@ -244,6 +251,9 @@ func validateVersionThreeJSONTarget(index int, name string, targetFile string, p
 	}
 	if strings.TrimSpace(parsedTarget.Key) != "" {
 		return Target{}, fmt.Errorf("targets[%d].key is only supported for dotenv targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.YAMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].yamlPath is only supported for yaml targets", index)
 	}
 	if _, err := ParseJSONPath(jsonPath); err != nil {
 		return Target{}, fmt.Errorf("targets[%d].jsonPath is invalid: %w", index, err)
@@ -260,6 +270,9 @@ func validateVersionThreeJSONTarget(index int, name string, targetFile string, p
 func validateVersionThreeDotenvTarget(index int, name string, targetFile string, parsedTarget fileTarget) (Target, error) {
 	if strings.TrimSpace(parsedTarget.JSONPath) != "" {
 		return Target{}, fmt.Errorf("targets[%d].jsonPath is only supported for json targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.YAMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].yamlPath is only supported for yaml targets", index)
 	}
 
 	key := strings.TrimSpace(parsedTarget.Key)
@@ -278,10 +291,37 @@ func validateVersionThreeDotenvTarget(index int, name string, targetFile string,
 	}, nil
 }
 
+func validateVersionThreeYAMLTarget(index int, name string, targetFile string, parsedTarget fileTarget) (Target, error) {
+	if strings.TrimSpace(parsedTarget.JSONPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].jsonPath is only supported for json targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.Key) != "" {
+		return Target{}, fmt.Errorf("targets[%d].key is only supported for dotenv targets", index)
+	}
+
+	yamlPath := strings.TrimSpace(parsedTarget.YAMLPath)
+	if yamlPath == "" {
+		return Target{}, fmt.Errorf("targets[%d].yamlPath must be set for yaml targets", index)
+	}
+	if _, err := ParseYAMLPath(yamlPath); err != nil {
+		return Target{}, fmt.Errorf("targets[%d].yamlPath is invalid: %w", index, err)
+	}
+
+	return Target{
+		Name:     name,
+		File:     targetFile,
+		Type:     TargetTypeYAML,
+		YAMLPath: yamlPath,
+	}, nil
+}
+
 func targetLocationKey(target Target) string {
 	selector := target.JSONPath
-	if target.Type == TargetTypeDotenv {
+	switch target.Type {
+	case TargetTypeDotenv:
 		selector = target.Key
+	case TargetTypeYAML:
+		selector = target.YAMLPath
 	}
 
 	return string(target.Type) + "\x00" + filepath.Clean(target.File) + "\x00" + selector
@@ -319,7 +359,16 @@ func isDotenvKeyPart(character byte) bool {
 
 // ParseJSONPath validates and splits a dot-separated JSON object-property path.
 func ParseJSONPath(jsonPath string) ([]string, error) {
-	trimmedPath := strings.TrimSpace(jsonPath)
+	return parseDotSeparatedPath(jsonPath)
+}
+
+// ParseYAMLPath validates and splits a dot-separated YAML mapping-key path.
+func ParseYAMLPath(yamlPath string) ([]string, error) {
+	return parseDotSeparatedPath(yamlPath)
+}
+
+func parseDotSeparatedPath(path string) ([]string, error) {
+	trimmedPath := strings.TrimSpace(path)
 	if trimmedPath == "" {
 		return nil, fmt.Errorf("path must be set")
 	}
