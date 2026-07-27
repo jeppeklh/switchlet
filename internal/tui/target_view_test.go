@@ -120,9 +120,11 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	model = updatedModel.(Model)
 
 	view := model.View()
+	headerLine := visibleLines(view)[0]
+	if strings.Contains(headerLine, "2 configured targets") || strings.Contains(headerLine, "Selected: 1 of 2 targets") {
+		t.Fatalf("header line = %q, must not duplicate selected-profile target context", headerLine)
+	}
 	for _, expected := range []string{
-		"2 configured targets",
-		"Selected: 1 of 2 targets",
 		"> Database Only [1 target] [partial]",
 		"Changes: 1 of 2 targets",
 		"Affected targets",

@@ -66,7 +66,7 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if model.state != listState {
 		t.Fatalf("state = %d, want listState", model.state)
 	}
-	if !strings.Contains(model.View(), "Switch a named profile safely") {
+	if !strings.Contains(model.View(), "* Profiles") {
 		t.Fatalf("View() = %q, want profile list view", model.View())
 	}
 }

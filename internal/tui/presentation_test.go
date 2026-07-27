@@ -289,8 +289,7 @@ func TestRenderShell_WindowedPanelOverflowKeepsSelectedRowVisible(t *testing.T) 
 
 func TestRenderShell_RendersSplitLayoutAtComfortableWidth(t *testing.T) {
 	got := RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Switch a named profile safely",
+		Title: "Switchlet",
 		Panels: []Panel{
 			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
 			{Title: "Selected", Lines: []string{"Local"}},
@@ -305,8 +304,7 @@ func TestRenderShell_RendersSplitLayoutAtComfortableWidth(t *testing.T) {
 
 func TestRenderShell_RendersStackedLayoutAtMinimumWidth(t *testing.T) {
 	got := RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Switch a named profile safely",
+		Title: "Switchlet",
 		Panels: []Panel{
 			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
 			{Title: "Selected", Lines: []string{"Local"}},
@@ -322,7 +320,7 @@ func TestRenderShell_RendersStackedLayoutAtMinimumWidth(t *testing.T) {
 func TestRenderShell_TruncatesLongLinesToShellWidth(t *testing.T) {
 	got := RenderShell(Shell{
 		Title:    "Switchlet",
-		Subtitle: "Switch a named profile safely",
+		Subtitle: "Profile details",
 		Metadata: []string{"/very/long/path/to/appsettings.Development.json"},
 		Panels: []Panel{{Title: "Selected", Lines: []string{
 			"Target file: /very/long/path/to/appsettings.Development.json",

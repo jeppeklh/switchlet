@@ -75,6 +75,13 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 	))
 
 	view := model.View()
+	headerLine := visibleLines(view)[0]
+	if strings.Contains(headerLine, "Switch a named profile safely") {
+		t.Fatalf("header line = %q, must not show redundant task copy", headerLine)
+	}
+	if strings.Contains(headerLine, "config/development.json") || strings.Contains(headerLine, "database.primary.url") {
+		t.Fatalf("header line = %q, must not duplicate selected target context", headerLine)
+	}
 	for _, expected := range []string{
 		"Profile: Production [protected] [env]",
 		"State: Ready to apply",
@@ -110,10 +117,10 @@ func TestView_ListViewUsesSplitLayoutAtComfortableWidth(t *testing.T) {
 		t.Fatalf("View() = %q, want wide split layout with profile list and selected context on the same row", view)
 	}
 	if !strings.Contains(view, "config/development.json") {
-		t.Fatalf("View() = %q, want target file context in header or details", view)
+		t.Fatalf("View() = %q, want target file context in selected-profile details", view)
 	}
 	if !strings.Contains(view, "database.primary.url") {
-		t.Fatalf("View() = %q, want target JSON path context in header or details", view)
+		t.Fatalf("View() = %q, want target JSON path context in selected-profile details", view)
 	}
 }
 

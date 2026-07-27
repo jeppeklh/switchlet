@@ -39,9 +39,7 @@ func (model Model) listView() string {
 	}
 
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Switch a named profile safely",
-		Metadata: model.targetMetadata(),
+		Title: "Switchlet",
 		Panels: []Panel{
 			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true},
 			{Title: "Selected profile", Lines: model.selectionSummaryLines()},
