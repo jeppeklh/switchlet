@@ -111,10 +111,12 @@ func (model Model) selectionSummaryLines() []string {
 
 func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, model Model) []string {
 	targetFile := model.application.TargetFile()
+	targetLabel := ""
 	selectorName := "jsonPath"
 	selector := model.application.TargetPath()
 
 	if valueItem, ok := singleProfileValue(profile); ok {
+		targetLabel = profileValueTargetLabel(valueItem)
 		if valueItem.TargetFile != "" {
 			targetFile = valueItem.TargetFile
 		}
@@ -131,6 +133,9 @@ func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, mod
 	}
 
 	lines = append(lines, "", "Target")
+	if targetLabel != "" {
+		lines = append(lines, RenderKeyValue("Name", targetLabel))
+	}
 	if targetFile != "" {
 		lines = append(lines, RenderKeyValue("Target file", model.compactTargetFileValue(targetFile, "Target file")))
 	}

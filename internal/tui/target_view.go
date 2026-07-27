@@ -42,7 +42,7 @@ func targetNamePreviewLines(values []app.ProfileValueItem, limit int) []string {
 	lines := make([]string, 0, limit+1)
 	for index := 0; index < limit; index++ {
 		valueItem := values[index]
-		line := targetNameLabel(valueItem.TargetName)
+		line := profileValueTargetLabel(valueItem)
 		if !valueItem.Available {
 			line += " [unavailable]"
 		}
@@ -117,8 +117,8 @@ func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 		prefix := "updated "
 		lines = append(lines, prefix+targetFileForResultLine(change.TargetFile, valueWidthAfterPrefix(maxLineWidth, prefix)))
 		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
-		if change.Selector != "" {
-			lines = append(lines, "  "+change.Selector)
+		if selectorLine := plannedChangeSelectorLine(change); selectorLine != "" {
+			lines = append(lines, "  "+selectorLine)
 		}
 	}
 
@@ -137,8 +137,8 @@ func finalResultChangeLines(changes []app.PlannedChange) []string {
 		}
 		lines = append(lines, "updated "+targetFileForResultLine(change.TargetFile, 0))
 		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
-		if change.Selector != "" {
-			lines = append(lines, "  "+change.Selector)
+		if selectorLine := plannedChangeSelectorLine(change); selectorLine != "" {
+			lines = append(lines, "  "+selectorLine)
 		}
 	}
 
@@ -191,12 +191,16 @@ func targetFileLabel(targetFile string, maxLineWidth int) string {
 }
 
 func profileValueTargetSummary(valueItem app.ProfileValueItem) string {
-	targetLabel := targetNameLabel(valueItem.TargetName) + targetTypeBadge(string(valueItem.TargetType))
+	targetLabel := profileValueTargetLabel(valueItem)
 	if valueItem.Selector == "" {
 		return targetLabel
 	}
 
-	return fmt.Sprintf("%s -> %s", targetLabel, valueItem.Selector)
+	return fmt.Sprintf("%s -> %s", targetLabel, selectorSummary(valueItem.SelectorName, valueItem.Selector))
+}
+
+func profileValueTargetLabel(valueItem app.ProfileValueItem) string {
+	return targetNameLabel(valueItem.TargetName) + targetTypeBadge(string(valueItem.TargetType))
 }
 
 func profileValueMaskedValueLabel(valueItem app.ProfileValueItem) string {
@@ -282,7 +286,7 @@ func (model Model) targetFailureError(profileName string, failure app.TargetFail
 		context = append(context, RenderKeyValue("File", model.compactTargetFileValue(failure.TargetFile, "File")))
 	}
 	if failure.Selector != "" {
-		context = append(context, RenderKeyValue("Selector", failure.Selector))
+		context = append(context, RenderKeyValue(targetFailureSelectorLabel(failure.SelectorName), failure.Selector))
 	}
 
 	reason := failure.Reason
@@ -361,6 +365,10 @@ func targetSelectorDisplayLabel(selectorName string) string {
 		return "Target key"
 	}
 
+	if selectorName == "yamlPath" {
+		return "yamlPath"
+	}
+
 	if selectorName == "jsonPath" || selectorName == "" {
 		return "Target JSON path"
 	}
@@ -374,6 +382,30 @@ func selectorFieldName(selectorName string) string {
 	}
 
 	return selectorName
+}
+
+func selectorSummary(selectorName string, selector string) string {
+	if selectorName == "yamlPath" {
+		return selectorFieldName(selectorName) + ": " + selector
+	}
+
+	return selector
+}
+
+func plannedChangeSelectorLine(change app.PlannedChange) string {
+	if change.Selector == "" {
+		return ""
+	}
+
+	return selectorSummary(change.SelectorName, change.Selector)
+}
+
+func targetFailureSelectorLabel(selectorName string) string {
+	if selectorName == "yamlPath" {
+		return selectorFieldName(selectorName)
+	}
+
+	return "Selector"
 }
 
 func isSingleTargetResult(result app.Result) bool {
