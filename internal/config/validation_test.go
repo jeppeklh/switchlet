@@ -231,10 +231,10 @@ profiles:
 		{
 			name: "unsupported target type",
 			configContent: versionThreeConfig(`  - name: database
-    file: config.toml
-    type: toml
+    file: config.xml
+    type: xml
     jsonPath: database.url`, validVersionThreeProfiles()),
-			wantError: `targets[0].type "toml" is not supported`,
+			wantError: `targets[0].type "xml" is not supported`,
 		},
 		{
 			name: "ambiguous target type inference",
@@ -258,6 +258,15 @@ profiles:
     jsonPath: database.url
     yamlPath: database.url`, validVersionThreeProfiles()),
 			wantError: "targets[0].yamlPath is only supported for yaml targets",
+		},
+		{
+			name: "json target rejects toml path",
+			configContent: versionThreeConfig(`  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+    tomlPath: database.url`, validVersionThreeProfiles()),
+			wantError: "targets[0].tomlPath is only supported for toml targets",
 		},
 		{
 			name: "json target rejects key",
@@ -313,6 +322,18 @@ profiles:
       - target: frontendApi
         value: http://localhost:5173`),
 			wantError: "targets[0].yamlPath is only supported for yaml targets",
+		},
+		{
+			name: "dotenv target rejects toml path",
+			configContent: versionThreeConfig(`  - name: frontendApi
+    file: .env
+    type: dotenv
+    key: VITE_API_URL
+    tomlPath: services.api.url`, `  - name: Local
+    values:
+      - target: frontendApi
+        value: http://localhost:5173`),
+			wantError: "targets[0].tomlPath is only supported for toml targets",
 		},
 		{
 			name: "yaml target missing yaml path",
@@ -371,6 +392,97 @@ profiles:
 			wantError: "targets[0].key is only supported for dotenv targets",
 		},
 		{
+			name: "yaml target rejects toml path",
+			configContent: versionThreeConfig(`  - name: workerQueue
+    file: worker/config.yaml
+    type: yaml
+    yamlPath: queue.endpoint
+    tomlPath: queue.endpoint`, `  - name: Local
+    values:
+      - target: workerQueue
+        value: http://localhost:4566/queue`),
+			wantError: "targets[0].tomlPath is only supported for toml targets",
+		},
+		{
+			name: "toml target missing toml path",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "targets[0].tomlPath must be set for toml targets",
+		},
+		{
+			name: "toml target rejects invalid toml path",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services..endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "targets[0].tomlPath is invalid",
+		},
+		{
+			name: "toml target rejects array selector syntax",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services[0].endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "array selectors are not supported",
+		},
+		{
+			name: "toml target rejects quoted key syntax",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: 'services."api".endpoint'`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "must use unquoted TOML bare-key syntax",
+		},
+		{
+			name: "toml target rejects json path",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    jsonPath: services.api.endpoint
+    tomlPath: services.api.endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "targets[0].jsonPath is only supported for json targets",
+		},
+		{
+			name: "toml target rejects yaml path",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    yamlPath: services.api.endpoint
+    tomlPath: services.api.endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "targets[0].yamlPath is only supported for yaml targets",
+		},
+		{
+			name: "toml target rejects key",
+			configContent: versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    key: SERVICE_ENDPOINT
+    tomlPath: services.api.endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`),
+			wantError: "targets[0].key is only supported for dotenv targets",
+		},
+		{
 			name: "duplicate target location",
 			configContent: versionThreeConfig(`  - name: primaryDatabase
     file: config.json
@@ -398,6 +510,21 @@ profiles:
     values:
       - target: workerQueue
         value: http://localhost:4566/queue`),
+			wantError: "duplicates target location",
+		},
+		{
+			name: "duplicate toml target location",
+			configContent: versionThreeConfig(`  - name: primaryEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services.api.endpoint
+  - name: secondaryEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services.api.endpoint`, `  - name: Local
+    values:
+      - target: primaryEndpoint
+        value: http://localhost:8080`),
 			wantError: "duplicates target location",
 		},
 		{
@@ -490,6 +617,9 @@ targets:
   - name: workerMode
     file: worker/settings.yml
     yamlPath: worker.mode
+  - name: serviceEndpoint
+    file: services/development.toml
+    tomlPath: services.api.endpoint
 
 profiles:
   - name: Local
@@ -502,6 +632,8 @@ profiles:
         value: http://localhost:4566/queue
       - target: workerMode
         value: local
+      - target: serviceEndpoint
+        value: http://localhost:8080
 `)+"\n")
 
 	loadedConfig, err := config.Load(configPath)
@@ -521,8 +653,14 @@ profiles:
 	if loadedConfig.Targets[3].Type != config.TargetTypeYAML {
 		t.Fatalf("Targets[3].Type = %q, want %q", loadedConfig.Targets[3].Type, config.TargetTypeYAML)
 	}
+	if loadedConfig.Targets[4].Type != config.TargetTypeTOML {
+		t.Fatalf("Targets[4].Type = %q, want %q", loadedConfig.Targets[4].Type, config.TargetTypeTOML)
+	}
 	if loadedConfig.Targets[2].YAMLPath != "queue.endpoint" {
 		t.Fatalf("Targets[2].YAMLPath = %q, want %q", loadedConfig.Targets[2].YAMLPath, "queue.endpoint")
+	}
+	if loadedConfig.Targets[4].TOMLPath != "services.api.endpoint" {
+		t.Fatalf("Targets[4].TOMLPath = %q, want %q", loadedConfig.Targets[4].TOMLPath, "services.api.endpoint")
 	}
 }
 
@@ -549,6 +687,29 @@ func TestLoad_AcceptsExplicitVersionThreeYAMLTargetForUnusualFileName(t *testing
 	}
 }
 
+func TestLoad_AcceptsExplicitVersionThreeTOMLTargetForUnusualFileName(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", versionThreeConfig(`  - name: serviceEndpoint
+    file: services/development.local
+    type: toml
+    tomlPath: services.api.endpoint`, `  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080`))
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Targets[0].Type != config.TargetTypeTOML {
+		t.Fatalf("Targets[0].Type = %q, want %q", loadedConfig.Targets[0].Type, config.TargetTypeTOML)
+	}
+	if loadedConfig.Targets[0].TOMLPath != "services.api.endpoint" {
+		t.Fatalf("Targets[0].TOMLPath = %q, want %q", loadedConfig.Targets[0].TOMLPath, "services.api.endpoint")
+	}
+}
+
 func TestLoad_AllowsDuplicateSelectorAcrossDifferentTargetTypes(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeFile(t, projectRoot, ".switchlet.yaml", versionThreeConfig(`  - name: jsonConfig
@@ -558,11 +719,17 @@ func TestLoad_AllowsDuplicateSelectorAcrossDifferentTargetTypes(t *testing.T) {
   - name: yamlConfig
     file: config/shared.data
     type: yaml
-    yamlPath: service.url`, `  - name: Local
+    yamlPath: service.url
+  - name: tomlConfig
+    file: config/shared.data
+    type: toml
+    tomlPath: service.url`, `  - name: Local
     values:
       - target: jsonConfig
         value: http://localhost:8080
       - target: yamlConfig
+        value: http://localhost:8080
+      - target: tomlConfig
         value: http://localhost:8080`))
 
 	loadedConfig, err := config.Load(configPath)
@@ -570,8 +737,8 @@ func TestLoad_AllowsDuplicateSelectorAcrossDifferentTargetTypes(t *testing.T) {
 		t.Fatalf("Load returned error: %v", err)
 	}
 
-	if len(loadedConfig.Targets) != 2 {
-		t.Fatalf("len(Targets) = %d, want 2", len(loadedConfig.Targets))
+	if len(loadedConfig.Targets) != 3 {
+		t.Fatalf("len(Targets) = %d, want 3", len(loadedConfig.Targets))
 	}
 }
 

@@ -20,6 +20,8 @@ const (
 	TargetTypeDotenv TargetType = "dotenv"
 	// TargetTypeYAML identifies a YAML target selected by YAMLPath.
 	TargetTypeYAML TargetType = "yaml"
+	// TargetTypeTOML identifies a TOML target selected by TOMLPath.
+	TargetTypeTOML TargetType = "toml"
 )
 
 // Target defines one named configuration value Switchlet may modify.
@@ -30,6 +32,7 @@ type Target struct {
 	JSONPath string
 	Key      string
 	YAMLPath string
+	TOMLPath string
 }
 
 // Profile defines one available configuration profile.

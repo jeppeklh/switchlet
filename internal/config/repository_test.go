@@ -272,6 +272,55 @@ queue:
 	}
 }
 
+func TestCreate_WritesConfigurationForTOMLTarget(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "services/development.toml", strings.TrimSpace(`
+[services.api]
+endpoint = "http://localhost:7000"
+`)+"\n")
+
+	configPath, loadedConfig, err := config.Create(
+		projectRoot,
+		[]config.Target{{Name: "serviceEndpoint", File: targetPath, Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "serviceEndpoint", Value: stringPointer("http://localhost:8080")}}}},
+	)
+	if err != nil {
+		t.Fatalf("Create returned error: %v", err)
+	}
+	if loadedConfig.Version != 3 {
+		t.Fatalf("loaded version = %d, want 3", loadedConfig.Version)
+	}
+	if loadedConfig.Targets[0].Type != config.TargetTypeTOML {
+		t.Fatalf("loaded target type = %q, want %q", loadedConfig.Targets[0].Type, config.TargetTypeTOML)
+	}
+	if loadedConfig.Targets[0].TOMLPath != "services.api.endpoint" {
+		t.Fatalf("loaded TOML path = %q, want %q", loadedConfig.Targets[0].TOMLPath, "services.api.endpoint")
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	if !strings.Contains(string(contents), "file: services/development.toml") {
+		t.Fatalf("configuration file contents %q do not contain relative TOML target path", string(contents))
+	}
+	if !strings.Contains(string(contents), "type: toml") {
+		t.Fatalf("configuration file contents %q do not contain TOML target type", string(contents))
+	}
+	if !strings.Contains(string(contents), "tomlPath: services.api.endpoint") {
+		t.Fatalf("configuration file contents %q do not contain TOML path", string(contents))
+	}
+	if strings.Contains(string(contents), "jsonPath:") {
+		t.Fatalf("configuration file contents %q must not contain JSON path for TOML target", string(contents))
+	}
+	if strings.Contains(string(contents), "yamlPath:") {
+		t.Fatalf("configuration file contents %q must not contain YAML path for TOML target", string(contents))
+	}
+	if strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q must not contain dotenv key for TOML target", string(contents))
+	}
+}
+
 func TestEnsureConfigIgnored_CreatesGitignoreWhenMissing(t *testing.T) {
 	projectRoot := t.TempDir()
 

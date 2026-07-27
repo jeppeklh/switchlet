@@ -292,6 +292,54 @@ profiles:
 	}
 }
 
+func TestLoad_LoadsVersionThreeTOMLTargetConfiguration(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: serviceEndpoint
+    file: services/development.toml
+    type: toml
+    tomlPath: services.api.endpoint
+
+profiles:
+  - name: Local
+    values:
+      - target: serviceEndpoint
+        value: http://localhost:8080
+`)+"\n")
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(Targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+
+	target := loadedConfig.Targets[0]
+	if target.Name != "serviceEndpoint" {
+		t.Fatalf("Targets[0].Name = %q, want %q", target.Name, "serviceEndpoint")
+	}
+	if target.File != filepath.Join(projectRoot, "services", "development.toml") {
+		t.Fatalf("Targets[0].File = %q, want resolved TOML target path", target.File)
+	}
+	if target.Type != config.TargetTypeTOML {
+		t.Fatalf("Targets[0].Type = %q, want %q", target.Type, config.TargetTypeTOML)
+	}
+	if target.TOMLPath != "services.api.endpoint" {
+		t.Fatalf("Targets[0].TOMLPath = %q, want %q", target.TOMLPath, "services.api.endpoint")
+	}
+	if len(loadedConfig.Profiles) != 1 || loadedConfig.Profiles[0].Values[0].Target != "serviceEndpoint" {
+		t.Fatalf("Profiles = %#v, want profile value for serviceEndpoint", loadedConfig.Profiles)
+	}
+}
+
 func TestLoad_LoadsVersionTwoNestedDatabaseExampleFixture(t *testing.T) {
 	configPath := fixturePath(t, "valid", "generic-database", ".switchlet.yaml")
 

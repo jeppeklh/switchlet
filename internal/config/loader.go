@@ -23,6 +23,7 @@ type fileTarget struct {
 	JSONPath       string `yaml:"jsonPath,omitempty"`
 	Key            string `yaml:"key,omitempty"`
 	YAMLPath       string `yaml:"yamlPath,omitempty"`
+	TOMLPath       string `yaml:"tomlPath,omitempty"`
 	ConnectionName string `yaml:"connectionName,omitempty"`
 }
 

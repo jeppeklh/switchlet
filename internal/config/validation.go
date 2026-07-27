@@ -199,6 +199,8 @@ func validateVersionThreeTarget(index int, parsedTarget fileTarget, projectRoot 
 		return validateVersionThreeDotenvTarget(index, name, targetFile, parsedTarget)
 	case TargetTypeYAML:
 		return validateVersionThreeYAMLTarget(index, name, targetFile, parsedTarget)
+	case TargetTypeTOML:
+		return validateVersionThreeTOMLTarget(index, name, targetFile, parsedTarget)
 	default:
 		return Target{}, fmt.Errorf("targets[%d].type %q is not supported", index, targetType)
 	}
@@ -222,6 +224,8 @@ func validateVersionThreeTargetType(index int, rawTargetType string, targetFile 
 		return TargetTypeDotenv, nil
 	case TargetTypeYAML:
 		return TargetTypeYAML, nil
+	case TargetTypeTOML:
+		return TargetTypeTOML, nil
 	default:
 		return "", fmt.Errorf("targets[%d].type %q is not supported", index, targetType)
 	}
@@ -240,6 +244,9 @@ func InferTargetType(targetFile string) (TargetType, bool) {
 	if strings.HasSuffix(fileName, ".yaml") || strings.HasSuffix(fileName, ".yml") {
 		return TargetTypeYAML, true
 	}
+	if strings.HasSuffix(fileName, ".toml") {
+		return TargetTypeTOML, true
+	}
 
 	return "", false
 }
@@ -254,6 +261,9 @@ func validateVersionThreeJSONTarget(index int, name string, targetFile string, p
 	}
 	if strings.TrimSpace(parsedTarget.YAMLPath) != "" {
 		return Target{}, fmt.Errorf("targets[%d].yamlPath is only supported for yaml targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.TOMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].tomlPath is only supported for toml targets", index)
 	}
 	if _, err := ParseJSONPath(jsonPath); err != nil {
 		return Target{}, fmt.Errorf("targets[%d].jsonPath is invalid: %w", index, err)
@@ -273,6 +283,9 @@ func validateVersionThreeDotenvTarget(index int, name string, targetFile string,
 	}
 	if strings.TrimSpace(parsedTarget.YAMLPath) != "" {
 		return Target{}, fmt.Errorf("targets[%d].yamlPath is only supported for yaml targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.TOMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].tomlPath is only supported for toml targets", index)
 	}
 
 	key := strings.TrimSpace(parsedTarget.Key)
@@ -298,6 +311,9 @@ func validateVersionThreeYAMLTarget(index int, name string, targetFile string, p
 	if strings.TrimSpace(parsedTarget.Key) != "" {
 		return Target{}, fmt.Errorf("targets[%d].key is only supported for dotenv targets", index)
 	}
+	if strings.TrimSpace(parsedTarget.TOMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].tomlPath is only supported for toml targets", index)
+	}
 
 	yamlPath := strings.TrimSpace(parsedTarget.YAMLPath)
 	if yamlPath == "" {
@@ -315,6 +331,33 @@ func validateVersionThreeYAMLTarget(index int, name string, targetFile string, p
 	}, nil
 }
 
+func validateVersionThreeTOMLTarget(index int, name string, targetFile string, parsedTarget fileTarget) (Target, error) {
+	if strings.TrimSpace(parsedTarget.JSONPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].jsonPath is only supported for json targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.Key) != "" {
+		return Target{}, fmt.Errorf("targets[%d].key is only supported for dotenv targets", index)
+	}
+	if strings.TrimSpace(parsedTarget.YAMLPath) != "" {
+		return Target{}, fmt.Errorf("targets[%d].yamlPath is only supported for yaml targets", index)
+	}
+
+	tomlPath := strings.TrimSpace(parsedTarget.TOMLPath)
+	if tomlPath == "" {
+		return Target{}, fmt.Errorf("targets[%d].tomlPath must be set for toml targets", index)
+	}
+	if _, err := ParseTOMLPath(tomlPath); err != nil {
+		return Target{}, fmt.Errorf("targets[%d].tomlPath is invalid: %w", index, err)
+	}
+
+	return Target{
+		Name:     name,
+		File:     targetFile,
+		Type:     TargetTypeTOML,
+		TOMLPath: tomlPath,
+	}, nil
+}
+
 func targetLocationKey(target Target) string {
 	selector := target.JSONPath
 	switch target.Type {
@@ -322,6 +365,8 @@ func targetLocationKey(target Target) string {
 		selector = target.Key
 	case TargetTypeYAML:
 		selector = target.YAMLPath
+	case TargetTypeTOML:
+		selector = target.TOMLPath
 	}
 
 	return string(target.Type) + "\x00" + filepath.Clean(target.File) + "\x00" + selector
@@ -365,6 +410,43 @@ func ParseJSONPath(jsonPath string) ([]string, error) {
 // ParseYAMLPath validates and splits a dot-separated YAML mapping-key path.
 func ParseYAMLPath(yamlPath string) ([]string, error) {
 	return parseDotSeparatedPath(yamlPath)
+}
+
+// ParseTOMLPath validates and splits a dot-separated TOML table/key path.
+func ParseTOMLPath(tomlPath string) ([]string, error) {
+	segments, err := parseDotSeparatedPath(tomlPath)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, segment := range segments {
+		if strings.Contains(segment, "*") {
+			return nil, fmt.Errorf("wildcard selectors are not supported")
+		}
+		if strings.ContainsAny(segment, "[]") {
+			return nil, fmt.Errorf("array selectors are not supported")
+		}
+		if !isTOMLBareKeySegment(segment) {
+			return nil, fmt.Errorf("segment %q must use unquoted TOML bare-key syntax [A-Za-z0-9_-]+", segment)
+		}
+	}
+
+	return segments, nil
+}
+
+func isTOMLBareKeySegment(segment string) bool {
+	if segment == "" {
+		return false
+	}
+
+	for index := 0; index < len(segment); index++ {
+		character := segment[index]
+		if !(character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+			return false
+		}
+	}
+
+	return true
 }
 
 func parseDotSeparatedPath(path string) ([]string, error) {
