@@ -42,8 +42,8 @@ func initHelpText() string {
 	The init flow guides you through target-file selection, selector selection,
 	named target entry, profile entry, and final review. When stdin and stdout are
 	interactive terminals, init launches a terminal-native wizard. It can narrow
-	large file lists, browse or search existing string-valued JSON paths, select
-	dotenv keys, keeps manual entry available, can add .switchlet.yaml to the
+	large file lists, browse or search existing string-valued JSON/YAML paths,
+	select dotenv keys, keeps manual entry available, can add .switchlet.yaml to the
 	project .gitignore when literal profiles are configured, and writes a
 	validated Version 3 target/profile configuration.
 

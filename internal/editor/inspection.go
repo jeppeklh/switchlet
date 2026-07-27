@@ -142,6 +142,9 @@ func hasInspectableTargetSelectors(contents []byte, targetType config.TargetType
 	case config.TargetTypeDotenv:
 		keys, err := inspectDotenvKeysContents(contents)
 		return err == nil && len(keys) > 0
+	case config.TargetTypeYAML:
+		nodes, err := inspectYAMLStringTargetsContents(contents)
+		return err == nil && len(nodes) > 0
 	default:
 		return false
 	}

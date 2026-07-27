@@ -84,6 +84,9 @@ func (model initWizardModel) selectedValueSelector() string {
 	if model.selectedDotenvKey != "" {
 		return model.selectedDotenvKey
 	}
+	if model.selectedYAMLPath != "" {
+		return model.selectedYAMLPath
+	}
 
 	return model.selectedJSONPath
 }
@@ -101,6 +104,16 @@ func fileInspectionError(pendingEffect initWizardPendingEffect, err error) ui.Re
 func jsonSelectorValidationError(pendingEffect initWizardPendingEffect, err error) ui.RecoverableError {
 	return ui.RecoverableError{
 		Problem:  "Could not use this JSON value.",
+		Context:  pendingErrorContextLines(pendingEffect),
+		Reason:   errorReason(err),
+		Recovery: "Choose an existing string value or enter another path.",
+		Cause:    err,
+	}
+}
+
+func yamlSelectorValidationError(pendingEffect initWizardPendingEffect, err error) ui.RecoverableError {
+	return ui.RecoverableError{
+		Problem:  "Could not use this YAML value.",
 		Context:  pendingErrorContextLines(pendingEffect),
 		Reason:   errorReason(err),
 		Recovery: "Choose an existing string value or enter another path.",

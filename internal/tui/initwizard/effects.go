@@ -22,6 +22,13 @@ type jsonSelectorValidatedMsg struct {
 	err        error
 }
 
+type yamlSelectorValidatedMsg struct {
+	requestID  int
+	targetPath string
+	yamlPath   string
+	err        error
+}
+
 type dotenvKeyValidatedMsg struct {
 	requestID  int
 	targetPath string
@@ -64,6 +71,17 @@ func validateJSONSelector(workflow app.InitWorkflow, requestID int, targetPath s
 			targetPath: targetPath,
 			jsonPath:   jsonPath,
 			err:        workflow.ValidateStringTarget(targetPath, jsonPath),
+		}
+	}
+}
+
+func validateYAMLSelector(workflow app.InitWorkflow, requestID int, targetPath string, yamlPath string) tea.Cmd {
+	return func() tea.Msg {
+		return yamlSelectorValidatedMsg{
+			requestID:  requestID,
+			targetPath: targetPath,
+			yamlPath:   yamlPath,
+			err:        workflow.ValidateYAMLTarget(targetPath, yamlPath),
 		}
 	}
 }
@@ -136,6 +154,14 @@ func (model initWizardModel) staleJSONSelectorValidated(message jsonSelectorVali
 	}
 
 	return model.pendingEffect.RequestID != message.requestID || model.pendingEffect.TargetPath != message.targetPath || model.pendingEffect.Selector != message.jsonPath
+}
+
+func (model initWizardModel) staleYAMLSelectorValidated(message yamlSelectorValidatedMsg) bool {
+	if model.pendingEffect == nil || model.pendingEffect.Kind != initWizardEffectYAMLSelectorValidation {
+		return true
+	}
+
+	return model.pendingEffect.RequestID != message.requestID || model.pendingEffect.TargetPath != message.targetPath || model.pendingEffect.Selector != message.yamlPath
 }
 
 func (model initWizardModel) staleDotenvKeyValidated(message dotenvKeyValidatedMsg) bool {

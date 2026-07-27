@@ -13,6 +13,7 @@ import (
 const (
 	manualTargetFileChoiceLabel  = "Enter configuration file manually"
 	manualJSONPathChoiceLabel    = "Enter JSON value path manually"
+	manualYAMLPathChoiceLabel    = "Enter YAML value path manually"
 	manualDotenvKeyChoiceLabel   = "Enter dotenv value key manually"
 	chooseDifferentFileLabel     = "Back to file selection"
 	goBackChoiceLabel            = "Back up one level"
@@ -24,6 +25,8 @@ const (
 	clearJSONPathSearchLabel     = "Clear path search"
 	browseJSONPathsChoiceLabel   = "Browse JSON path hierarchy"
 	jsonPathChoiceWindowSize     = 12
+	searchYAMLPathsChoiceLabel   = "Search YAML values"
+	browseYAMLPathsChoiceLabel   = "Browse YAML path hierarchy"
 	filterDotenvKeysChoiceLabel  = "Filter dotenv keys"
 	dotenvKeyChoiceWindowSize    = 12
 )
@@ -32,17 +35,24 @@ type targetFileSelection struct {
 	path        string
 	displayPath string
 	targetType  config.TargetType
-	nodes       []editor.StringTargetNode
+	nodes       []targetSelectorNode
 	dotenvKeys  []string
+}
+
+type targetSelectorNode struct {
+	name       string
+	selector   string
+	selectable bool
+	children   []targetSelectorNode
 }
 
 type targetBrowseLevel struct {
 	path  string
-	nodes []editor.StringTargetNode
+	nodes []targetSelectorNode
 }
 
-type jsonPathSearchResult struct {
-	jsonPath            string
+type targetPathSearchResult struct {
+	selector            string
 	returnToHierarchy   bool
 	chooseDifferentFile bool
 }
@@ -78,7 +88,7 @@ func promptTargets(prompter initPrompter, workingDirectory string, dependencies 
 		}
 
 		if err := writeInitStep(prompter.writer, 1, "Choose configuration file",
-			"Pick the next JSON or dotenv file containing a value Switchlet should manage.",
+			"Pick the next JSON, YAML, or dotenv file containing a value Switchlet should manage.",
 			"You can also enter a file path manually.",
 		); err != nil {
 			return nil, err
@@ -127,9 +137,12 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 			File: selectedFile.path,
 			Type: selectedFile.targetType,
 		}
-		if selectedFile.targetType == config.TargetTypeDotenv {
+		switch selectedFile.targetType {
+		case config.TargetTypeDotenv:
 			target.Key = selector
-		} else {
+		case config.TargetTypeYAML:
+			target.YAMLPath = selector
+		default:
 			target.JSONPath = selector
 		}
 
@@ -138,33 +151,44 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 }
 
 func targetSelectorStepTitle(targetType config.TargetType) string {
-	if targetType == config.TargetTypeDotenv {
+	switch targetType {
+	case config.TargetTypeDotenv:
 		return "Choose dotenv value"
+	case config.TargetTypeYAML:
+		return "Choose YAML value"
+	default:
+		return "Choose JSON value"
 	}
-
-	return "Choose JSON value"
 }
 
 func targetSelectorStepGuidance(targetType config.TargetType) string {
-	if targetType == config.TargetTypeDotenv {
+	switch targetType {
+	case config.TargetTypeDotenv:
 		return "Choose an existing dotenv key that appears once. Switchlet does not create missing keys."
+	case config.TargetTypeYAML:
+		return "Choose an existing string-valued YAML path. Switchlet does not create missing values. Browse the mapping hierarchy, search when the file has many selectable values, or enter a path manually."
+	default:
+		return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
 	}
-
-	return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
 }
 
 func targetSelectorLabel(target config.Target) (string, string) {
-	if target.Type == config.TargetTypeDotenv {
+	switch target.Type {
+	case config.TargetTypeDotenv:
 		return "Key", target.Key
+	case config.TargetTypeYAML:
+		return "YAML path", target.YAMLPath
+	default:
+		return "JSON path", target.JSONPath
 	}
-
-	return "JSON path", target.JSONPath
 }
 
 func targetTypeDisplayName(targetType config.TargetType) string {
 	switch targetType {
 	case config.TargetTypeJSON:
 		return "JSON"
+	case config.TargetTypeYAML:
+		return "YAML"
 	case config.TargetTypeDotenv:
 		return "dotenv"
 	default:
@@ -181,7 +205,7 @@ discoveryLoop:
 		}
 
 		if len(candidates) == 0 {
-			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing string JSON values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
+			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
 				return targetFileSelection{}, err
 			}
 
@@ -345,9 +369,12 @@ func promptManualTargetFile(prompter initPrompter, workingDirectory string, depe
 }
 
 func promptExplicitTargetType(prompter initPrompter, targetPath string) (config.TargetType, error) {
-	choice, err := prompter.promptChoice(fmt.Sprintf("File type cannot be inferred from %s. Choose file type:", targetPath), []string{"JSON", "dotenv"})
+	choice, err := prompter.promptChoice(fmt.Sprintf("File type cannot be inferred from %s. Choose file type:", targetPath), []string{"JSON", "YAML", "dotenv"})
 	if err != nil {
 		return "", err
+	}
+	if choice == "YAML" {
+		return config.TargetTypeYAML, nil
 	}
 	if choice == "dotenv" {
 		return config.TargetTypeDotenv, nil
@@ -382,13 +409,19 @@ func inspectTargetFile(targetPath string, displayPath string, targetType config.
 		if err != nil {
 			return targetFileSelection{}, err
 		}
-		selection.nodes = nodes
+		selection.nodes = jsonTargetSelectorNodes(nodes)
 	case config.TargetTypeDotenv:
 		keys, err := dependencies.inspectDotenvKeys(targetPath)
 		if err != nil {
 			return targetFileSelection{}, err
 		}
 		selection.dotenvKeys = keys
+	case config.TargetTypeYAML:
+		nodes, err := dependencies.inspectYAMLStringTargets(targetPath)
+		if err != nil {
+			return targetFileSelection{}, err
+		}
+		selection.nodes = yamlTargetSelectorNodes(nodes)
 	default:
 		return targetFileSelection{}, fmt.Errorf("target type %q is not supported", targetType)
 	}
@@ -399,7 +432,9 @@ func inspectTargetFile(targetPath string, displayPath string, targetType config.
 func promptTargetSelector(prompter initPrompter, selectedFile targetFileSelection, dependencies initDependencies) (string, bool, error) {
 	switch selectedFile.targetType {
 	case config.TargetTypeJSON:
-		return promptTargetJSONPath(prompter, selectedFile, dependencies)
+		return promptTargetStructuredPath(prompter, selectedFile, dependencies)
+	case config.TargetTypeYAML:
+		return promptTargetStructuredPath(prompter, selectedFile, dependencies)
 	case config.TargetTypeDotenv:
 		return promptTargetDotenvKey(prompter, selectedFile, dependencies)
 	default:
@@ -540,15 +575,21 @@ func promptTargetName(prompter initPrompter, seenNames map[string]struct{}) (str
 }
 
 func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelection, dependencies initDependencies) (string, bool, error) {
+	selectedFile.targetType = config.TargetTypeJSON
+	return promptTargetStructuredPath(prompter, selectedFile, dependencies)
+}
+
+func promptTargetStructuredPath(prompter initPrompter, selectedFile targetFileSelection, dependencies initDependencies) (string, bool, error) {
 	currentNodes := selectedFile.nodes
 	ancestors := make([]targetBrowseLevel, 0)
-	selectablePaths := flattenSelectableJSONPaths(selectedFile.nodes)
+	selectablePaths := flattenSelectableTargetPaths(selectedFile.nodes)
 	showSearchAction := len(selectablePaths) > jsonPathChoiceWindowSize
+	formatName := targetTypeDisplayName(selectedFile.targetType)
 
 	for {
-		prompt := fmt.Sprintf("Choose JSON value in %s:", selectedFile.displayPath)
+		prompt := fmt.Sprintf("Choose %s value in %s:", formatName, selectedFile.displayPath)
 		if len(ancestors) > 0 {
-			prompt = fmt.Sprintf("Choose JSON value under %s in %s:", ancestors[len(ancestors)-1].path, selectedFile.displayPath)
+			prompt = fmt.Sprintf("Choose %s value under %s in %s:", formatName, ancestors[len(ancestors)-1].path, selectedFile.displayPath)
 		}
 
 		choices := make([]string, 0, len(currentNodes)+4)
@@ -559,9 +600,9 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 			choices = append(choices, goBackChoiceLabel)
 		}
 		if showSearchAction {
-			choices = append(choices, searchJSONPathsChoiceLabel)
+			choices = append(choices, searchStructuredPathsChoiceLabel(selectedFile.targetType))
 		}
-		choices = append(choices, manualJSONPathChoiceLabel, chooseDifferentFileLabel)
+		choices = append(choices, manualStructuredPathChoiceLabel(selectedFile.targetType), chooseDifferentFileLabel)
 
 		choiceIndex, err := prompter.promptChoiceIndex(prompt, choices)
 		if err != nil {
@@ -570,15 +611,15 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 
 		if choiceIndex < len(currentNodes) {
 			selectedNode := currentNodes[choiceIndex]
-			if selectedNode.Selectable {
-				return selectedNode.JSONPath, false, nil
+			if selectedNode.selectable {
+				return selectedNode.selector, false, nil
 			}
 
 			ancestors = append(ancestors, targetBrowseLevel{
-				path:  selectedNode.JSONPath,
+				path:  selectedNode.selector,
 				nodes: currentNodes,
 			})
-			currentNodes = selectedNode.Children
+			currentNodes = selectedNode.children
 			continue
 		}
 
@@ -595,7 +636,7 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 
 		if showSearchAction {
 			if choiceIndex == nextActionIndex {
-				searchResult, err := promptTargetJSONPathSearch(prompter, selectedFile, selectablePaths, dependencies)
+				searchResult, err := promptTargetStructuredPathSearch(prompter, selectedFile, selectablePaths, dependencies)
 				if err != nil {
 					return "", false, err
 				}
@@ -606,51 +647,52 @@ func promptTargetJSONPath(prompter initPrompter, selectedFile targetFileSelectio
 					continue
 				}
 
-				return searchResult.jsonPath, false, nil
+				return searchResult.selector, false, nil
 			}
 			nextActionIndex++
 		}
 
 		if choiceIndex == nextActionIndex {
-			jsonPath, err := prompter.promptNonEmptyLine("JSON value path: ")
+			selector, err := prompter.promptNonEmptyLine(manualStructuredPathInputPrompt(selectedFile.targetType))
 			if err != nil {
 				return "", false, err
 			}
 
-			if err := dependencies.validateStringTarget(selectedFile.path, jsonPath); err != nil {
+			if err := validateStructuredTargetSelector(dependencies, selectedFile.targetType, selectedFile.path, selector); err != nil {
 				if err := writePromptError(prompter, err); err != nil {
 					return "", false, err
 				}
 				continue
 			}
 
-			return jsonPath, false, nil
+			return selector, false, nil
 		}
 
 		return "", true, nil
 	}
 }
 
-func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSelection, selectablePaths []string, dependencies initDependencies) (jsonPathSearchResult, error) {
+func promptTargetStructuredPathSearch(prompter initPrompter, selectedFile targetFileSelection, selectablePaths []string, dependencies initDependencies) (targetPathSearchResult, error) {
 	filterValue := ""
+	formatName := targetTypeDisplayName(selectedFile.targetType)
 
 	for {
 		if filterValue == "" {
-			nextFilterValue, err := prompter.promptLine("Search JSON values by name or path (blank returns to browsing): ")
+			nextFilterValue, err := prompter.promptLine(fmt.Sprintf("Search %s values by name or path (blank returns to browsing): ", formatName))
 			if err != nil {
-				return jsonPathSearchResult{}, err
+				return targetPathSearchResult{}, err
 			}
 			if strings.TrimSpace(nextFilterValue) == "" {
-				return jsonPathSearchResult{returnToHierarchy: true}, nil
+				return targetPathSearchResult{returnToHierarchy: true}, nil
 			}
 
 			filterValue = nextFilterValue
 		}
 
-		matchingPaths := filterSelectableJSONPaths(selectablePaths, filterValue)
+		matchingPaths := filterSelectableTargetPaths(selectablePaths, filterValue)
 		if len(matchingPaths) == 0 {
-			if _, err := fmt.Fprintf(prompter.writer, "No selectable JSON paths in %s match %q.\n", selectedFile.displayPath, filterValue); err != nil {
-				return jsonPathSearchResult{}, err
+			if _, err := fmt.Fprintf(prompter.writer, "No selectable %s paths in %s match %q.\n", formatName, selectedFile.displayPath, filterValue); err != nil {
+				return targetPathSearchResult{}, err
 			}
 			filterValue = ""
 			continue
@@ -665,15 +707,15 @@ func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSe
 
 		choices := make([]string, 0, len(visiblePaths)+5)
 		choices = append(choices, visiblePaths...)
-		choices = append(choices, refineJSONPathSearchLabel, clearJSONPathSearchLabel, manualJSONPathChoiceLabel, browseJSONPathsChoiceLabel, chooseDifferentFileLabel)
+		choices = append(choices, refineJSONPathSearchLabel, clearJSONPathSearchLabel, manualStructuredPathChoiceLabel(selectedFile.targetType), browseStructuredPathsChoiceLabel(selectedFile.targetType), chooseDifferentFileLabel)
 
-		choiceIndex, err := prompter.promptChoiceIndex(targetJSONPathSearchPrompt(selectedFile.displayPath, filterValue, len(visiblePaths), len(matchingPaths), truncated), choices)
+		choiceIndex, err := prompter.promptChoiceIndex(targetStructuredPathSearchPrompt(formatName, selectedFile.displayPath, filterValue, len(visiblePaths), len(matchingPaths), truncated), choices)
 		if err != nil {
-			return jsonPathSearchResult{}, err
+			return targetPathSearchResult{}, err
 		}
 
 		if choiceIndex < len(visiblePaths) {
-			return jsonPathSearchResult{jsonPath: visiblePaths[choiceIndex]}, nil
+			return targetPathSearchResult{selector: visiblePaths[choiceIndex]}, nil
 		}
 
 		nextActionIndex := len(visiblePaths)
@@ -690,45 +732,45 @@ func promptTargetJSONPathSearch(prompter initPrompter, selectedFile targetFileSe
 		nextActionIndex++
 
 		if choiceIndex == nextActionIndex {
-			jsonPath, err := prompter.promptNonEmptyLine("JSON value path: ")
+			selector, err := prompter.promptNonEmptyLine(manualStructuredPathInputPrompt(selectedFile.targetType))
 			if err != nil {
-				return jsonPathSearchResult{}, err
+				return targetPathSearchResult{}, err
 			}
 
-			if err := dependencies.validateStringTarget(selectedFile.path, jsonPath); err != nil {
+			if err := validateStructuredTargetSelector(dependencies, selectedFile.targetType, selectedFile.path, selector); err != nil {
 				if err := writePromptError(prompter, err); err != nil {
-					return jsonPathSearchResult{}, err
+					return targetPathSearchResult{}, err
 				}
 				continue
 			}
 
-			return jsonPathSearchResult{jsonPath: jsonPath}, nil
+			return targetPathSearchResult{selector: selector}, nil
 		}
 		nextActionIndex++
 
 		if choiceIndex == nextActionIndex {
-			return jsonPathSearchResult{returnToHierarchy: true}, nil
+			return targetPathSearchResult{returnToHierarchy: true}, nil
 		}
 
-		return jsonPathSearchResult{chooseDifferentFile: true}, nil
+		return targetPathSearchResult{chooseDifferentFile: true}, nil
 	}
 }
 
-func flattenSelectableJSONPaths(nodes []editor.StringTargetNode) []string {
+func flattenSelectableTargetPaths(nodes []targetSelectorNode) []string {
 	paths := make([]string, 0)
 	for _, node := range nodes {
-		if node.Selectable {
-			paths = append(paths, node.JSONPath)
+		if node.selectable {
+			paths = append(paths, node.selector)
 		}
-		if len(node.Children) > 0 {
-			paths = append(paths, flattenSelectableJSONPaths(node.Children)...)
+		if len(node.children) > 0 {
+			paths = append(paths, flattenSelectableTargetPaths(node.children)...)
 		}
 	}
 
 	return paths
 }
 
-func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []string {
+func filterSelectableTargetPaths(selectablePaths []string, filterValue string) []string {
 	normalizedFilter := normalizeTargetFileFilter(filterValue)
 	if normalizedFilter == "" {
 		return selectablePaths
@@ -754,20 +796,88 @@ func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []s
 	return append(leafMatches, pathMatches...)
 }
 
-func targetJSONPathSearchPrompt(displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
+func targetStructuredPathSearchPrompt(formatName string, displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
 	if truncated {
-		return fmt.Sprintf("Select JSON value matching %q in %s (showing %d of %d matches):", filterValue, displayPath, visibleCount, matchingCount)
+		return fmt.Sprintf("Select %s value matching %q in %s (showing %d of %d matches):", formatName, filterValue, displayPath, visibleCount, matchingCount)
 	}
 
-	return fmt.Sprintf("Select JSON value matching %q in %s:", filterValue, displayPath)
+	return fmt.Sprintf("Select %s value matching %q in %s:", formatName, filterValue, displayPath)
 }
 
-func targetNodeChoiceLabel(node editor.StringTargetNode) string {
-	if node.Selectable {
-		return node.Name
+func targetNodeChoiceLabel(node targetSelectorNode) string {
+	if node.selectable {
+		return node.name
 	}
 
-	return node.Name + "/"
+	return node.name + "/"
+}
+
+func jsonTargetSelectorNodes(nodes []editor.StringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.JSONPath,
+			selectable: node.Selectable,
+			children:   jsonTargetSelectorNodes(node.Children),
+		})
+	}
+
+	return convertedNodes
+}
+
+func yamlTargetSelectorNodes(nodes []editor.YAMLStringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.YAMLPath,
+			selectable: node.Selectable,
+			children:   yamlTargetSelectorNodes(node.Children),
+		})
+	}
+
+	return convertedNodes
+}
+
+func searchStructuredPathsChoiceLabel(targetType config.TargetType) string {
+	if targetType == config.TargetTypeYAML {
+		return searchYAMLPathsChoiceLabel
+	}
+
+	return searchJSONPathsChoiceLabel
+}
+
+func manualStructuredPathChoiceLabel(targetType config.TargetType) string {
+	if targetType == config.TargetTypeYAML {
+		return manualYAMLPathChoiceLabel
+	}
+
+	return manualJSONPathChoiceLabel
+}
+
+func browseStructuredPathsChoiceLabel(targetType config.TargetType) string {
+	if targetType == config.TargetTypeYAML {
+		return browseYAMLPathsChoiceLabel
+	}
+
+	return browseJSONPathsChoiceLabel
+}
+
+func manualStructuredPathInputPrompt(targetType config.TargetType) string {
+	if targetType == config.TargetTypeYAML {
+		return "YAML value path: "
+	}
+
+	return "JSON value path: "
+}
+
+func validateStructuredTargetSelector(dependencies initDependencies, targetType config.TargetType, targetPath string, selector string) error {
+	if targetType == config.TargetTypeYAML {
+		return dependencies.validateYAMLTarget(targetPath, selector)
+	}
+
+	return dependencies.validateStringTarget(targetPath, selector)
 }
 
 func writePromptError(prompter initPrompter, err error) error {

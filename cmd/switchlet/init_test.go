@@ -126,7 +126,8 @@ func TestPromptTargetJSONPath_AllowsSearchingLargeSelectablePathSets(t *testing.
 	selectedFile := targetFileSelection{
 		path:        "/tmp/config.json",
 		displayPath: "config.json",
-		nodes: []editor.StringTargetNode{
+		targetType:  config.TargetTypeJSON,
+		nodes: jsonTargetSelectorNodes([]editor.StringTargetNode{
 			{
 				Name:     "database",
 				JSONPath: "database",
@@ -146,7 +147,7 @@ func TestPromptTargetJSONPath_AllowsSearchingLargeSelectablePathSets(t *testing.
 					{Name: "replicaL", JSONPath: "database.replicaL", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaL.url", Selectable: true}}},
 				},
 			},
-		},
+		}),
 	}
 	dependencies := initDependencies{
 		validateStringTarget: func(string, string) error { return nil },
@@ -176,7 +177,8 @@ func TestPromptTargetJSONPath_SearchKeepsPathSelectionRecoverableWhenNothingMatc
 	selectedFile := targetFileSelection{
 		path:        "/tmp/config.json",
 		displayPath: "config.json",
-		nodes: []editor.StringTargetNode{{
+		targetType:  config.TargetTypeJSON,
+		nodes: jsonTargetSelectorNodes([]editor.StringTargetNode{{
 			Name:     "database",
 			JSONPath: "database",
 			Children: []editor.StringTargetNode{
@@ -194,7 +196,7 @@ func TestPromptTargetJSONPath_SearchKeepsPathSelectionRecoverableWhenNothingMatc
 				{Name: "replicaK", JSONPath: "database.replicaK", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaK.url", Selectable: true}}},
 				{Name: "replicaL", JSONPath: "database.replicaL", Children: []editor.StringTargetNode{{Name: "url", JSONPath: "database.replicaL.url", Selectable: true}}},
 			},
-		}},
+		}}),
 	}
 	dependencies := initDependencies{
 		validateStringTarget: func(string, string) error { return nil },
@@ -474,6 +476,69 @@ func TestRunCommand_InitCreatesConfigurationFromGuidedSelection(t *testing.T) {
 	}
 }
 
+func TestRunCommand_InitCreatesYAMLTargetFromGuidedSelection(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "worker.yaml", strings.TrimSpace(`
+queue:
+  endpoint: https://old.example.test
+`)+"\n")
+
+	input := strings.NewReader(strings.Join([]string{
+		"1",
+		"1",
+		"1",
+		"workerQueue",
+		"n",
+		"Local",
+		"1",
+		"https://queue.local",
+		"n",
+		"n",
+		"",
+		"",
+	}, "\n") + "\n")
+	var output bytes.Buffer
+
+	err := runCommand([]string{"init"}, projectRoot, func(model tea.Model) error {
+		t.Fatal("runProgram should not be called for init")
+		return nil
+	}, input, &output)
+	if err != nil {
+		t.Fatalf("runCommand returned error: %v", err)
+	}
+
+	loadedConfig, err := config.Load(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+	if len(loadedConfig.Targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(loadedConfig.Targets))
+	}
+	target := loadedConfig.Targets[0]
+	if target.Name != "workerQueue" || target.Type != config.TargetTypeYAML || target.YAMLPath != "queue.endpoint" {
+		t.Fatalf("target = %#v, want workerQueue YAML target", target)
+	}
+	if target.JSONPath != "" || target.Key != "" {
+		t.Fatalf("target = %#v, want no JSON path or dotenv key", target)
+	}
+
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatalf("read configuration file: %v", err)
+	}
+	for _, expected := range []string{"type: yaml", "yamlPath: queue.endpoint", "target: workerQueue"} {
+		if !strings.Contains(string(contents), expected) {
+			t.Fatalf("configuration file contents %q do not contain %q", string(contents), expected)
+		}
+	}
+	if strings.Contains(string(contents), "jsonPath:") || strings.Contains(string(contents), "key:") {
+		t.Fatalf("configuration file contents %q should not contain JSON path or dotenv key fields", string(contents))
+	}
+	if !strings.Contains(output.String(), "Detected format: YAML") || !strings.Contains(output.String(), "YAML path: queue.endpoint") {
+		t.Fatalf("init output %q does not summarize YAML target selection", output.String())
+	}
+}
+
 func TestRunCommand_InitReturnsErrorWhenConfigurationExistsInParentDirectory(t *testing.T) {
 	workspaceRoot := t.TempDir()
 	projectRoot := filepath.Join(workspaceRoot, "project")
@@ -692,7 +757,7 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "No supported configuration files with existing string JSON values or unambiguous dotenv keys were discovered") {
+	if !strings.Contains(output.String(), "No supported configuration files with existing JSON or YAML string values or unambiguous dotenv keys were discovered") {
 		t.Fatalf("init output %q does not report empty discovery results", output.String())
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {

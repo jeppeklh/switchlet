@@ -48,6 +48,7 @@ type initWizardEffectKind int
 const (
 	initWizardEffectFileInspection initWizardEffectKind = iota + 1
 	initWizardEffectJSONSelectorValidation
+	initWizardEffectYAMLSelectorValidation
 	initWizardEffectDotenvKeyValidation
 )
 
@@ -89,9 +90,10 @@ type initWizardModel struct {
 	fileFilter            string
 	fileCandidates        []app.InitTargetFileCandidate
 	selectedFile          app.InitTargetFileSelection
-	browseNodes           []app.InitStringTargetNode
+	browseNodes           []targetSelectorNode
 	browseAncestors       []targetBrowseLevel
 	selectedJSONPath      string
+	selectedYAMLPath      string
 	selectedDotenvKey     string
 	targets               []app.InitTarget
 	profiles              []app.InitProfile
@@ -167,9 +169,10 @@ func (model *initWizardModel) beginPathBrowse() {
 	model.cursor = 0
 	model.clearError()
 	model.clearInputValue()
-	model.browseNodes = model.selectedFile.Nodes
+	model.browseNodes = targetSelectorNodesForSelection(model.selectedFile)
 	model.browseAncestors = nil
 	model.selectedJSONPath = ""
+	model.selectedYAMLPath = ""
 	model.selectedDotenvKey = ""
 }
 
@@ -179,6 +182,7 @@ func (model *initWizardModel) beginDotenvKeySelect() {
 	model.clearError()
 	model.clearInputValue()
 	model.selectedJSONPath = ""
+	model.selectedYAMLPath = ""
 	model.selectedDotenvKey = ""
 }
 
@@ -264,9 +268,12 @@ func (model *initWizardModel) appendTarget(name string) {
 		File: model.selectedFile.Path,
 		Type: model.selectedFile.TargetType,
 	}
-	if model.selectedFile.TargetType == app.InitTargetTypeDotenv {
+	switch model.selectedFile.TargetType {
+	case app.InitTargetTypeDotenv:
 		target.Key = model.selectedDotenvKey
-	} else {
+	case app.InitTargetTypeYAML:
+		target.YAMLPath = model.selectedYAMLPath
+	default:
 		target.JSONPath = model.selectedJSONPath
 	}
 
@@ -348,12 +355,12 @@ func (model initWizardModel) filteredFileCandidates(filterValue string) []app.In
 	return filterTargetFileCandidates(model.fileCandidates, filterValue)
 }
 
-func (model initWizardModel) selectableJSONPaths() []string {
-	return flattenSelectableJSONPaths(model.selectedFile.Nodes)
+func (model initWizardModel) selectableStructuredPaths() []string {
+	return flattenSelectableTargetPaths(targetSelectorNodesForSelection(model.selectedFile))
 }
 
-func (model initWizardModel) filteredSelectableJSONPaths(filterValue string) []string {
-	return filterSelectableJSONPaths(model.selectableJSONPaths(), filterValue)
+func (model initWizardModel) filteredSelectableStructuredPaths(filterValue string) []string {
+	return filterSelectableTargetPaths(model.selectableStructuredPaths(), filterValue)
 }
 
 func (model initWizardModel) filteredDotenvKeys(filterValue string) []string {

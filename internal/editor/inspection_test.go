@@ -5,16 +5,20 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
-func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableJSONFiles(t *testing.T) {
+func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableTargetFiles(t *testing.T) {
 	projectRoot := t.TempDir()
 
 	writeTargetFile(t, projectRoot, "root.json", `{"serviceUrl":"https://old.example.test"}`)
+	writeTargetFile(t, projectRoot, "worker.yaml", "queue:\n  endpoint: https://old.example.test\n")
 	writeTargetFile(t, projectRoot, ".env.local", "VITE_API_URL=http://localhost:5173\n")
 	writeTargetFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
 	writeTargetFile(t, projectRoot, "src/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=localhost;Database=App;"}}`)
 	writeTargetFile(t, projectRoot, "invalid.json", `{`)
+	writeTargetFile(t, projectRoot, "numbers.yaml", "queue:\n  retries: 3\n")
 	writeTargetFile(t, projectRoot, "arrays-only.json", `{"services":[{"baseUrl":"https://old.example.test"}]}`)
 	writeTargetFile(t, projectRoot, ".hidden/ignored.json", `{"serviceUrl":"https://hidden.example.test"}`)
 
@@ -36,11 +40,17 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableJSONFiles(t *testi
 	wantRelativePaths := []string{
 		".env.local",
 		"root.json",
+		"worker.yaml",
 		filepath.Join("config", "runtime.json"),
 		filepath.Join("src", "appsettings.Development.json"),
 	}
 	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
 		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
+	}
+	for _, candidate := range candidates {
+		if candidate.RelativePath == "worker.yaml" && candidate.Type != config.TargetTypeYAML {
+			t.Fatalf("worker.yaml candidate type = %q, want %q", candidate.Type, config.TargetTypeYAML)
+		}
 	}
 }
 

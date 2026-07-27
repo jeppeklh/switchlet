@@ -16,6 +16,8 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.handleFileInspected(message)
 	case jsonSelectorValidatedMsg:
 		return model.handleJSONSelectorValidated(message)
+	case yamlSelectorValidatedMsg:
+		return model.handleYAMLSelectorValidated(message)
 	case dotenvKeyValidatedMsg:
 		return model.handleDotenvKeyValidated(message)
 	case tea.WindowSizeMsg:
@@ -132,7 +134,25 @@ func (model initWizardModel) handleJSONSelectorValidated(message jsonSelectorVal
 		return model, nil
 	}
 
-	model.selectedJSONPath = message.jsonPath
+	model.selectStructuredPath(message.jsonPath)
+	model.beginManagedValueName()
+	return model, nil
+}
+
+func (model initWizardModel) handleYAMLSelectorValidated(message yamlSelectorValidatedMsg) (tea.Model, tea.Cmd) {
+	if model.staleYAMLSelectorValidated(message) {
+		return model, nil
+	}
+
+	pendingEffect := *model.pendingEffect
+	model.pendingEffect = nil
+	if message.err != nil {
+		model.restorePendingContext(pendingEffect)
+		model.errorDetail = yamlSelectorValidationError(pendingEffect, message.err)
+		return model, nil
+	}
+
+	model.selectStructuredPath(message.yamlPath)
 	model.beginManagedValueName()
 	return model, nil
 }
@@ -209,6 +229,33 @@ func (model initWizardModel) startJSONSelectorValidation(jsonPath string) (tea.M
 	})
 
 	return model, validateJSONSelector(model.workflow, requestID, model.selectedFile.Path, jsonPath)
+}
+
+func (model initWizardModel) startYAMLSelectorValidation(yamlPath string) (tea.Model, tea.Cmd) {
+	requestID := model.startPendingEffect(initWizardPendingEffect{
+		Kind:              initWizardEffectYAMLSelectorValidation,
+		StepNumber:        2,
+		Title:             "Validating YAML value path",
+		Message:           "Checking " + yamlPath + ".",
+		ReturnStep:        initWizardStepManualPath,
+		ReturnCursor:      model.cursor,
+		ReturnInputValue:  model.inputValue,
+		ReturnInputCursor: model.inputCursor,
+		TargetPath:        model.selectedFile.Path,
+		DisplayPath:       model.selectedFile.DisplayPath,
+		TargetType:        model.selectedFile.TargetType,
+		Selector:          yamlPath,
+	})
+
+	return model, validateYAMLSelector(model.workflow, requestID, model.selectedFile.Path, yamlPath)
+}
+
+func (model initWizardModel) startStructuredSelectorValidation(selector string) (tea.Model, tea.Cmd) {
+	if model.selectedFile.TargetType == app.InitTargetTypeYAML {
+		return model.startYAMLSelectorValidation(selector)
+	}
+
+	return model.startJSONSelectorValidation(selector)
 }
 
 func (model initWizardModel) startDotenvKeyValidation(key string) (tea.Model, tea.Cmd) {
@@ -365,21 +412,27 @@ func (model *initWizardModel) beginSelectorForSelectedFile() {
 }
 
 func (model initWizardModel) handleTypeSelectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	targetTypes := []app.InitTargetType{app.InitTargetTypeJSON, app.InitTargetTypeYAML, app.InitTargetTypeDotenv}
+	model.clampCursor(len(targetTypes))
+
 	switch {
-	case isMoveUpKey(message), isMoveDownKey(message):
-		model.cursor = 1 - model.cursor
+	case isMoveUpKey(message):
+		model.cursor--
+		if model.cursor < 0 {
+			model.cursor = len(targetTypes) - 1
+		}
+	case isMoveDownKey(message):
+		model.cursor++
+		if model.cursor >= len(targetTypes) {
+			model.cursor = 0
+		}
 	case message.Type == tea.KeyEsc:
 		model.step = initWizardStepManualFile
 		model.cursor = 0
 		model.clearError()
 		model.setInputValue(model.selectedFile.DisplayPath)
 	case message.Type == tea.KeyEnter:
-		targetType := app.InitTargetTypeJSON
-		if model.cursor == 1 {
-			targetType = app.InitTargetTypeDotenv
-		}
-
-		return model.startFileInspection(model.selectedFile.Path, model.selectedFile.DisplayPath, targetType, initWizardStepTypeSelect)
+		return model.startFileInspection(model.selectedFile.Path, model.selectedFile.DisplayPath, targetTypes[model.cursor], initWizardStepTypeSelect)
 	}
 
 	return model, nil
@@ -540,17 +593,17 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 	case message.Type == tea.KeyEnter:
 		if model.cursor < len(model.browseNodes) {
 			selectedNode := model.browseNodes[model.cursor]
-			if selectedNode.Selectable {
-				model.selectedJSONPath = selectedNode.JSONPath
+			if selectedNode.selectable {
+				model.selectStructuredPath(selectedNode.selector)
 				model.beginManagedValueName()
 				return model, nil
 			}
 
 			model.browseAncestors = append(model.browseAncestors, targetBrowseLevel{
-				path:  selectedNode.JSONPath,
+				path:  selectedNode.selector,
 				nodes: model.browseNodes,
 			})
-			model.browseNodes = selectedNode.Children
+			model.browseNodes = selectedNode.children
 			model.cursor = 0
 			model.clearError()
 			return model, nil
@@ -575,7 +628,7 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	matchingPaths := model.filteredSelectableJSONPaths(model.inputValue)
+	matchingPaths := model.filteredSelectableStructuredPaths(model.inputValue)
 	model.clampCursor(len(matchingPaths))
 
 	switch message.Type {
@@ -587,11 +640,12 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 		return model, nil
 	case tea.KeyEnter:
 		if len(matchingPaths) == 0 {
-			model.setStepError("No matching JSON values.", fmt.Sprintf("No selectable JSON paths in %s match %q.", model.selectedFile.DisplayPath, model.inputValue), "Edit the search or press Esc to browse values.")
+			formatName := structuredValueFormatName(model.selectedFile.TargetType)
+			model.setStepError("No matching "+formatName+" values.", fmt.Sprintf("No selectable %s paths in %s match %q.", formatName, model.selectedFile.DisplayPath, model.inputValue), "Edit the search or press Esc to browse values.")
 			return model, nil
 		}
 
-		model.selectedJSONPath = matchingPaths[model.cursor]
+		model.selectStructuredPath(matchingPaths[model.cursor])
 		model.beginManagedValueName()
 		return model, nil
 	case tea.KeyUp:
@@ -615,9 +669,20 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 			return model, nil
 		}
 		model.clearError()
-		model.clampCursor(len(model.filteredSelectableJSONPaths(model.inputValue)))
+		model.clampCursor(len(model.filteredSelectableStructuredPaths(model.inputValue)))
 		return model, nil
 	}
+}
+
+func (model *initWizardModel) selectStructuredPath(selector string) {
+	if model.selectedFile.TargetType == app.InitTargetTypeYAML {
+		model.selectedYAMLPath = selector
+		model.selectedJSONPath = ""
+		return
+	}
+
+	model.selectedJSONPath = selector
+	model.selectedYAMLPath = ""
 }
 
 func (model initWizardModel) handleManualPathKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -635,7 +700,7 @@ func (model initWizardModel) handleManualPathKey(message tea.KeyMsg) (tea.Model,
 			return model, nil
 		}
 
-		return model.startJSONSelectorValidation(enteredValue)
+		return model.startStructuredSelectorValidation(enteredValue)
 	default:
 		if !model.handleInputEditKey(message) {
 			return model, nil

@@ -25,6 +25,8 @@ const (
 	InitTargetTypeJSON InitTargetType = config.TargetTypeJSON
 	// InitTargetTypeDotenv identifies a dotenv target selected by key.
 	InitTargetTypeDotenv InitTargetType = config.TargetTypeDotenv
+	// InitTargetTypeYAML identifies a YAML target selected by yamlPath.
+	InitTargetTypeYAML InitTargetType = config.TargetTypeYAML
 )
 
 // InitTargetFileCandidate describes one discovered init target file candidate.
@@ -33,12 +35,16 @@ type InitTargetFileCandidate = editor.TargetFileCandidate
 // InitStringTargetNode describes one browseable JSON target node during init.
 type InitStringTargetNode = editor.StringTargetNode
 
+// InitYAMLStringTargetNode describes one browseable YAML target node during init.
+type InitYAMLStringTargetNode = editor.YAMLStringTargetNode
+
 // InitTargetFileSelection contains the inspected file data needed by the init wizard.
 type InitTargetFileSelection struct {
 	Path        string
 	DisplayPath string
 	TargetType  InitTargetType
 	Nodes       []InitStringTargetNode
+	YAMLNodes   []InitYAMLStringTargetNode
 	DotenvKeys  []string
 }
 
@@ -46,8 +52,10 @@ type InitTargetFileSelection struct {
 type InitWorkflowDependencies struct {
 	DiscoverTargetFileCandidates func(string) ([]InitTargetFileCandidate, error)
 	InspectStringTargets         func(string) ([]InitStringTargetNode, error)
+	InspectYAMLStringTargets     func(string) ([]InitYAMLStringTargetNode, error)
 	InspectDotenvKeys            func(string) ([]string, error)
 	ValidateStringTarget         func(string, string) error
+	ValidateYAMLTarget           func(string, string) error
 	ValidateDotenvTarget         func(string, string) error
 }
 
@@ -110,6 +118,12 @@ func (workflow InitWorkflow) InspectTargetFile(targetPath string, displayPath st
 			return InitTargetFileSelection{}, err
 		}
 		selection.DotenvKeys = keys
+	case config.TargetTypeYAML:
+		nodes, err := workflow.inspectYAMLStringTargets(targetPath)
+		if err != nil {
+			return InitTargetFileSelection{}, err
+		}
+		selection.YAMLNodes = nodes
 	default:
 		return InitTargetFileSelection{}, fmt.Errorf("target type %q is not supported", targetType)
 	}
@@ -133,6 +147,15 @@ func (workflow InitWorkflow) ValidateDotenvTarget(targetPath string, key string)
 	}
 
 	return editor.ValidateDotenvTarget(targetPath, key)
+}
+
+// ValidateYAMLTarget validates an explicit YAML selector for init.
+func (workflow InitWorkflow) ValidateYAMLTarget(targetPath string, yamlPath string) error {
+	if workflow.dependencies.ValidateYAMLTarget != nil {
+		return workflow.dependencies.ValidateYAMLTarget(targetPath, yamlPath)
+	}
+
+	return editor.ValidateYAMLTarget(targetPath, yamlPath)
 }
 
 // InferInitTargetType infers a target type from a path using config ownership rules.
@@ -190,4 +213,12 @@ func (workflow InitWorkflow) inspectDotenvKeys(targetPath string) ([]string, err
 	}
 
 	return editor.InspectDotenvKeys(targetPath)
+}
+
+func (workflow InitWorkflow) inspectYAMLStringTargets(targetPath string) ([]InitYAMLStringTargetNode, error) {
+	if workflow.dependencies.InspectYAMLStringTargets != nil {
+		return workflow.dependencies.InspectYAMLStringTargets(targetPath)
+	}
+
+	return editor.InspectYAMLStringTargets(targetPath)
 }

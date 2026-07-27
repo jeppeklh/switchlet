@@ -37,7 +37,7 @@ func (model initWizardModel) View() string {
 	case initWizardStepManualFile:
 		return model.textInputView(1, "Enter configuration file path", []string{
 			"Task",
-			"Enter a relative or absolute JSON or dotenv file path.",
+			"Enter a relative or absolute JSON, YAML, or dotenv file path.",
 			"Switchlet inspects it before continuing.",
 		}, "Configuration file", "Validate file")
 	case initWizardStepTypeSelect:
@@ -50,21 +50,23 @@ func (model initWizardModel) View() string {
 				"Task",
 				"Choose the file type because the format cannot be inferred safely.",
 			},
-			[]string{"JSON", "dotenv"},
+			[]string{"JSON", "YAML", "dotenv"},
 		)
 	case initWizardStepPathBrowse:
 		return model.pathBrowseView()
 	case initWizardStepPathSearch:
 		return model.pathSearchView()
 	case initWizardStepManualPath:
-		return model.textInputView(2, "Enter JSON value path", []string{
+		formatName := structuredValueFormatName(model.selectedFile.TargetType)
+		pathInputLabel := structuredPathInputLabel(model.selectedFile.TargetType)
+		return model.textInputView(2, "Enter "+pathInputLabel, []string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
-			"Enter one existing string-valued JSON path.",
+			"Enter one existing string-valued " + formatName + " path.",
 			"Switchlet does not create missing values.",
-		}, "JSON value path", "Validate path")
+		}, pathInputLabel, "Validate path")
 	case initWizardStepDotenvKeySelect:
 		return model.dotenvKeySelectView()
 	case initWizardStepManualDotenvKey:
@@ -142,8 +144,8 @@ func pendingEffectContextLines(pendingEffect initWizardPendingEffect) []string {
 	}
 	if pendingEffect.Selector != "" {
 		selectorLabel := "Value"
-		if pendingEffect.Kind == initWizardEffectJSONSelectorValidation {
-			selectorLabel = "JSON path"
+		if pendingEffect.Kind == initWizardEffectJSONSelectorValidation || pendingEffect.Kind == initWizardEffectYAMLSelectorValidation {
+			selectorLabel = structuredPathSummaryLabel(pendingEffect.TargetType)
 		}
 		if pendingEffect.Kind == initWizardEffectDotenvKeyValidation {
 			selectorLabel = "Key"
@@ -196,7 +198,7 @@ func (model initWizardModel) fileSelectionView() string {
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines,
 			"No supported configuration files were discovered.",
-			"Need existing JSON strings or unique dotenv keys.",
+			"Need existing JSON/YAML strings or unique dotenv keys.",
 			"Press m to enter a file path manually.",
 		)
 	} else {
@@ -212,7 +214,7 @@ func (model initWizardModel) fileSelectionView() string {
 	guidanceLines := []string{
 		"Task",
 		"Choose a supported configuration file.",
-		"JSON and dotenv files are both supported.",
+		"JSON, YAML, and dotenv files are supported.",
 		"File format chooses the value step.",
 		"",
 		"Manual fallback",
@@ -262,7 +264,7 @@ func (model initWizardModel) pathBrowseView() string {
 	for _, node := range model.browseNodes {
 		choices = append(choices, targetNodeChoiceLabel(node))
 	}
-	choices = append(choices, searchJSONPathsChoiceLabel, manualJSONPathChoiceLabel)
+	choices = append(choices, searchStructuredPathsChoiceLabel(model.selectedFile.TargetType), manualStructuredPathChoiceLabel(model.selectedFile.TargetType))
 
 	currentLocation := "root"
 	if len(model.browseAncestors) > 0 {
@@ -273,7 +275,7 @@ func (model initWizardModel) pathBrowseView() string {
 	workLines = append(workLines, model.choiceLines(choices, model.cursor, jsonPathChoiceWindowSize)...)
 
 	return model.initWizardShell(2, "Choose value", []ui.Panel{
-		{Title: "JSON strings", Lines: workLines, Focused: true},
+		{Title: structuredValueFormatName(model.selectedFile.TargetType) + " strings", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
@@ -294,14 +296,15 @@ func (model initWizardModel) pathBrowseView() string {
 }
 
 func (model initWizardModel) pathSearchView() string {
-	matchingPaths := model.filteredSelectableJSONPaths(model.inputValue)
+	matchingPaths := model.filteredSelectableStructuredPaths(model.inputValue)
 	model.clampCursor(len(matchingPaths))
+	formatName := structuredValueFormatName(model.selectedFile.TargetType)
 
 	workLines := []string{model.inputLine("Search"), ""}
 	workLines = append(workLines, model.choiceLines(matchingPaths, model.cursor, jsonPathChoiceWindowSize)...)
 	workLines = append(workLines, "", fmt.Sprintf("Showing %d matching path(s).", len(matchingPaths)))
 
-	return model.initWizardShell(2, "Search JSON values", []ui.Panel{
+	return model.initWizardShell(2, "Search "+formatName+" values", []ui.Panel{
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
@@ -309,7 +312,7 @@ func (model initWizardModel) pathSearchView() string {
 			"",
 			"Task",
 			"Search existing string values by path segment or leaf name.",
-			"Enter chooses the highlighted JSON value.",
+			"Enter chooses the highlighted " + formatName + " value.",
 		})},
 	}, searchableTextInputActions("Select"))
 }
@@ -341,7 +344,7 @@ func (model initWizardModel) dotenvKeySelectView() string {
 }
 
 func (model initWizardModel) managedValueNameGuidanceLines() []string {
-	_, selector := initTargetSelectorLabel(app.InitTarget{Type: model.selectedFile.TargetType, JSONPath: model.selectedJSONPath, Key: model.selectedDotenvKey})
+	_, selector := initTargetSelectorLabel(app.InitTarget{Type: model.selectedFile.TargetType, JSONPath: model.selectedJSONPath, YAMLPath: model.selectedYAMLPath, Key: model.selectedDotenvKey})
 	lines := []string{
 		ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 		ui.RenderKeyValue("Selected value", selector),
@@ -527,17 +530,22 @@ func wizardStepMetadata(stepNumber int) []string {
 }
 
 func initTargetSelectorLabel(target app.InitTarget) (string, string) {
-	if target.Type == app.InitTargetTypeDotenv {
+	switch target.Type {
+	case app.InitTargetTypeDotenv:
 		return "Key", target.Key
+	case app.InitTargetTypeYAML:
+		return "YAML path", target.YAMLPath
+	default:
+		return "JSON path", target.JSONPath
 	}
-
-	return "JSON path", target.JSONPath
 }
 
 func initTargetTypeDisplayName(targetType app.InitTargetType) string {
 	switch targetType {
 	case app.InitTargetTypeJSON:
 		return "JSON"
+	case app.InitTargetTypeYAML:
+		return "YAML"
 	case app.InitTargetTypeDotenv:
 		return "dotenv"
 	default:

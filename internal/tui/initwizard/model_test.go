@@ -260,7 +260,7 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	fileView := model.View()
 	for _, expected := range []string{
 		"Choose configuration file",
-		"JSON and dotenv files are both supported.",
+		"JSON, YAML, and dotenv files are supported.",
 		"File format chooses the value step.",
 		"backend/settings.json [json]",
 		"frontend/.env.local [dotenv]",
@@ -311,6 +311,63 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	manualDotenvView := model.View()
 	if !strings.Contains(manualDotenvView, "Enter dotenv value key") || !strings.Contains(manualDotenvView, "Dotenv value key") {
 		t.Fatalf("manual dotenv View() = %q, want dotenv value key fallback", manualDotenvView)
+	}
+}
+
+func TestInitWizardModel_YAMLTargetSelectionCreatesYAMLTarget(t *testing.T) {
+	projectRoot := t.TempDir()
+	yamlCandidate := app.InitTargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "worker", "config.yaml"),
+		RelativePath: filepath.Join("worker", "config.yaml"),
+		Type:         app.InitTargetTypeYAML,
+	}
+
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{yamlCandidate}, nil
+		},
+		InspectYAMLStringTargets: func(path string) ([]app.InitYAMLStringTargetNode, error) {
+			if path != yamlCandidate.Path {
+				return nil, fmt.Errorf("unexpected YAML path %q", path)
+			}
+
+			return []app.InitYAMLStringTargetNode{{
+				Name:     "queue",
+				YAMLPath: "queue",
+				Children: []app.InitYAMLStringTargetNode{{Name: "endpoint", YAMLPath: "queue.endpoint", Selectable: true}},
+			}}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepPathBrowse {
+		t.Fatalf("step = %d, want YAML path browse", model.step)
+	}
+	pathBrowseView := model.View()
+	for _, expected := range []string{"Detected format: YAML", "* YAML strings", "Search YAML values", "Enter YAML value path manually"} {
+		if !strings.Contains(pathBrowseView, expected) {
+			t.Fatalf("YAML path browse View() = %q, want %q", pathBrowseView, expected)
+		}
+	}
+
+	model = pressWizardEnter(t, model)
+	model = pressWizardEnter(t, model)
+	if model.step != initWizardStepManagedValueName || model.selectedYAMLPath != "queue.endpoint" {
+		t.Fatalf("model after YAML value selection = %#v, want managed-value name with selected YAML path", model)
+	}
+	typeWizardText(t, &model, "workerQueue")
+	model = pressWizardEnter(t, model)
+	if len(model.targets) != 1 {
+		t.Fatalf("len(targets) = %d, want 1", len(model.targets))
+	}
+	if model.targets[0].Type != app.InitTargetTypeYAML || model.targets[0].YAMLPath != "queue.endpoint" || model.targets[0].JSONPath != "" {
+		t.Fatalf("target = %#v, want YAML target with yamlPath only", model.targets[0])
+	}
+	if !strings.Contains(model.View(), "YAML path: queue.endpoint") {
+		t.Fatalf("checkpoint View() = %q, want YAML path summary", model.View())
 	}
 }
 
@@ -416,14 +473,24 @@ func TestInitWizardModel_ManualFileInspectionRunsThroughCommand(t *testing.T) {
 func TestInitWizardModel_ManualSelectorValidationRunsThroughCommands(t *testing.T) {
 	projectRoot := t.TempDir()
 	jsonTargetPath := filepath.Join(projectRoot, "config.json")
+	yamlTargetPath := filepath.Join(projectRoot, "worker.yaml")
 	dotenvTargetPath := filepath.Join(projectRoot, ".env")
 	jsonValidationCount := 0
+	yamlValidationCount := 0
 	dotenvValidationCount := 0
 	workflow := app.NewInitWorkflow(app.InitWorkflowDependencies{
 		ValidateStringTarget: func(path string, jsonPath string) error {
 			jsonValidationCount++
 			if path != jsonTargetPath || jsonPath != "service.url" {
 				return fmt.Errorf("unexpected JSON validation %q %q", path, jsonPath)
+			}
+
+			return nil
+		},
+		ValidateYAMLTarget: func(path string, yamlPath string) error {
+			yamlValidationCount++
+			if path != yamlTargetPath || yamlPath != "queue.endpoint" {
+				return fmt.Errorf("unexpected YAML validation %q %q", path, yamlPath)
 			}
 
 			return nil
@@ -469,6 +536,39 @@ func TestInitWizardModel_ManualSelectorValidationRunsThroughCommands(t *testing.
 	}
 	if jsonModel.step != initWizardStepManagedValueName || jsonModel.selectedJSONPath != "service.url" {
 		t.Fatalf("JSON model = %#v, want managed value name step with selected path", jsonModel)
+	}
+
+	yamlModel := initWizardModel{
+		workingDirectory: projectRoot,
+		workflow:         workflow,
+		step:             initWizardStepManualPath,
+		width:            120,
+		height:           32,
+		selectedFile: app.InitTargetFileSelection{
+			Path:        yamlTargetPath,
+			DisplayPath: "worker.yaml",
+			TargetType:  app.InitTargetTypeYAML,
+		},
+	}
+	yamlModel.setInputValue("queue.endpoint")
+	updatedModel, command = yamlModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if command == nil {
+		t.Fatal("command is nil, want YAML selector validation command")
+	}
+	if yamlValidationCount != 0 {
+		t.Fatalf("yamlValidationCount = %d, want no validation before command execution", yamlValidationCount)
+	}
+
+	yamlModel = updatedModel.(initWizardModel)
+	if !yamlModel.isPending() || !strings.Contains(yamlModel.View(), "Validating YAML value path") {
+		t.Fatalf("pending YAML View() = %q, want validation pending view", yamlModel.View())
+	}
+	yamlModel = executeWizardEffectCommand(t, yamlModel, command)
+	if yamlValidationCount != 1 {
+		t.Fatalf("yamlValidationCount = %d, want one validation after command execution", yamlValidationCount)
+	}
+	if yamlModel.step != initWizardStepManagedValueName || yamlModel.selectedYAMLPath != "queue.endpoint" {
+		t.Fatalf("YAML model = %#v, want managed value name step with selected path", yamlModel)
 	}
 
 	dotenvModel := initWizardModel{
@@ -721,11 +821,11 @@ func TestInitWizardModel_JSONBrowseUsesEscInsteadOfSelectableBackRow(t *testing.
 			DisplayPath: "config.json",
 			TargetType:  app.InitTargetTypeJSON,
 		},
-		browseNodes: []app.InitStringTargetNode{{
+		browseNodes: jsonTargetSelectorNodes([]app.InitStringTargetNode{{
 			Name:     "database",
 			JSONPath: "database",
 			Children: []app.InitStringTargetNode{{Name: "url", JSONPath: "database.url", Selectable: true}},
-		}},
+		}}),
 	}
 
 	model = pressWizardEnter(t, model)
@@ -738,7 +838,7 @@ func TestInitWizardModel_JSONBrowseUsesEscInsteadOfSelectableBackRow(t *testing.
 	}
 
 	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
-	if model.step != initWizardStepPathBrowse || len(model.browseAncestors) != 0 || len(model.browseNodes) != 1 || model.browseNodes[0].Name != "database" {
+	if model.step != initWizardStepPathBrowse || len(model.browseAncestors) != 0 || len(model.browseNodes) != 1 || model.browseNodes[0].name != "database" {
 		t.Fatalf("model after Esc = %#v, want root JSON browse context", model)
 	}
 }
@@ -1342,7 +1442,7 @@ func TestInitWizardModel_ManualFileAndPathEntryRemainAvailable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newInitWizardModel returned error: %v", err)
 	}
-	if !strings.Contains(model.View(), "No supported configuration files were discovered.") || !strings.Contains(model.View(), "Need existing JSON strings or unique dotenv keys.") {
+	if !strings.Contains(model.View(), "No supported configuration files were discovered.") || !strings.Contains(model.View(), "Need existing JSON/YAML strings or unique dotenv keys.") {
 		t.Fatalf("View() = %q, want empty-discovery guidance", model.View())
 	}
 
@@ -1974,6 +2074,12 @@ func executeWizardEffectCommand(t *testing.T, model initWizardModel, command tea
 		}
 		return updatedModel.(initWizardModel)
 	case jsonSelectorValidatedMsg:
+		updatedModel, nextCommand := model.Update(message)
+		if nextCommand != nil {
+			t.Fatal("effect completion returned an unexpected command")
+		}
+		return updatedModel.(initWizardModel)
+	case yamlSelectorValidatedMsg:
 		updatedModel, nextCommand := model.Update(message)
 		if nextCommand != nil {
 			t.Fatal("effect completion returned an unexpected command")

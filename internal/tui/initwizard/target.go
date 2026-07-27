@@ -9,16 +9,25 @@ import (
 
 const (
 	manualJSONPathChoiceLabel  = "Enter JSON value path manually"
+	manualYAMLPathChoiceLabel  = "Enter YAML value path manually"
 	manualDotenvKeyChoiceLabel = "Enter dotenv value key manually"
 	targetFileChoiceWindowSize = 12
 	searchJSONPathsChoiceLabel = "Search JSON values"
+	searchYAMLPathsChoiceLabel = "Search YAML values"
 	jsonPathChoiceWindowSize   = 12
 	dotenvKeyChoiceWindowSize  = 12
 )
 
+type targetSelectorNode struct {
+	name       string
+	selector   string
+	selectable bool
+	children   []targetSelectorNode
+}
+
 type targetBrowseLevel struct {
 	path  string
-	nodes []app.InitStringTargetNode
+	nodes []targetSelectorNode
 }
 
 func filterTargetFileCandidates(candidates []app.InitTargetFileCandidate, filterValue string) []app.InitTargetFileCandidate {
@@ -64,21 +73,21 @@ func filterDotenvKeys(keys []string, filterValue string) []string {
 	return matchingKeys
 }
 
-func flattenSelectableJSONPaths(nodes []app.InitStringTargetNode) []string {
+func flattenSelectableTargetPaths(nodes []targetSelectorNode) []string {
 	paths := make([]string, 0)
 	for _, node := range nodes {
-		if node.Selectable {
-			paths = append(paths, node.JSONPath)
+		if node.selectable {
+			paths = append(paths, node.selector)
 		}
-		if len(node.Children) > 0 {
-			paths = append(paths, flattenSelectableJSONPaths(node.Children)...)
+		if len(node.children) > 0 {
+			paths = append(paths, flattenSelectableTargetPaths(node.children)...)
 		}
 	}
 
 	return paths
 }
 
-func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []string {
+func filterSelectableTargetPaths(selectablePaths []string, filterValue string) []string {
 	normalizedFilter := normalizeTargetFileFilter(filterValue)
 	if normalizedFilter == "" {
 		return selectablePaths
@@ -104,10 +113,78 @@ func filterSelectableJSONPaths(selectablePaths []string, filterValue string) []s
 	return append(leafMatches, pathMatches...)
 }
 
-func targetNodeChoiceLabel(node app.InitStringTargetNode) string {
-	if node.Selectable {
-		return node.Name
+func targetNodeChoiceLabel(node targetSelectorNode) string {
+	if node.selectable {
+		return node.name
 	}
 
-	return node.Name + "/"
+	return node.name + "/"
+}
+
+func targetSelectorNodesForSelection(selection app.InitTargetFileSelection) []targetSelectorNode {
+	if selection.TargetType == app.InitTargetTypeYAML {
+		return yamlTargetSelectorNodes(selection.YAMLNodes)
+	}
+
+	return jsonTargetSelectorNodes(selection.Nodes)
+}
+
+func jsonTargetSelectorNodes(nodes []app.InitStringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.JSONPath,
+			selectable: node.Selectable,
+			children:   jsonTargetSelectorNodes(node.Children),
+		})
+	}
+
+	return convertedNodes
+}
+
+func yamlTargetSelectorNodes(nodes []app.InitYAMLStringTargetNode) []targetSelectorNode {
+	convertedNodes := make([]targetSelectorNode, 0, len(nodes))
+	for _, node := range nodes {
+		convertedNodes = append(convertedNodes, targetSelectorNode{
+			name:       node.Name,
+			selector:   node.YAMLPath,
+			selectable: node.Selectable,
+			children:   yamlTargetSelectorNodes(node.Children),
+		})
+	}
+
+	return convertedNodes
+}
+
+func structuredValueFormatName(targetType app.InitTargetType) string {
+	if targetType == app.InitTargetTypeYAML {
+		return "YAML"
+	}
+
+	return "JSON"
+}
+
+func structuredPathSummaryLabel(targetType app.InitTargetType) string {
+	return structuredValueFormatName(targetType) + " path"
+}
+
+func structuredPathInputLabel(targetType app.InitTargetType) string {
+	return structuredValueFormatName(targetType) + " value path"
+}
+
+func manualStructuredPathChoiceLabel(targetType app.InitTargetType) string {
+	if targetType == app.InitTargetTypeYAML {
+		return manualYAMLPathChoiceLabel
+	}
+
+	return manualJSONPathChoiceLabel
+}
+
+func searchStructuredPathsChoiceLabel(targetType app.InitTargetType) string {
+	if targetType == app.InitTargetTypeYAML {
+		return searchYAMLPathsChoiceLabel
+	}
+
+	return searchJSONPathsChoiceLabel
 }

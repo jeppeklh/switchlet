@@ -40,8 +40,10 @@ func initWorkflowFromDependencies(dependencies initDependencies) app.InitWorkflo
 	return app.NewInitWorkflow(app.InitWorkflowDependencies{
 		DiscoverTargetFileCandidates: dependencies.discoverTargetFileCandidates,
 		InspectStringTargets:         dependencies.inspectStringTargets,
+		InspectYAMLStringTargets:     dependencies.inspectYAMLStringTargets,
 		InspectDotenvKeys:            dependencies.inspectDotenvKeys,
 		ValidateStringTarget:         dependencies.validateStringTarget,
+		ValidateYAMLTarget:           dependencies.validateYAMLTarget,
 		ValidateDotenvTarget:         dependencies.validateDotenvTarget,
 	})
 }
