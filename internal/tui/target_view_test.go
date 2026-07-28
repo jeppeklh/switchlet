@@ -241,14 +241,109 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"> Database Only [1 target] [partial]",
+		"Profile contents",
 		"Changes: 1 of 2 targets",
-		"Affected targets",
+		"Scope: Partial profile",
+		"Omitted: 1 target unchanged",
+		"Values: hidden",
+		"backend/appsettings.Development.json",
 		"database",
+		"jsonPath: database.url",
+		"Value: hidden",
 		"Enter: Apply this profile.",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want target-aware list detail %q", view, expected)
 		}
+	}
+	if strings.Contains(view, "postgres://local") {
+		t.Fatalf("View() = %q, must not contain raw profile value while values are hidden", view)
+	}
+}
+
+func TestView_ProfileContentsGroupsMultiTargetProfileByFile(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "redis", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "redis.url"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://staging")},
+				{Target: "redis", Value: stringPointer("redis://staging")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	for _, expected := range []string{
+		"Profile contents",
+		"Affected files",
+		"backend/appsettings.Development.json",
+		"database [json]",
+		"jsonPath: database.url",
+		"redis [json]",
+		"jsonPath: redis.url",
+		"frontend/.env.local",
+		"frontendApi [dotenv]",
+		"key: VITE_API_URL",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want grouped profile contents %q", view, expected)
+		}
+	}
+
+	backendIndex := strings.Index(view, "backend/appsettings.Development.json")
+	frontendIndex := strings.Index(view, "frontend/.env.local")
+	if backendIndex < 0 || frontendIndex < 0 || backendIndex > frontendIndex {
+		t.Fatalf("View() = %q, want backend file group before frontend file group", view)
+	}
+	for _, forbidden := range []string{"postgres://staging", "redis://staging", "https://api.staging.example.test"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not reveal managed value %q while hidden", view, forbidden)
+		}
+	}
+}
+
+func TestView_ProfileContentsUnavailableProfileShowsSafeReason(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("MISSING_DB_URL")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+			},
+		}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	for _, expected := range []string{
+		"Profile contents",
+		"State: Unavailable",
+		"database [json]",
+		"Value: unavailable",
+		"Environment variable: MISSING_DB_URL",
+		"Reason: profile \"Staging\" value for target \"database\"",
+		"frontendApi [dotenv]",
+		"Value: hidden",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want unavailable profile contents detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "https://api.staging.example.test") {
+		t.Fatalf("View() = %q, must not reveal available managed value while hidden", view)
 	}
 }
 

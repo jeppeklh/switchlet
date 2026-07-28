@@ -46,9 +46,10 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 }
 
 func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
+	managedValue := "visible-managed-value"
 	model := New(app.New(
 		config.Target{},
-		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;Password=secret;")}},
+		[]config.Profile{{Name: "Local", Value: stringPointer(managedValue)}},
 	))
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
 	model = updatedModel.(Model)
@@ -56,8 +57,15 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if model.valuesVisible {
 		t.Fatal("valuesVisible = true, want hidden by default")
 	}
-	if !strings.Contains(model.View(), "v Reveal values") {
-		t.Fatalf("View() = %q, want reveal command while values are hidden", model.View())
+	hiddenView := model.View()
+	if !strings.Contains(hiddenView, "v Reveal values") {
+		t.Fatalf("View() = %q, want reveal command while values are hidden", hiddenView)
+	}
+	if !strings.Contains(hiddenView, "Values: hidden") || !strings.Contains(hiddenView, "Value: hidden") {
+		t.Fatalf("View() = %q, want hidden value state in profile contents", hiddenView)
+	}
+	if strings.Contains(hiddenView, managedValue) {
+		t.Fatalf("View() = %q, must not contain raw managed value while hidden", hiddenView)
 	}
 
 	updatedModel, command := model.Update(runeKey('v'))
@@ -68,8 +76,12 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if !model.valuesVisible || model.state != listState || model.cursor != 0 {
 		t.Fatalf("model after reveal = %#v, want list state with values visible and selection preserved", model)
 	}
-	if !strings.Contains(model.View(), "v Hide values") {
-		t.Fatalf("View() = %q, want hide command while values are shown", model.View())
+	shownView := model.View()
+	if !strings.Contains(shownView, "v Hide values") {
+		t.Fatalf("View() = %q, want hide command while values are shown", shownView)
+	}
+	if !strings.Contains(shownView, "Values: shown") || !strings.Contains(shownView, "Value: "+managedValue) {
+		t.Fatalf("View() = %q, want shown managed value in profile contents", shownView)
 	}
 
 	updatedModel, command = model.Update(runeKey('v'))
@@ -126,19 +138,24 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 		t.Fatalf("header line = %q, must not duplicate selected target context", headerLine)
 	}
 	for _, expected := range []string{
+		"Profile contents",
 		"Profile: Production [protected] [env]",
 		"State: Ready to apply",
+		"Source: Environment variable",
+		"Values: hidden",
 		"Enter: Open confirmation.",
-		"Target file: config/development.json",
-		"Target JSON path: database.primary.url",
+		"config/development.json",
+		"default [json]",
+		"jsonPath: database.primary.url",
+		"Value: hidden",
 	} {
 		if !strings.Contains(view, expected) {
-			t.Fatalf("View() = %q, want selected-profile context %q", view, expected)
+			t.Fatalf("View() = %q, want profile-contents context %q", view, expected)
 		}
 	}
-	for _, forbidden := range []string{"Source:", "Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
+	for _, forbidden := range []string{"Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
 		if strings.Contains(view, forbidden) {
-			t.Fatalf("View() = %q, selected-profile panel must not duplicate inspection detail %q", view, forbidden)
+			t.Fatalf("View() = %q, profile contents must not duplicate inspection detail %q", view, forbidden)
 		}
 	}
 }
@@ -173,12 +190,14 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 
 			view := model.View()
 			for _, expected := range []string{
-				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
-				"Target file: " + testCase.target.File,
+				"Profile contents",
+				testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				testCase.target.File,
 				testCase.selectorName + ": " + testCase.selector,
+				"Value: hidden",
 			} {
 				if !strings.Contains(view, expected) {
-					t.Fatalf("View() = %q, want %s selected-profile context %q", view, testCase.name, expected)
+					t.Fatalf("View() = %q, want %s profile contents %q", view, testCase.name, expected)
 				}
 			}
 			for _, forbidden := range []string{"Target JSON path", "Target selector", "super-secret", "Password=****"} {
@@ -369,8 +388,8 @@ func TestView_ListViewUsesSplitLayoutAtComfortableWidth(t *testing.T) {
 	model = updatedModel.(Model)
 
 	view := model.View()
-	if !lineContains(view, "* Profiles", "Selected") {
-		t.Fatalf("View() = %q, want wide split layout with profile list and selected context on the same row", view)
+	if !lineContains(view, "* Profiles", "Profile contents") {
+		t.Fatalf("View() = %q, want wide split layout with profile list and profile contents on the same row", view)
 	}
 	if !strings.Contains(view, "config/development.json") {
 		t.Fatalf("View() = %q, want target file context in selected-profile details", view)
@@ -390,10 +409,10 @@ func TestView_ListViewStacksBeforeLayoutBecomesCramped(t *testing.T) {
 	model = updatedModel.(Model)
 
 	view := model.View()
-	if lineContains(view, "* Profiles", "Selected") {
+	if lineContains(view, "* Profiles", "Profile contents") {
 		t.Fatalf("View() = %q, want stacked layout at minimum supported width", view)
 	}
-	if !strings.Contains(view, "* Profiles") || !strings.Contains(view, "Selected") {
+	if !strings.Contains(view, "* Profiles") || !strings.Contains(view, "Profile contents") {
 		t.Fatalf("View() = %q, want both stacked main regions", view)
 	}
 }

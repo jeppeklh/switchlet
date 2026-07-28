@@ -40,15 +40,18 @@ func (model Model) View() string {
 
 func (model Model) listView() string {
 	profileLines := []string{"No profiles available."}
+	metadata := []string(nil)
 	if len(model.profiles) > 0 {
 		profileLines = RenderListRows(model.profileRows(RowSelected))
+		metadata = []string{model.valueVisibilityMetadata()}
 	}
 
 	return RenderShell(Shell{
-		Title: "Switchlet",
+		Title:    "Switchlet",
+		Metadata: metadata,
 		Panels: []Panel{
 			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true},
-			{Title: "Selected profile", Lines: model.selectionSummaryLines()},
+			{Title: "Profile contents", Lines: model.profileContentsLines()},
 		},
 		Actions: model.listActions(),
 		Width:   model.width,
@@ -87,7 +90,7 @@ func (model Model) listActions() []Action {
 	return actions
 }
 
-func (model Model) selectionSummaryLines() []string {
+func (model Model) profileContentsLines() []string {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
 		return []string{
@@ -96,26 +99,48 @@ func (model Model) selectionSummaryLines() []string {
 		}
 	}
 
+	contents, err := model.application.ProfileContentsByName(selectedProfile.Name, model.profileContentsPreviewOptions())
+	if err != nil {
+		return []string{
+			RenderKeyValue("Profile", selectedProfileTitle(selectedProfile)),
+			RenderKeyValue("State", model.profileStateLabel(selectedProfile)),
+			"",
+			"Profile contents unavailable.",
+			RenderKeyValue("Reason", fitValueForLabel(err.Error(), secondaryPanelContentWidth(model.width), "Reason")),
+		}
+	}
+
 	lines := []string{
 		RenderKeyValue("Profile", selectedProfileTitle(selectedProfile)),
 		RenderKeyValue("State", model.profileStateLabel(selectedProfile)),
+		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
 	}
 	if selectedProfile.TargetCount > 0 {
 		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
 	}
-	lines = append(lines, RenderKeyValue("Enter", model.actionDescription(selectedProfile)))
+	if contents.Partial {
+		lines = append(lines,
+			RenderKeyValue("Scope", "Partial profile"),
+			RenderKeyValue("Omitted", omittedTargetsLabel(contents.OmittedTargetCount)),
+		)
+	}
+	lines = append(lines,
+		RenderKeyValue("Values", valueVisibilityLabel(model.valuesVisible)),
+		RenderKeyValue("Enter", model.actionDescription(selectedProfile)),
+	)
 	if !selectedProfile.Available && selectedProfile.UnavailableReason != "" {
 		lines = append(lines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
 	}
 
-	if shouldShowTargetCount(selectedProfile) {
-		lines = append(lines, "", "Affected targets")
-		lines = append(lines, targetNamePreviewLines(selectedProfile.Values, 4)...)
-	} else {
-		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
+	return appendProfileContentsFileGroups(lines, contents.Files, secondaryPanelContentWidth(model.width))
+}
+
+func (model Model) profileContentsPreviewOptions() app.PreviewOptions {
+	if model.valuesVisible {
+		return app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown}
 	}
 
-	return lines
+	return app.PreviewOptions{ValueVisibility: app.ValueVisibilityHidden}
 }
 
 func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, model Model) []string {
@@ -783,6 +808,18 @@ func maskedValueLabel(profile app.ProfileItem) string {
 
 func (model Model) valueRevealAction() Action {
 	return valueRevealAction(model.valuesVisible)
+}
+
+func (model Model) valueVisibilityMetadata() string {
+	return "values " + valueVisibilityLabel(model.valuesVisible)
+}
+
+func valueVisibilityLabel(valuesVisible bool) string {
+	if valuesVisible {
+		return "shown"
+	}
+
+	return "hidden"
 }
 
 func valueRevealAction(valuesVisible bool) Action {

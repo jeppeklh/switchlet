@@ -30,31 +30,6 @@ func changeCountLabel(targetCount int, totalTargets int) string {
 	return targetCountLabel(targetCount)
 }
 
-func targetNamePreviewLines(values []app.ProfileValueItem, limit int) []string {
-	if len(values) == 0 {
-		return []string{"No affected targets."}
-	}
-
-	if limit <= 0 || limit > len(values) {
-		limit = len(values)
-	}
-
-	lines := make([]string, 0, limit+1)
-	for index := 0; index < limit; index++ {
-		valueItem := values[index]
-		line := profileValueTargetLabel(valueItem)
-		if !valueItem.Available {
-			line += " [unavailable]"
-		}
-		lines = append(lines, line)
-	}
-	if remaining := len(values) - limit; remaining > 0 {
-		lines = append(lines, fmt.Sprintf("+ %d more", remaining))
-	}
-
-	return lines
-}
-
 func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []string {
 	if len(values) == 0 {
 		return []string{"No planned target changes."}
@@ -102,6 +77,72 @@ func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []
 	}
 
 	return lines
+}
+
+func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContentsFileGroup, maxLineWidth int) []string {
+	if len(groups) == 0 {
+		return append(lines, "", "No included managed targets.")
+	}
+
+	for groupIndex, group := range groups {
+		lines = append(lines, "")
+		if groupIndex == 0 && len(groups) > 1 {
+			lines = append(lines, "Affected files")
+		}
+		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
+		for _, target := range group.Targets {
+			lines = append(lines, profileContentsTargetLines(target, maxLineWidth)...)
+		}
+	}
+
+	return lines
+}
+
+func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth int) []string {
+	lines := []string{"  " + profileContentsTargetLabel(target)}
+	if target.Selector != "" {
+		label := selectorFieldName(target.SelectorName)
+		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(target.Selector, maxLineWidth-2, label)))
+	}
+	lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(target.Source)))
+
+	if !target.Available {
+		lines = append(lines, "  "+RenderKeyValue("Value", "unavailable"))
+		if target.EnvironmentVariableName != "" {
+			lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(target.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
+		}
+		if target.UnavailableReason != "" {
+			lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(target.UnavailableReason, maxLineWidth-2, "Reason")))
+		}
+
+		return lines
+	}
+
+	lines = append(lines, "  "+RenderKeyValue("Value", profileContentsValueLabel(target, maxLineWidth)))
+	return lines
+}
+
+func profileContentsTargetLabel(target app.ProfileContentsTarget) string {
+	return targetNameLabel(target.TargetName) + targetTypeBadge(string(target.TargetType))
+}
+
+func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth int) string {
+	if !target.ValueVisible {
+		return "hidden"
+	}
+	if target.Value == "" {
+		return "<empty>"
+	}
+
+	return fitValueForLabel(target.Value, maxLineWidth-2, "Value")
+}
+
+func omittedTargetsLabel(count int) string {
+	if count == 1 {
+		return "1 target unchanged"
+	}
+
+	return fmt.Sprintf("%d targets unchanged", count)
 }
 
 func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
