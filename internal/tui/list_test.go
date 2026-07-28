@@ -61,7 +61,7 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if !strings.Contains(hiddenView, "v Reveal values") {
 		t.Fatalf("View() = %q, want reveal command while values are hidden", hiddenView)
 	}
-	if !strings.Contains(hiddenView, "Values: hidden") || !strings.Contains(hiddenView, "Value: hidden") {
+	if !strings.Contains(hiddenView, "values hidden") || !strings.Contains(hiddenView, hiddenValuePlaceholder) {
 		t.Fatalf("View() = %q, want hidden value state in profile contents", hiddenView)
 	}
 	if strings.Contains(hiddenView, managedValue) {
@@ -80,7 +80,7 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if !strings.Contains(shownView, "v Hide values") {
 		t.Fatalf("View() = %q, want hide command while values are shown", shownView)
 	}
-	if !strings.Contains(shownView, "Values: shown") || !strings.Contains(shownView, "Value: "+managedValue) {
+	if !strings.Contains(shownView, "values shown") || !strings.Contains(shownView, managedValue) {
 		t.Fatalf("View() = %q, want shown managed value in profile contents", shownView)
 	}
 
@@ -104,14 +104,11 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `Profile: Production`) {
+	if !strings.Contains(view, `Production [protected] [literal]`) {
 		t.Fatalf("View() = %q, want selected profile context", view)
 	}
-	if !strings.Contains(view, `State: Ready to apply`) {
+	if !strings.Contains(view, `Ready to apply`) {
 		t.Fatalf("View() = %q, want actionable selected profile state", view)
-	}
-	if !strings.Contains(view, `Enter: Open confirmation.`) {
-		t.Fatalf("View() = %q, want Enter outcome before confirmation", view)
 	}
 	if strings.Contains(view, `requires confirmation`) {
 		t.Fatalf("View() = %q, must not show premature confirmation status copy", view)
@@ -139,21 +136,20 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Profile contents",
-		"Profile: Production [protected] [env]",
-		"State: Ready to apply",
-		"Source: Environment variable",
-		"Values: hidden",
-		"Enter: Open confirmation.",
+		"Production [protected] [env]",
+		"Ready to apply",
+		"values hidden",
 		"config/development.json",
 		"default [json]",
 		"jsonPath: database.primary.url",
-		"Value: hidden",
+		"Profile value",
+		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want profile-contents context %q", view, expected)
 		}
 	}
-	for _, forbidden := range []string{"Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
+	for _, forbidden := range []string{"Profile:", "State:", "Source:", "Changes:", "Values:", "Enter:", "Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, profile contents must not duplicate inspection detail %q", view, forbidden)
 		}
@@ -194,7 +190,8 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 				testCase.target.Name + " [" + string(testCase.target.Type) + "]",
 				testCase.target.File,
 				testCase.selectorName + ": " + testCase.selector,
-				"Value: hidden",
+				"Profile value",
+				hiddenValuePlaceholder,
 			} {
 				if !strings.Contains(view, expected) {
 					t.Fatalf("View() = %q, want %s profile contents %q", view, testCase.name, expected)
@@ -396,6 +393,22 @@ func TestView_ListViewUsesSplitLayoutAtComfortableWidth(t *testing.T) {
 	}
 	if !strings.Contains(view, "database.primary.url") {
 		t.Fatalf("View() = %q, want target JSON path context in selected-profile details", view)
+	}
+}
+
+func TestView_WideMainPickerPanelsUseAvailableHeight(t *testing.T) {
+	model := New(app.New(
+		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://local")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	lines := visibleLines(model.View())
+	lineBeforeCommandSeparator := lines[len(lines)-3]
+	if !strings.Contains(lineBeforeCommandSeparator, "┘") {
+		t.Fatalf("line before command separator = %q, want wide panels to fill available body height", lineBeforeCommandSeparator)
 	}
 }
 

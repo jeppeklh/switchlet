@@ -99,6 +99,16 @@ func lineContains(view string, values ...string) bool {
 	return false
 }
 
+func lineIndexContaining(view string, value string) int {
+	for index, line := range visibleLines(view) {
+		if strings.Contains(line, value) {
+			return index
+		}
+	}
+
+	return -1
+}
+
 func visibleLines(view string) []string {
 	trimmedView := strings.TrimSuffix(view, "\n")
 	if trimmedView == "" {

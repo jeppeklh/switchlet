@@ -10,6 +10,8 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
+const hiddenValuePlaceholder = "****"
+
 func shouldShowTargetCount(profile app.ProfileItem) bool {
 	return profile.TotalTargets > 1 || profile.TargetCount > 1 || profile.Partial
 }
@@ -104,10 +106,8 @@ func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth i
 		label := selectorFieldName(target.SelectorName)
 		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(target.Selector, maxLineWidth-2, label)))
 	}
-	lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(target.Source)))
-
 	if !target.Available {
-		lines = append(lines, "  "+RenderKeyValue("Value", "unavailable"))
+		lines = append(lines, "  unavailable")
 		if target.EnvironmentVariableName != "" {
 			lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(target.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
 		}
@@ -118,7 +118,7 @@ func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth i
 		return lines
 	}
 
-	lines = append(lines, "  "+RenderKeyValue("Value", profileContentsValueLabel(target, maxLineWidth)))
+	lines = append(lines, "  Profile value", "  "+profileContentsValueLabel(target, maxLineWidth))
 	return lines
 }
 
@@ -128,13 +128,13 @@ func profileContentsTargetLabel(target app.ProfileContentsTarget) string {
 
 func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth int) string {
 	if !target.ValueVisible {
-		return "hidden"
+		return hiddenValuePlaceholder
 	}
 	if target.Value == "" {
 		return "<empty>"
 	}
 
-	return fitValueForLabel(target.Value, maxLineWidth-2, "Value")
+	return fitLine(target.Value, maxLineWidth-2)
 }
 
 func omittedTargetsLabel(count int) string {
@@ -229,8 +229,6 @@ func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLin
 		label := selectorFieldName(hunk.SelectorName)
 		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(hunk.Selector, maxLineWidth-2, label)))
 	}
-	lines = append(lines, "  "+RenderKeyValue("Status", managedPatchStatusLabel(hunk.Status)))
-	lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(hunk.Source)))
 
 	if hunk.EnvironmentVariableName != "" {
 		lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(hunk.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
@@ -238,11 +236,13 @@ func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLin
 
 	switch hunk.Status {
 	case app.ManagedPatchStatusWouldUpdate:
+		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
 		return append(lines, managedPatchChangedValueLines(hunk, valuesVisible, maxLineWidth)...)
 	case app.ManagedPatchStatusAlreadyMatches:
+		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
 		return append(lines, managedPatchUnchangedValueLine(hunk, valuesVisible, maxLineWidth))
 	case app.ManagedPatchStatusUnavailable:
-		lines = append(lines, "  "+RenderKeyValue("Value", "unavailable"))
+		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
 		if hunk.UnavailableReason != "" {
 			lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(hunk.UnavailableReason, maxLineWidth-2, "Reason")))
 		}
@@ -254,13 +254,13 @@ func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLin
 func managedPatchChangedValueLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) []string {
 	styles := defaultStyles()
 	return []string{
-		styles.error.Render(managedPatchValueLine("  - current: ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth)),
-		styles.success.Render(managedPatchValueLine("  + profile: ", managedPatchProfileValueLabel(hunk, valuesVisible), maxLineWidth)),
+		styles.error.Render(managedPatchValueLine("  - current  ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth)),
+		styles.success.Render(managedPatchValueLine("  + profile  ", managedPatchProfileValueLabel(hunk, valuesVisible), maxLineWidth)),
 	}
 }
 
 func managedPatchUnchangedValueLine(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) string {
-	return defaultStyles().muted.Render(managedPatchValueLine("  = value: ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth))
+	return defaultStyles().muted.Render(managedPatchValueLine("  = value    ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth))
 }
 
 func managedPatchValueLine(prefix string, value string, maxLineWidth int) string {
@@ -269,7 +269,7 @@ func managedPatchValueLine(prefix string, value string, maxLineWidth int) string
 
 func managedPatchCurrentValueLabel(hunk app.ManagedPatchHunk, valuesVisible bool) string {
 	if !valuesVisible || !hunk.CurrentValueVisible {
-		return "hidden"
+		return hiddenValuePlaceholder
 	}
 	if hunk.CurrentValue == "" {
 		return "<empty>"
@@ -280,7 +280,7 @@ func managedPatchCurrentValueLabel(hunk app.ManagedPatchHunk, valuesVisible bool
 
 func managedPatchProfileValueLabel(hunk app.ManagedPatchHunk, valuesVisible bool) string {
 	if !valuesVisible || !hunk.ProfileValueVisible {
-		return "hidden"
+		return hiddenValuePlaceholder
 	}
 	if hunk.ProfileValue == "" {
 		return "<empty>"

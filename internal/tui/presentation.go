@@ -64,10 +64,11 @@ type ListRow struct {
 
 // Panel is one titled content region inside a terminal shell.
 type Panel struct {
-	Title   string
-	Lines   []string
-	Focused bool
-	Width   int
+	Title      string
+	Lines      []string
+	Focused    bool
+	Width      int
+	FillHeight bool
 }
 
 // Shell describes the common application surface used by Switchlet screens.
@@ -574,6 +575,11 @@ func renderPanel(panel Panel, width int, styles styleSet, bodyHeight int) []stri
 	bodyLines := panel.Lines
 	if bodyHeight >= 0 {
 		bodyLines = clippedPanelBodyLines(bodyLines, bodyHeight)
+	}
+	if bodyHeight >= 0 && panel.FillHeight {
+		for len(bodyLines) < bodyHeight {
+			bodyLines = append(bodyLines, "")
+		}
 	}
 
 	lines := make([]string, 0, len(bodyLines)+2)

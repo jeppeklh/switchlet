@@ -398,7 +398,8 @@ Main picker:
 - `Enter` applies the selected profile or opens protected confirmation.
 - `i` inspects the selected profile.
 - `s` opens current status for the managed configuration.
-- `d` opens a read-only diff for the selected profile.
+- `d` opens a read-only diff for the selected profile, and returns from diff
+  loading or diff ready back to the profile list.
 - `v` toggles managed value visibility in the profile list, inspection, and
   selected-profile diff.
 - `r` refreshes status, diff, loading, or comparison-error screens when shown.

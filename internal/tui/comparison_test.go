@@ -320,13 +320,22 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 		t.Fatalf("View() = %q, want read-only diff loading without confirmation", model.View())
 	}
 
-	updatedModel, returnCommand := model.Update(runeKey('q'))
+	updatedModel, returnCommand := model.Update(runeKey('d'))
 	model = updatedModel.(Model)
 	if returnCommand != nil {
-		t.Fatal("returnCommand is not nil, want q to return from diff loading")
+		t.Fatal("returnCommand is not nil, want d to return from diff loading")
 	}
 	if model.state != listState || model.cursor != 1 {
 		t.Fatalf("state/cursor = %d/%d, want list with Staging still selected", model.state, model.cursor)
+	}
+
+	updatedModel, staleReturnCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if staleReturnCommand != nil {
+		t.Fatal("staleReturnCommand is not nil, want stale diff result ignored after d return")
+	}
+	if model.state != listState || model.cursor != 1 || model.diffPreview != nil || model.comparisonRequestKind != comparisonRequestNone {
+		t.Fatalf("model after stale diff result = %#v, want list unchanged after d return", model)
 	}
 
 	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
@@ -501,34 +510,27 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 	model = openDiffReady(t, model)
 	view := model.View()
 	for _, expected := range []string{
-		"Profile diff",
 		"Managed patch",
-		"Profile: Staging",
+		"Staging",
 		"[protected]",
-		"State: some profile values unavailable",
-		"Included targets: 3 of 4",
-		"Values: hidden",
-		"Omitted targets: 1",
-		"Protection: Required for apply; read-only preview only",
+		"some profile values unavailable | 3 of 4 | values hidden",
+		"1 target unchanged",
+		"Protected profile; read-only preview only.",
 		"Affected files",
 		"backend/appsettings.Development.json",
 		"@@ database [json]",
-		"database [json]",
 		"jsonPath: database.url",
-		"Status: would update",
-		"- current: hidden",
-		"+ profile: hidden",
+		"would update",
+		"- current  " + hiddenValuePlaceholder,
+		"+ profile  " + hiddenValuePlaceholder,
 		"frontend/.env.local",
 		"@@ frontendApi [dotenv]",
-		"frontendApi [dotenv]",
 		"key: VITE_API_URL",
-		"Status: already matches",
-		"= value: hidden",
+		"already matches",
+		"= value    " + hiddenValuePlaceholder,
 		"worker/config.json",
 		"@@ workerQueue [json]",
-		"workerQueue [json]",
-		"Status: unavailable",
-		"Value: unavailable",
+		"unavailable",
 		environmentVariableName,
 		"Reason: profile \"Staging\" value for target \"workerQueue\"",
 		"Omitted targets",
@@ -536,6 +538,7 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 		"redis [json]",
 		"No files were modified.",
 		"r Refresh",
+		"d Return",
 		"Esc/q Return",
 		"Ctrl+C Exit immediately",
 	} {
@@ -579,10 +582,10 @@ func TestView_DiffManagedPatchRevealsManagedValuesWhenShown(t *testing.T) {
 
 	shownView := model.View()
 	for _, expected := range []string{
-		"Values: shown",
+		"values shown",
 		"v Hide values",
-		"- current: " + currentValue,
-		"+ profile: " + profileValue,
+		"- current  " + currentValue,
+		"+ profile  " + profileValue,
 	} {
 		if !strings.Contains(shownView, expected) {
 			t.Fatalf("View() = %q, want revealed managed patch detail %q", shownView, expected)
@@ -605,10 +608,46 @@ func TestView_DiffLoadingShowsSelectedProfileContextAndReadOnlyCommands(t *testi
 	}
 
 	view := model.View()
-	for _, expected := range []string{"Profile: Staging", "Comparing selected profile...", "No files will be modified.", "r Refresh", "Esc/q Return", "Ctrl+C Exit immediately"} {
+	for _, expected := range []string{"Profile: Staging", "Comparing selected profile...", "No files will be modified.", "r Refresh", "d Return", "Esc/q Return", "Ctrl+C Exit immediately"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want diff loading detail %q", view, expected)
 		}
+	}
+}
+
+func TestView_DiffModeDoesNotShiftWorkspaceDown(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+	listPanelIndex := lineIndexContaining(model.View(), "* Profiles")
+	if listPanelIndex < 0 {
+		t.Fatalf("list View() = %q, want profile panel", model.View())
+	}
+
+	updatedModel, command := model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+	loadingPanelIndex := lineIndexContaining(model.View(), "* Managed patch")
+	if loadingPanelIndex != listPanelIndex {
+		t.Fatalf("diff loading panel index = %d, want same workspace start %d\nview: %q", loadingPanelIndex, listPanelIndex, model.View())
+	}
+
+	updatedModel, _ = model.Update(command())
+	model = updatedModel.(Model)
+	readyView := model.View()
+	readyPanelIndex := lineIndexContaining(readyView, "* Managed patch")
+	if readyPanelIndex != listPanelIndex {
+		t.Fatalf("diff ready panel index = %d, want same workspace start %d\nview: %q", readyPanelIndex, listPanelIndex, readyView)
+	}
+	if strings.Contains(readyView, "* Profiles") {
+		t.Fatalf("diff ready View() = %q, want managed patch preview to own the body width", readyView)
 	}
 }
 
@@ -688,7 +727,9 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 		{name: "status loading q", state: statusLoadingState, key: runeKey('q')},
 		{name: "status ready esc", state: statusReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},
 		{name: "diff loading q", state: diffLoadingState, key: runeKey('q')},
+		{name: "diff loading d", state: diffLoadingState, key: runeKey('d')},
 		{name: "diff ready esc", state: diffReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},
+		{name: "diff ready d", state: diffReadyState, key: runeKey('d')},
 		{name: "comparison error q", state: comparisonErrorState, key: runeKey('q')},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -699,6 +740,7 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 			if testCase.state == diffLoadingState || testCase.state == diffReadyState {
 				model.comparisonRequestKind = comparisonRequestDiff
 				model.comparisonProfileName = "Production"
+				model.diffPreview = &app.ManagedPatchPreview{ProfileName: "Production"}
 			}
 
 			updatedModel, command := model.Update(testCase.key)

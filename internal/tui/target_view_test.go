@@ -242,15 +242,14 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	for _, expected := range []string{
 		"> Database Only [1 target] [partial]",
 		"Profile contents",
-		"Changes: 1 of 2 targets",
-		"Scope: Partial profile",
-		"Omitted: 1 target unchanged",
-		"Values: hidden",
+		"Ready to apply | 1 of 2 targets",
+		"values hidden",
+		"1 target unchanged",
 		"backend/appsettings.Development.json",
 		"database",
 		"jsonPath: database.url",
-		"Value: hidden",
-		"Enter: Apply this profile.",
+		"Profile value",
+		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want target-aware list detail %q", view, expected)
@@ -330,13 +329,14 @@ func TestView_ProfileContentsUnavailableProfileShowsSafeReason(t *testing.T) {
 	view := model.View()
 	for _, expected := range []string{
 		"Profile contents",
-		"State: Unavailable",
+		"Unavailable",
 		"database [json]",
-		"Value: unavailable",
+		"unavailable",
 		"Environment variable: MISSING_DB_URL",
 		"Reason: profile \"Staging\" value for target \"database\"",
 		"frontendApi [dotenv]",
-		"Value: hidden",
+		"Profile value",
+		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want unavailable profile contents detail %q", view, expected)
@@ -665,7 +665,7 @@ func TestUpdate_StartsApplyThroughCommandAndShowsImmediateFeedback(t *testing.T)
 	}
 
 	view := model.View()
-	for _, expected := range []string{"State: Applying", "Enter: Applying now.", "Ctrl+C Exit immediately"} {
+	for _, expected := range []string{"Applying", "values hidden", "Ctrl+C Exit immediately"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want immediate apply feedback %q", view, expected)
 		}

@@ -50,13 +50,17 @@ func (model Model) listView() string {
 		Title:    "Switchlet",
 		Metadata: metadata,
 		Panels: []Panel{
-			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true},
-			{Title: "Profile contents", Lines: model.profileContentsLines()},
+			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
+			{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()},
 		},
 		Actions: model.listActions(),
 		Width:   model.width,
 		Height:  model.height,
 	})
+}
+
+func (model Model) shouldFillWorkspacePanels() bool {
+	return model.height > 0 && normalizedWidth(model.width) >= splitShellWidth
 }
 
 func (model Model) listActions() []Action {
@@ -110,26 +114,20 @@ func (model Model) profileContentsLines() []string {
 		}
 	}
 
-	lines := []string{
-		RenderKeyValue("Profile", selectedProfileTitle(selectedProfile)),
-		RenderKeyValue("State", model.profileStateLabel(selectedProfile)),
-		RenderKeyValue("Source", sourceLabel(selectedProfile.Source)),
-	}
+	summaryParts := []string{model.profileStateLabel(selectedProfile)}
 	if selectedProfile.TargetCount > 0 {
-		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
+		summaryParts = append(summaryParts, changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets))
+	}
+	lines := []string{
+		selectedProfileTitle(selectedProfile),
+		strings.Join(summaryParts, " | "),
+		"values " + valueVisibilityLabel(model.valuesVisible),
 	}
 	if contents.Partial {
-		lines = append(lines,
-			RenderKeyValue("Scope", "Partial profile"),
-			RenderKeyValue("Omitted", omittedTargetsLabel(contents.OmittedTargetCount)),
-		)
+		lines = append(lines, omittedTargetsLabel(contents.OmittedTargetCount))
 	}
-	lines = append(lines,
-		RenderKeyValue("Values", valueVisibilityLabel(model.valuesVisible)),
-		RenderKeyValue("Enter", model.actionDescription(selectedProfile)),
-	)
 	if !selectedProfile.Available && selectedProfile.UnavailableReason != "" {
-		lines = append(lines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
+		lines = append(lines, fitLine(selectedProfile.UnavailableReason, secondaryPanelContentWidth(model.width)))
 	}
 
 	return appendProfileContentsFileGroups(lines, contents.Files, secondaryPanelContentWidth(model.width))
@@ -247,24 +245,21 @@ func (model Model) diffComparisonView() string {
 		}
 	}
 
+	panelWidth := fullPanelContentWidth(model.width)
 	lines := diffComparisonLoadingLines(profileName)
 	metadata := profileDiffMetadata(profileName, model.valuesVisible)
 	if model.state == diffReadyState && model.diffPreview != nil {
-		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, secondaryPanelContentWidth(model.width))
+		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, panelWidth)
 		metadata = profileDiffMetadata(model.diffPreview.ProfileName, model.valuesVisible)
 	}
 
 	return RenderShell(Shell{
 		Title:    "Switchlet",
-		Subtitle: "Profile diff",
 		Metadata: metadata,
-		Panels: []Panel{
-			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Managed patch", Lines: lines, Focused: true},
-		},
-		Actions: comparisonActions(true, model.valuesVisible),
-		Width:   model.width,
-		Height:  model.height,
+		Panels:   []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
+		Actions:  comparisonActions(true, model.valuesVisible),
+		Width:    model.width,
+		Height:   model.height,
 	})
 }
 
@@ -296,21 +291,23 @@ func diffComparisonLoadingLines(profileName string) []string {
 }
 
 func profileDiffMetadata(profileName string, valuesVisible bool) []string {
-	metadata := make([]string, 0, 3)
+	metadata := make([]string, 0, 1)
+	valueState := "values " + valueVisibilityLabel(valuesVisible)
 	if profileName != "" {
-		metadata = append(metadata, profileName)
+		metadata = append(metadata, profileName+" | "+valueState+" | read-only")
+		return metadata
 	}
 
-	metadata = append(metadata, "values "+valueVisibilityLabel(valuesVisible))
-	return append(metadata, "read-only")
+	return append(metadata, valueState+" | read-only")
 }
 
-func comparisonActions(includeValueReveal bool, valuesVisible bool) []Action {
+func comparisonActions(includeDiffActions bool, valuesVisible bool) []Action {
 	actions := []Action{
 		{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
 	}
-	if includeValueReveal {
+	if includeDiffActions {
 		actions = append(actions, valueRevealAction(valuesVisible))
+		actions = append(actions, Action{Key: "d", Label: "Return", Priority: ActionPriorityPrimary})
 	}
 
 	return append(actions,
@@ -364,17 +361,20 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 }
 
 func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible bool, maxLineWidth int) []string {
+	summaryParts := []string{
+		managedPatchStateLabel(preview),
+		countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount),
+		"values " + valueVisibilityLabel(valuesVisible),
+	}
 	lines := []string{
-		RenderKeyValue("Profile", profileComparisonLabel(preview.ProfileName, preview.Protected)),
-		RenderKeyValue("State", managedPatchStateLabel(preview)),
-		RenderKeyValue("Included targets", countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount)),
-		RenderKeyValue("Values", valueVisibilityLabel(valuesVisible)),
+		profileComparisonLabel(preview.ProfileName, preview.Protected),
+		strings.Join(summaryParts, " | "),
 	}
 	if preview.OmittedTargetCount > 0 {
-		lines = append(lines, RenderKeyValue("Omitted targets", fmt.Sprintf("%d", preview.OmittedTargetCount)))
+		lines = append(lines, omittedTargetsLabel(preview.OmittedTargetCount))
 	}
 	if preview.Protected {
-		lines = append(lines, RenderKeyValue("Protection", "Required for apply; read-only preview only"))
+		lines = append(lines, "Protected profile; read-only preview only.")
 	}
 
 	lines = appendManagedPatchFileGroups(lines, preview.Files, valuesVisible, maxLineWidth)
