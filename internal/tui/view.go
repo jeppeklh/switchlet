@@ -212,30 +212,26 @@ func (model Model) statusComparisonView() string {
 
 func (model Model) diffComparisonView() string {
 	profileName := model.comparisonProfileName
+	if model.state == diffReadyState && model.diffComparison != nil && model.diffComparison.ProfileName != "" {
+		profileName = model.diffComparison.ProfileName
+	}
 	if profileName == "" {
 		if selectedProfile, ok := model.selectedProfile(); ok {
 			profileName = selectedProfile.Name
 		}
 	}
 
-	lines := []string{
-		RenderKeyValue("Profile", profileName),
-		"Comparing selected profile...",
-		"No files will be modified.",
-	}
-	if model.state == diffReadyState {
-		lines = []string{
-			RenderKeyValue("Profile", profileName),
-			"Diff comparison complete.",
-			"Read-only result data is ready.",
-			"No files were modified.",
-		}
+	lines := diffComparisonLoadingLines(profileName)
+	metadata := profileDiffMetadata(profileName)
+	if model.state == diffReadyState && model.diffComparison != nil {
+		lines = diffComparisonLines(*model.diffComparison, secondaryPanelContentWidth(model.width))
+		metadata = profileDiffMetadata(model.diffComparison.ProfileName)
 	}
 
 	return RenderShell(Shell{
 		Title:    "Switchlet",
 		Subtitle: "Profile diff",
-		Metadata: []string{"read-only"},
+		Metadata: metadata,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Diff", Lines: lines, Focused: true},
@@ -259,6 +255,27 @@ func (model Model) comparisonErrorView() string {
 		Width:   model.width,
 		Height:  model.height,
 	})
+}
+
+func diffComparisonLoadingLines(profileName string) []string {
+	lines := make([]string, 0, 3)
+	if profileName != "" {
+		lines = append(lines, RenderKeyValue("Profile", profileName))
+	}
+
+	return append(lines,
+		"Comparing selected profile...",
+		"No files will be modified.",
+	)
+}
+
+func profileDiffMetadata(profileName string) []string {
+	metadata := make([]string, 0, 2)
+	if profileName != "" {
+		metadata = append(metadata, profileName)
+	}
+
+	return append(metadata, "read-only")
 }
 
 func comparisonActions() []Action {
@@ -311,6 +328,81 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 	lines = appendStatusUnavailableProfiles(lines, status.UnavailableProfiles, maxLineWidth)
 	lines = append(lines, "", "No files were modified.")
 	return lines
+}
+
+func diffComparisonLines(diff app.ProfileDiff, maxLineWidth int) []string {
+	includedTargets := len(diff.WouldUpdate) + len(diff.AlreadyMatches) + len(diff.Unavailable)
+	totalTargets := includedTargets + len(diff.OmittedTargets)
+	lines := []string{
+		RenderKeyValue("Profile", profileComparisonLabel(diff.ProfileName, diff.Protected)),
+		RenderKeyValue("State", profileDiffStateLabel(diff)),
+		RenderKeyValue("Included targets", countOfTotalLabel(includedTargets, totalTargets)),
+		RenderKeyValue("Would update", fmt.Sprintf("%d", len(diff.WouldUpdate))),
+		RenderKeyValue("Already matching", fmt.Sprintf("%d", len(diff.AlreadyMatches))),
+		RenderKeyValue("Unavailable", fmt.Sprintf("%d", len(diff.Unavailable))),
+		RenderKeyValue("Omitted targets", fmt.Sprintf("%d", len(diff.OmittedTargets))),
+		RenderKeyValue("Total targets", fmt.Sprintf("%d", totalTargets)),
+	}
+	if diff.Protected {
+		lines = append(lines, RenderKeyValue("Protection", "Required for apply; read-only diff only"))
+	}
+
+	lines = appendDiffTargetSection(lines, "Would update", diff.WouldUpdate, maxLineWidth)
+	lines = appendDiffTargetSection(lines, "Already matching", diff.AlreadyMatches, maxLineWidth)
+	lines = appendDiffUnavailableSection(lines, diff.Unavailable, maxLineWidth)
+	lines = appendDiffOmittedTargets(lines, diff.OmittedTargets, maxLineWidth)
+	lines = append(lines, "", "No files were modified.")
+	return lines
+}
+
+func profileDiffStateLabel(diff app.ProfileDiff) string {
+	if !diff.Complete {
+		return "some profile values unavailable"
+	}
+	if len(diff.WouldUpdate) == 0 {
+		return "included targets already match"
+	}
+
+	return "would update included targets"
+}
+
+func appendDiffTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	if len(descriptors) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", heading)
+	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+}
+
+func appendDiffUnavailableSection(lines []string, values []app.UnavailableValue, maxLineWidth int) []string {
+	if len(values) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", "Unavailable")
+	for index, value := range values {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, "  "+targetNameLabel(value.TargetName)+targetTypeBadge(string(value.TargetType)))
+		lines = append(lines, unavailableValueDetailLines(value, maxLineWidth)...)
+	}
+
+	return lines
+}
+
+func appendDiffOmittedTargets(lines []string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	if len(descriptors) == 0 {
+		return lines
+	}
+
+	lines = append(lines,
+		"",
+		"Omitted targets",
+		"  Unchanged by this partial profile.",
+	)
+	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
 }
 
 func appendStatusTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {

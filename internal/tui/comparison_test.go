@@ -370,6 +370,160 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	}
 }
 
+func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	databaseCurrentValue := "postgres://current-database-secret"
+	databaseResolvedValue := "postgres://staging-database-secret"
+	apiCurrentValue := "https://current-api-secret.example.test"
+	workerCurrentValue := "https://current-worker-secret.example.test"
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+databaseCurrentValue+`"}}`)
+	apiPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL="+apiCurrentValue+"\n")
+	workerPath := writeTargetFile(t, projectRoot, "worker/config.json", `{"queue":{"url":"`+workerCurrentValue+`"}}`)
+	redisPath := writeTargetFile(t, projectRoot, "cache/config.json", `{"redis":{"url":"redis://current-secret"}}`)
+	environmentVariableName := "SWITCHLET_DIFF_TEST_EMPTY_WORKER_QUEUE"
+	t.Setenv(environmentVariableName, "")
+
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: apiPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "workerQueue", File: workerPath, Type: config.TargetTypeJSON, JSONPath: "queue.url"},
+			{Name: "redis", File: redisPath, Type: config.TargetTypeJSON, JSONPath: "redis.url"},
+		},
+		[]config.Profile{{
+			Name:      "Staging",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer(databaseResolvedValue)},
+				{Target: "frontendApi", Value: stringPointer(apiCurrentValue)},
+				{Target: "workerQueue", ValueFromEnv: stringPointer(environmentVariableName)},
+			},
+		}},
+	))
+
+	model = openDiffReady(t, model)
+	view := model.View()
+	for _, expected := range []string{
+		"Profile diff",
+		"Profile: Staging",
+		"[protected]",
+		"State: some profile values unavailable",
+		"Included targets: 3 of 4",
+		"Would update: 1",
+		"Already matching: 1",
+		"Unavailable: 1",
+		"Omitted targets: 1",
+		"Total targets: 4",
+		"Protection: Required for apply; read-only diff only",
+		"Would update",
+		"database [json]",
+		"jsonPath: database.url",
+		"Already matching",
+		"frontendApi [dotenv]",
+		"key: VITE_API_URL",
+		"Unavailable",
+		"workerQueue [json]",
+		environmentVariableName,
+		"Reason: profile \"Staging\" value for target \"workerQueue\"",
+		"Omitted targets",
+		"Unchanged by this partial profile.",
+		"redis [json]",
+		"No files were modified.",
+		"r Refresh",
+		"Esc/q Return",
+		"Ctrl+C Exit immediately",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want diff detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{databaseCurrentValue, databaseResolvedValue, apiCurrentValue, workerCurrentValue, "redis://current-secret"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain raw current or resolved value %q", view, forbidden)
+		}
+	}
+
+	lines := visibleLines(view)
+	if strings.Contains(lines[len(lines)-1], "Apply") {
+		t.Fatalf("command bar = %q, must not include an apply action", lines[len(lines)-1])
+	}
+}
+
+func TestView_DiffLoadingShowsSelectedProfileContextAndReadOnlyCommands(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}}},
+	))
+
+	updatedModel, command := model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+
+	view := model.View()
+	for _, expected := range []string{"Profile: Staging", "Comparing selected profile...", "No files will be modified.", "r Refresh", "Esc/q Return", "Ctrl+C Exit immediately"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want diff loading detail %q", view, expected)
+		}
+	}
+}
+
+func TestView_DiffScreenContainsLongContentAtHostileDimensions(t *testing.T) {
+	model := comparisonKeyTestModel()
+	model.state = diffReadyState
+	model.comparisonRequestKind = comparisonRequestDiff
+	model.comparisonProfileName = "Production profile with a very long display name"
+	model.diffComparison = &app.ProfileDiff{
+		ProfileName: "Production profile with a very long display name",
+		Protected:   true,
+		Complete:    true,
+		WouldUpdate: []app.TargetDescriptor{{
+			TargetName:   "database-with-a-very-long-target-name",
+			TargetFile:   "/very/long/project/path/backend/appsettings.Development.json",
+			TargetType:   config.TargetTypeJSON,
+			SelectorName: "jsonPath",
+			Selector:     "services.database.primary.connectionStrings.defaultConnection.value",
+		}},
+		OmittedTargets: []app.TargetDescriptor{{
+			TargetName:   "frontend-api-with-a-very-long-target-name",
+			TargetFile:   "/very/long/project/path/frontend/.env.local",
+			TargetType:   config.TargetTypeDotenv,
+			SelectorName: "key",
+			Selector:     "VITE_PUBLIC_BACKEND_API_BASE_URL_WITH_A_LONG_SUFFIX",
+		}},
+	}
+
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 120, height: 40},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+		{width: 40, height: 15},
+	} {
+		t.Run(sizeLabel(size.width, size.height), func(t *testing.T) {
+			resizedModel := resizedMainModel(t, model, size.width, size.height)
+			view := resizedModel.View()
+			assertVisibleWidth(t, view, size.width)
+			assertVisibleHeight(t, view, size.height)
+			if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
+				if !strings.Contains(view, "Terminal too small") {
+					t.Fatalf("View() = %q, want intentional too-small state", view)
+				}
+				assertMainCommandBarAtBottom(t, view, "q Quit")
+				return
+			}
+
+			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+		})
+	}
+}
+
 func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 	for _, testCase := range []struct {
 		name  string
@@ -506,6 +660,27 @@ func openStatusReady(t *testing.T, model Model) Model {
 	}
 	if model.state != statusReadyState {
 		t.Fatalf("state = %d, want statusReadyState", model.state)
+	}
+
+	return model
+}
+
+func openDiffReady(t *testing.T, model Model) Model {
+	t.Helper()
+
+	updatedModel, command := model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+
+	updatedModel, command = model.Update(command())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after diff result")
+	}
+	if model.state != diffReadyState {
+		t.Fatalf("state = %d, want diffReadyState", model.state)
 	}
 
 	return model
