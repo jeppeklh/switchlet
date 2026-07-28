@@ -42,7 +42,11 @@ type TargetError struct {
 
 func (err TargetError) Error() string {
 	selectorName, selector := targetSelectorSummary(err.Target)
-	return fmt.Sprintf("target %q in file %q (%s %q): %v", err.Target.Name, err.Target.File, selectorName, selector, err.Err)
+	targetType := string(err.Target.Type)
+	if targetType == "" {
+		targetType = "unknown"
+	}
+	return fmt.Sprintf("target %q in file %q (type %q, %s %q): %v", err.Target.Name, err.Target.File, targetType, selectorName, selector, err.Err)
 }
 
 func (err TargetError) Unwrap() error {
@@ -88,6 +92,49 @@ func ValidateTargets(targets []config.Target) error {
 	}
 
 	return nil
+}
+
+// ReadTargetValue reads the current string value for one configured target
+// without preparing or writing file changes.
+func ReadTargetValue(target config.Target) (string, error) {
+	normalizedTarget, _, err := normalizeTarget(target)
+	if err != nil {
+		return "", err
+	}
+
+	contents, _, err := readTargetFile(normalizedTarget.File)
+	if err != nil {
+		return "", targetError(normalizedTarget, err)
+	}
+
+	switch normalizedTarget.Type {
+	case config.TargetTypeJSON:
+		value, err := readJSONStringTargetValue(contents, normalizedTarget.JSONPath)
+		if err != nil {
+			return "", targetError(normalizedTarget, err)
+		}
+		return value, nil
+	case config.TargetTypeDotenv:
+		value, err := readDotenvTargetValue(contents, normalizedTarget.Key)
+		if err != nil {
+			return "", targetError(normalizedTarget, err)
+		}
+		return value, nil
+	case config.TargetTypeYAML:
+		value, err := readYAMLStringTargetValue(contents, normalizedTarget.YAMLPath)
+		if err != nil {
+			return "", targetError(normalizedTarget, err)
+		}
+		return value, nil
+	case config.TargetTypeTOML:
+		value, err := readTOMLStringTargetValue(contents, normalizedTarget.TOMLPath)
+		if err != nil {
+			return "", targetError(normalizedTarget, err)
+		}
+		return value, nil
+	default:
+		return "", targetError(normalizedTarget, fmt.Errorf("target type %q is not supported", normalizedTarget.Type))
+	}
 }
 
 // PreviewTargetChanges validates and serializes target changes without writing
@@ -189,17 +236,27 @@ func groupTargetChanges(changes []TargetChange) ([]targetChangeGroup, error) {
 }
 
 func normalizeTargetChange(change TargetChange) (TargetChange, string, error) {
-	if change.Target.File == "" {
-		return TargetChange{}, "", targetError(change.Target, fmt.Errorf("target file must be set"))
-	}
-
-	selector, err := validateTargetSelector(change.Target)
+	normalizedTarget, selector, err := normalizeTarget(change.Target)
 	if err != nil {
-		return TargetChange{}, "", targetError(change.Target, err)
+		return TargetChange{}, "", err
 	}
 
-	change.Target.File = filepath.Clean(change.Target.File)
+	change.Target = normalizedTarget
 	return change, selector, nil
+}
+
+func normalizeTarget(target config.Target) (config.Target, string, error) {
+	if target.File == "" {
+		return config.Target{}, "", targetError(target, fmt.Errorf("target file must be set"))
+	}
+
+	selector, err := validateTargetSelector(target)
+	if err != nil {
+		return config.Target{}, "", targetError(target, err)
+	}
+
+	target.File = filepath.Clean(target.File)
+	return target, selector, nil
 }
 
 func validateTargetSelector(target config.Target) (string, error) {

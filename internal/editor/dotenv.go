@@ -46,6 +46,29 @@ func replaceDotenvTargetValues(contents []byte, changes []TargetChange) ([]byte,
 	return serializeDotenvLines(lines), nil
 }
 
+func readDotenvTargetValue(contents []byte, key string) (string, error) {
+	if err := validateDotenvKey(key); err != nil {
+		return "", fmt.Errorf("dotenv key is invalid: %w", err)
+	}
+
+	lines := splitDotenvLines(contents)
+	assignments, err := parseDotenvAssignments(lines)
+	if err != nil {
+		return "", err
+	}
+	if err := validateDotenvKeyExistsOnce(assignments, key); err != nil {
+		return "", err
+	}
+
+	lineText := strings.TrimSpace(lines[assignments[key][0]].text)
+	assignmentIndex := strings.Index(lineText, "=")
+	if assignmentIndex < 0 {
+		return "", fmt.Errorf("dotenv key does not have a supported KEY=value assignment")
+	}
+
+	return lineText[assignmentIndex+1:], nil
+}
+
 func replaceDotenvTargetValue(lines []dotenvLine, assignments map[string][]int, change TargetChange) error {
 	key := change.Target.Key
 	if err := validateDotenvKey(key); err != nil {

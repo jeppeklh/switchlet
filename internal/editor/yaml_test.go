@@ -32,6 +32,36 @@ queue:
 	}
 }
 
+func TestReadTargetValue_ReturnsYAMLCurrentValueWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+# worker settings
+queue:
+  endpoint: http://localhost:4566/queue
+  retries: 3
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	value, err := ReadTargetValue(config.Target{
+		Name:     "workerQueue",
+		File:     targetPath,
+		Type:     config.TargetTypeYAML,
+		YAMLPath: "queue.endpoint",
+	})
+	if err != nil {
+		t.Fatalf("ReadTargetValue returned error: %v", err)
+	}
+	if value != "http://localhost:4566/queue" {
+		t.Fatalf("value = %q, want current YAML value", value)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("YAML target changed during current-value read")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("current-value read created a temporary file")
+	}
+}
+
 func TestApplyTargetChanges_MergesYAMLTargetsInOneFileAndPreservesCommentsOrderAndSemantics(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`

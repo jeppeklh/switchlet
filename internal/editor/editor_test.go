@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 func TestListConnectionStringNames_ReturnsSortedStringValuedConnectionNames(t *testing.T) {
@@ -150,6 +152,39 @@ func TestPreviewStringValueUpdate_ValidatesWithoutWritingTargetFile(t *testing.T
 	updatedContents := readFile(t, targetPath)
 	if !bytes.Equal(updatedContents, originalContents) {
 		t.Fatal("target file changed during preview")
+	}
+}
+
+func TestReadTargetValue_ReturnsJSONCurrentValueWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	value, err := ReadTargetValue(config.Target{
+		Name:     "database",
+		File:     targetPath,
+		Type:     config.TargetTypeJSON,
+		JSONPath: "database.primary.url",
+	})
+	if err != nil {
+		t.Fatalf("ReadTargetValue returned error: %v", err)
+	}
+	if value != "postgres://old" {
+		t.Fatalf("value = %q, want current JSON value", value)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("JSON target changed during current-value read")
+	}
+	if containsTempFile(t, projectRoot, tempFilePrefix(targetPath)) {
+		t.Fatal("current-value read created a temporary file")
 	}
 }
 

@@ -72,6 +72,15 @@ func replaceYAMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 	return serializeYAMLDocument(document)
 }
 
+func readYAMLStringTargetValue(contents []byte, yamlPath string) (string, error) {
+	targetNode, err := parseYAMLStringTarget(contents, yamlPath)
+	if err != nil {
+		return "", err
+	}
+
+	return targetNode.Value, nil
+}
+
 type yamlStringValueUpdate struct {
 	targetNode       *yaml.Node
 	replacementValue string

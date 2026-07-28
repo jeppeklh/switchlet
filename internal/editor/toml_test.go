@@ -32,6 +32,35 @@ retries = 3
 	}
 }
 
+func TestReadTargetValue_ReturnsTOMLCurrentValueWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.toml", strings.TrimSpace(`
+# worker settings
+services.api.endpoint = "http://localhost:8080"
+services.api.retries = 3
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	value, err := ReadTargetValue(config.Target{
+		Name:     "serviceEndpoint",
+		File:     targetPath,
+		Type:     config.TargetTypeTOML,
+		TOMLPath: "services.api.endpoint",
+	})
+	if err != nil {
+		t.Fatalf("ReadTargetValue returned error: %v", err)
+	}
+	if value != "http://localhost:8080" {
+		t.Fatalf("value = %q, want current TOML value", value)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("TOML target changed during current-value read")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("current-value read created a temporary file")
+	}
+}
+
 func TestApplyTargetChanges_MergesTOMLTargetsInOneFileAndPreservesCommentsOrderAndSemantics(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.toml", strings.TrimSpace(`

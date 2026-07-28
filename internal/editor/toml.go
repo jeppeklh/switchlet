@@ -58,6 +58,43 @@ func replaceTOMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 	return replaceTOMLValueRanges(contents, updates)
 }
 
+func readTOMLStringTargetValue(contents []byte, tomlPath string) (string, error) {
+	if _, err := parseTOMLStringTarget(contents, tomlPath); err != nil {
+		return "", err
+	}
+
+	pathSegments, err := config.ParseTOMLPath(tomlPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid TOML path %q: %w", tomlPath, err)
+	}
+
+	var decodedDocument map[string]any
+	if err := toml.Unmarshal(contents, &decodedDocument); err != nil {
+		return "", fmt.Errorf("contains invalid TOML: %w", err)
+	}
+
+	currentValue := any(decodedDocument)
+	for index, segment := range pathSegments {
+		currentMap, ok := currentValue.(map[string]any)
+		if !ok {
+			return "", fmt.Errorf("TOML path %q cannot continue through %q because it is not a table", tomlPath, strings.Join(pathSegments[:index], "."))
+		}
+
+		nextValue, ok := currentMap[segment]
+		if !ok {
+			return "", fmt.Errorf("does not contain TOML path %q: missing segment %q", tomlPath, segment)
+		}
+		currentValue = nextValue
+	}
+
+	stringValue, ok := currentValue.(string)
+	if !ok {
+		return "", fmt.Errorf("TOML path %q must resolve to a string", tomlPath)
+	}
+
+	return stringValue, nil
+}
+
 type tomlStringValueUpdate struct {
 	raw              unstable.Range
 	replacementValue []byte

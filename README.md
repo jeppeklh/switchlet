@@ -46,6 +46,13 @@ switchlet
 
 Choose a profile, apply it, and continue working.
 
+## Version 0.15 Planning
+
+The planned Version 0.15 command contract adds read-only `switchlet status` and
+`switchlet diff <profile>` commands for current-state comparison. They are
+documented in [COMMANDS.md](COMMANDS.md) as non-interactive, secret-safe commands;
+TUI status and diff screens are outside the required 0.15 scope.
+
 ## Commands
 
 See [COMMANDS.md](COMMANDS.md) for command examples, JSON output, exit codes,

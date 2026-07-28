@@ -64,6 +64,15 @@ type ProfileValueItem struct {
 	UnavailableReason       string
 }
 
+// TargetDescriptor identifies one configured target without exposing its value.
+type TargetDescriptor struct {
+	TargetName   string
+	TargetFile   string
+	TargetType   config.TargetType
+	SelectorName string
+	Selector     string
+}
+
 // Result describes a successful profile application or dry run.
 type Result struct {
 	ProfileName string
@@ -75,12 +84,83 @@ type Result struct {
 }
 
 // PlannedChange describes one target location included in a successful plan.
-type PlannedChange struct {
-	TargetName   string
-	TargetFile   string
-	TargetType   config.TargetType
-	SelectorName string
-	Selector     string
+type PlannedChange = TargetDescriptor
+
+// StatusComparisonStatus identifies the top-level current-status result.
+type StatusComparisonStatus string
+
+const (
+	// StatusComparisonMatched indicates that exactly one complete profile matches.
+	StatusComparisonMatched StatusComparisonStatus = "matched"
+	// StatusComparisonAmbiguous indicates that multiple complete profiles match.
+	StatusComparisonAmbiguous StatusComparisonStatus = "ambiguous"
+	// StatusComparisonUnmatched indicates that no complete profile matches.
+	StatusComparisonUnmatched StatusComparisonStatus = "unmatched"
+)
+
+// StatusComparison describes how current target values compare with configured profiles.
+type StatusComparison struct {
+	Status              StatusComparisonStatus
+	CurrentProfile      string
+	Matches             []ProfileMatch
+	MatchedTargets      []TargetDescriptor
+	PartialMatches      []PartialProfileMatch
+	ClosestProfiles     []ClosestProfileMatch
+	UnavailableProfiles []UnavailableProfile
+	TargetCount         int
+	Complete            bool
+}
+
+// ProfileMatch describes one complete profile that exactly matches current targets.
+type ProfileMatch struct {
+	ProfileName string
+	Protected   bool
+}
+
+// PartialProfileMatch describes a partial profile whose included targets match current values.
+type PartialProfileMatch struct {
+	ProfileName     string
+	Protected       bool
+	MatchedTargets  int
+	IncludedTargets int
+	OmittedTargets  int
+	TargetCount     int
+}
+
+// ClosestProfileMatch describes a profile's safe match counts against current values.
+type ClosestProfileMatch struct {
+	ProfileName        string
+	Protected          bool
+	MatchedTargets     int
+	IncludedTargets    int
+	UnavailableTargets int
+	TargetCount        int
+}
+
+// UnavailableProfile describes a profile that could not be fully compared.
+type UnavailableProfile struct {
+	ProfileName string
+	Protected   bool
+	Reason      string
+	Values      []UnavailableValue
+}
+
+// UnavailableValue describes one unresolved profile value without exposing target values.
+type UnavailableValue struct {
+	TargetDescriptor
+	EnvironmentVariableName string
+	Reason                  string
+}
+
+// ProfileDiff compares one selected profile with current target values.
+type ProfileDiff struct {
+	ProfileName    string
+	Protected      bool
+	Complete       bool
+	WouldUpdate    []TargetDescriptor
+	AlreadyMatches []TargetDescriptor
+	Unavailable    []UnavailableValue
+	OmittedTargets []TargetDescriptor
 }
 
 // TargetFailure describes a target-specific application failure in a

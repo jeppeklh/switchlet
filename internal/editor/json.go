@@ -22,6 +22,20 @@ func replaceStringValue(contents []byte, jsonPath string, replacementValue strin
 	return serializeJSONRoot(rootObject)
 }
 
+func readJSONStringTargetValue(contents []byte, jsonPath string) (string, error) {
+	_, targetObject, targetKey, err := parseStringTarget(contents, jsonPath)
+	if err != nil {
+		return "", err
+	}
+
+	targetValue, ok := targetObject[targetKey].(string)
+	if !ok {
+		return "", fmt.Errorf("JSON path %q must resolve to a string", jsonPath)
+	}
+
+	return targetValue, nil
+}
+
 func replaceJSONTargetValues(contents []byte, changes []TargetChange) ([]byte, error) {
 	rootObject, err := parseRootObject(contents)
 	if err != nil {

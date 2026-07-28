@@ -201,6 +201,131 @@ func TestApplyTargetChanges_PreparationFailureLeavesEveryFileUnchangedAndHidesSe
 	}
 }
 
+func TestReadTargetValue_ReturnsContextualErrorsWithoutLeakingCurrentValuesOrWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	missingPath := filepath.Join(projectRoot, "missing.json")
+
+	tests := []struct {
+		name           string
+		relativePath   string
+		targetContents string
+		target         config.Target
+		wantError      string
+		secret         string
+	}{
+		{
+			name:      "missing file",
+			target:    config.Target{Name: "database", File: missingPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			wantError: "stat target file",
+		},
+		{
+			name:           "invalid JSON",
+			relativePath:   "invalid.json",
+			targetContents: `{`,
+			target:         config.Target{Name: "database", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			wantError:      "contains invalid JSON",
+		},
+		{
+			name:           "invalid dotenv",
+			relativePath:   "frontend/.env.local",
+			targetContents: "VITE_API_URL=http://localhost:5173\nnot an assignment\n",
+			target:         config.Target{Name: "frontendApi", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			wantError:      "not a supported KEY=value assignment",
+		},
+		{
+			name:           "invalid YAML",
+			relativePath:   "worker/config.yaml",
+			targetContents: `{`,
+			target:         config.Target{Name: "workerQueue", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			wantError:      "contains invalid YAML",
+		},
+		{
+			name:           "invalid TOML",
+			relativePath:   "worker/config.toml",
+			targetContents: `endpoint = "unterminated`,
+			target:         config.Target{Name: "workerQueue", Type: config.TargetTypeTOML, TOMLPath: "queue.endpoint"},
+			wantError:      "contains invalid TOML",
+		},
+		{
+			name:           "missing JSON selector",
+			relativePath:   "config.json",
+			targetContents: `{"database":{"password":"super-secret-current"}}`,
+			target:         config.Target{Name: "database", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			wantError:      `missing segment "url"`,
+			secret:         "super-secret-current",
+		},
+		{
+			name:           "non-string JSON value",
+			relativePath:   "number.json",
+			targetContents: `{"database":{"url":42,"password":"super-secret-current"}}`,
+			target:         config.Target{Name: "database", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			wantError:      `JSON path "database.url" must resolve to a string`,
+			secret:         "super-secret-current",
+		},
+		{
+			name:           "duplicate dotenv key",
+			relativePath:   "frontend/.env.local",
+			targetContents: "VITE_API_URL=super-secret-current\nVITE_API_URL=other-secret-current\n",
+			target:         config.Target{Name: "frontendApi", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			wantError:      "dotenv key appears more than once",
+			secret:         "super-secret-current",
+		},
+		{
+			name:           "duplicate YAML key",
+			relativePath:   "worker/config.yaml",
+			targetContents: "queue:\n  endpoint: super-secret-current\n  endpoint: other-secret-current\n",
+			target:         config.Target{Name: "workerQueue", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+			wantError:      `duplicate key "endpoint"`,
+			secret:         "super-secret-current",
+		},
+		{
+			name:           "non-string TOML value",
+			relativePath:   "worker/config.toml",
+			targetContents: "[queue]\nendpoint = 42\nsecret = \"super-secret-current\"\n",
+			target:         config.Target{Name: "workerQueue", Type: config.TargetTypeTOML, TOMLPath: "queue.endpoint"},
+			wantError:      `TOML path "queue.endpoint" must resolve to a string`,
+			secret:         "super-secret-current",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			var originalContents []byte
+			if testCase.relativePath != "" {
+				testCase.target.File = writeTargetFile(t, projectRoot, testCase.relativePath, testCase.targetContents)
+				originalContents = readFile(t, testCase.target.File)
+			}
+
+			_, err := ReadTargetValue(testCase.target)
+			if err == nil {
+				t.Fatal("ReadTargetValue returned nil error, want target-read failure")
+			}
+			if !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("ReadTargetValue returned error %q, want substring %q", err, testCase.wantError)
+			}
+			if !strings.Contains(err.Error(), `target "`+testCase.target.Name+`"`) || !strings.Contains(err.Error(), `type "`+string(testCase.target.Type)+`"`) {
+				t.Fatalf("ReadTargetValue returned error %q, want target name and type context", err)
+			}
+			selectorName, selector := targetSelectorSummary(testCase.target)
+			if !strings.Contains(err.Error(), selectorName+` "`+selector+`"`) {
+				t.Fatalf("ReadTargetValue returned error %q, want selector context", err)
+			}
+			if testCase.secret != "" && strings.Contains(err.Error(), testCase.secret) {
+				t.Fatalf("ReadTargetValue leaked current value %q in error %q", testCase.secret, err)
+			}
+
+			if testCase.relativePath != "" {
+				if !bytes.Equal(readFile(t, testCase.target.File), originalContents) {
+					t.Fatal("target file changed during failed current-value read")
+				}
+				if containsTempFile(t, filepath.Dir(testCase.target.File), tempFilePrefix(testCase.target.File)) {
+					t.Fatal("failed current-value read created a temporary file")
+				}
+			}
+		})
+	}
+}
+
 func TestPreviewTargetChanges_ReturnsJSONValidationErrorsWithoutWriting(t *testing.T) {
 	tests := []struct {
 		name           string

@@ -319,8 +319,12 @@ func (application Application) targetForValue(targetName string, targetsByName m
 }
 
 func plannedChange(target config.Target) PlannedChange {
+	return targetDescriptor(target)
+}
+
+func targetDescriptor(target config.Target) TargetDescriptor {
 	selectorName, selector := targetSelector(target)
-	return PlannedChange{
+	return TargetDescriptor{
 		TargetName:   target.Name,
 		TargetFile:   target.File,
 		TargetType:   target.Type,

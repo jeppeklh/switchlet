@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -25,6 +26,35 @@ VITE_FEATURES=local
 	})
 	if err != nil {
 		t.Fatalf("ValidateTarget returned error: %v", err)
+	}
+}
+
+func TestReadTargetValue_ReturnsDotenvCurrentValueWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", strings.TrimSpace(`
+# local frontend settings
+VITE_API_URL=http://localhost:5173
+VITE_FEATURES=local
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	value, err := ReadTargetValue(config.Target{
+		Name: "frontendApi",
+		File: targetPath,
+		Type: config.TargetTypeDotenv,
+		Key:  "VITE_API_URL",
+	})
+	if err != nil {
+		t.Fatalf("ReadTargetValue returned error: %v", err)
+	}
+	if value != "http://localhost:5173" {
+		t.Fatalf("value = %q, want current dotenv value", value)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("dotenv target changed during current-value read")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("current-value read created a temporary file")
 	}
 }
 

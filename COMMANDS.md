@@ -68,6 +68,201 @@ switchlet apply Production --allow-protected
 Protected profiles are never applied silently. Interactive use asks for
 confirmation. Non-interactive apply requires `--allow-protected`.
 
+## Planned Version 0.15 Current-State Commands
+
+Version 0.15 adds read-only commands for understanding current managed target
+values without launching the TUI and without writing target files.
+
+Report whether current managed values match configured profiles:
+
+```bash
+switchlet status
+switchlet status --json
+```
+
+Compare one profile with current managed values:
+
+```bash
+switchlet diff Staging
+switchlet diff Staging --json
+```
+
+These commands are planned for Version 0.15 and are not part of the interactive
+TUI scope for that release.
+
+### Status Behavior
+
+`switchlet status` reads the current values of configured JSON, YAML, TOML, and
+dotenv targets and compares them with configured profiles.
+
+A profile is reported as the current profile only when it includes every
+configured target and every included resolved value equals the current target
+value. Partial profiles can be reported as partial matches, but they are not
+current-profile results when they omit configured targets.
+
+When exactly one complete profile matches:
+
+```text
+$ switchlet status
+Current profile: Local
+
+Matched targets:
+- database [json]
+  file: /workspace/backend/appsettings.Development.json
+  jsonPath: ConnectionStrings.DefaultConnection
+- frontendApi [dotenv]
+  file: /workspace/frontend/.env.local
+  key: VITE_API_URL
+```
+
+When no complete profile matches:
+
+```text
+$ switchlet status
+Current configuration does not match any complete profile.
+
+Partial matches:
+- Service Endpoint Only: 1 of 1 included targets match; 3 targets omitted
+
+Closest profiles:
+- Local: 2 of 4 targets match
+- Staging: 1 of 4 targets match
+```
+
+When more than one complete profile matches, Switchlet reports the ambiguity
+instead of choosing one:
+
+```text
+$ switchlet status
+Current configuration matches multiple complete profiles.
+
+Matches:
+- Local
+- Local Copy
+```
+
+Profiles with missing or empty environment-backed values may be listed as
+unavailable for comparison. Raw current target values and raw resolved profile
+values are never printed.
+
+### Diff Behavior
+
+`switchlet diff <profile>` compares only the targets included by the selected
+profile. Omitted targets are unchanged by that profile and are not mismatches.
+
+Diff is read-only and does not require `--allow-protected` for protected
+profiles.
+
+Example:
+
+```text
+$ switchlet diff Staging
+Diff for profile "Staging"
+
+Would update:
+- database [json]
+  file: /workspace/backend/appsettings.Development.json
+  jsonPath: ConnectionStrings.DefaultConnection
+
+Already matches:
+- frontendApi [dotenv]
+  file: /workspace/frontend/.env.local
+  key: VITE_API_URL
+
+Unavailable:
+- workerQueue [yaml]
+  file: /workspace/worker/config.yaml
+  yamlPath: queue.endpoint
+  environment variable: STAGING_WORKER_QUEUE_ENDPOINT
+  reason: environment variable "STAGING_WORKER_QUEUE_ENDPOINT" is not set
+```
+
+Diff output identifies target names, files, target types, and selectors without
+printing raw current target values or raw resolved profile values.
+
+### JSON Output Contract
+
+Use `--json` for scripts. JSON output for `status` and `diff` is the stable
+automation surface and remains secret-safe.
+
+`switchlet status --json` returns a `result` object with fields such as:
+
+```json
+{
+  "result": {
+    "command": "status",
+    "status": "unmatched",
+    "currentProfile": "",
+    "targetCount": 4,
+    "matches": [],
+    "matchedTargets": [],
+    "partialMatches": [
+      {
+        "profileName": "Service Endpoint Only",
+        "matchedTargets": 1,
+        "includedTargets": 1,
+        "omittedTargets": 3
+      }
+    ],
+    "closestProfiles": [
+      {
+        "profileName": "Local",
+        "matchedTargets": 2,
+        "targetCount": 4
+      }
+    ],
+    "unavailableProfiles": [],
+    "complete": true
+  }
+}
+```
+
+`switchlet diff <profile> --json` returns a `result` object with fields such as:
+
+```json
+{
+  "result": {
+    "command": "diff",
+    "profileName": "Staging",
+    "protected": true,
+    "complete": false,
+    "wouldUpdate": [
+      {
+        "targetName": "database",
+        "targetType": "json",
+        "targetFile": "/workspace/backend/appsettings.Development.json",
+        "selectorName": "jsonPath",
+        "selector": "ConnectionStrings.DefaultConnection"
+      }
+    ],
+    "alreadyMatches": [
+      {
+        "targetName": "frontendApi",
+        "targetType": "dotenv",
+        "targetFile": "/workspace/frontend/.env.local",
+        "selectorName": "key",
+        "selector": "VITE_API_URL"
+      }
+    ],
+    "unavailable": [
+      {
+        "targetName": "workerQueue",
+        "targetType": "yaml",
+        "targetFile": "/workspace/worker/config.yaml",
+        "selectorName": "yamlPath",
+        "selector": "queue.endpoint",
+        "environmentVariable": "STAGING_WORKER_QUEUE_ENDPOINT",
+        "reason": "environment variable \"STAGING_WORKER_QUEUE_ENDPOINT\" is not set"
+      }
+    ],
+    "omittedTargets": []
+  }
+}
+```
+
+These JSON objects may grow through additive fields after release, but they must
+not include raw current target values or raw resolved profile values.
+
 ## JSON Output
 
 Use `--json` with `list`, `inspect`, or `apply`:
