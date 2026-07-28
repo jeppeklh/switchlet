@@ -80,6 +80,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "i", Label: "Inspect", Priority: ActionPriorityNormal},
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
+		model.valueRevealAction(),
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
@@ -204,7 +205,7 @@ func (model Model) statusComparisonView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Status", Lines: lines, Focused: true},
 		},
-		Actions: comparisonActions(),
+		Actions: comparisonActions(false, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -236,7 +237,7 @@ func (model Model) diffComparisonView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Diff", Lines: lines, Focused: true},
 		},
-		Actions: comparisonActions(),
+		Actions: comparisonActions(true, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -251,7 +252,7 @@ func (model Model) comparisonErrorView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true},
 		},
-		Actions: comparisonActions(),
+		Actions: comparisonActions(false, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -278,12 +279,18 @@ func profileDiffMetadata(profileName string) []string {
 	return append(metadata, "read-only")
 }
 
-func comparisonActions() []Action {
-	return []Action{
+func comparisonActions(includeValueReveal bool, valuesVisible bool) []Action {
+	actions := []Action{
 		{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
-		{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary},
-		{Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical},
 	}
+	if includeValueReveal {
+		actions = append(actions, valueRevealAction(valuesVisible))
+	}
+
+	return append(actions,
+		Action{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary},
+		Action{Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical},
+	)
 }
 
 func statusComparisonMetadata(status app.StatusComparison) []string {
@@ -564,7 +571,7 @@ func (model Model) inspectionView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Profile detail", Lines: profileLines, Focused: true},
 		},
-		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}},
+		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}, model.valueRevealAction()},
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -772,4 +779,17 @@ func maskedValueLabel(profile app.ProfileItem) string {
 	}
 
 	return profile.MaskedValue
+}
+
+func (model Model) valueRevealAction() Action {
+	return valueRevealAction(model.valuesVisible)
+}
+
+func valueRevealAction(valuesVisible bool) Action {
+	label := "Reveal values"
+	if valuesVisible {
+		label = "Hide values"
+	}
+
+	return Action{Key: "v", Label: label, Priority: ActionPrioritySecondary}
 }

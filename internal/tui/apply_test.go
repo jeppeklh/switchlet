@@ -300,6 +300,33 @@ func TestFinalMessage_IsEmptyUnlessApplicationSucceeded(t *testing.T) {
 	}
 }
 
+func TestFinalMessage_DoesNotIncludeValueRevealState(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;Password=secret;")}},
+	))
+	model.valuesVisible = true
+	model.state = successState
+	model.successResult = &app.Result{
+		ProfileName: "Local",
+		Changes: []app.PlannedChange{{
+			TargetName:   "database",
+			TargetFile:   "config.json",
+			TargetType:   config.TargetTypeJSON,
+			SelectorName: "jsonPath",
+			Selector:     "database.url",
+		}},
+	}
+
+	view := model.View()
+	finalMessage := model.FinalMessage()
+	for _, forbidden := range []string{"values shown", "values hidden", "Reveal values", "Hide values"} {
+		if strings.Contains(view, forbidden) || strings.Contains(finalMessage, forbidden) {
+			t.Fatalf("success output must not include reveal state %q\nview: %q\nfinal: %q", forbidden, view, finalMessage)
+		}
+	}
+}
+
 func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{`)

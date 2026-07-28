@@ -68,6 +68,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		case errorState:
 			return model.handleErrorKey(message)
 		case successState:
+			if matchesKey(message, keyReveal) {
+				return model, nil
+			}
 			return model, tea.Quit
 		case statusLoadingState, statusReadyState:
 			return model.handleStatusComparisonKey(message)
@@ -201,6 +204,8 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case matchesKey(message, keyEnd):
 		model.cursor = len(model.profiles) - 1
 		return model, nil
+	case matchesKey(message, keyReveal):
+		return model.toggleValueVisibility(), nil
 	case matchesKey(message, keyInspect):
 		model.refreshProfiles()
 
@@ -255,6 +260,8 @@ func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.C
 		}
 
 		return model.startDiffComparison(profileName)
+	case matchesKey(message, keyReveal):
+		return model.toggleValueVisibility(), nil
 	default:
 		return model, nil
 	}
@@ -290,6 +297,8 @@ func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case matchesKey(message, keyQuit, keyInspect, keyEscape):
 		model.state = listState
 		return model, nil
+	case matchesKey(message, keyReveal):
+		return model.toggleValueVisibility(), nil
 	case matchesKey(message, keyEnter):
 		model.refreshProfiles()
 		return model.applyOrConfirmSelectedProfile()
@@ -325,6 +334,9 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if matchesKey(message, keyQuit) {
 		return model, tea.Quit
+	}
+	if matchesKey(message, keyReveal) {
+		return model, nil
 	}
 
 	model.state = listState
@@ -390,6 +402,11 @@ func (model Model) returnToListFromComparison() Model {
 	model.state = listState
 	model.clearComparisonState()
 	model.refreshProfiles()
+	return model
+}
+
+func (model Model) toggleValueVisibility() Model {
+	model.valuesVisible = !model.valuesVisible
 	return model
 }
 

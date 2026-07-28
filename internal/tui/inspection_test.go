@@ -71,6 +71,77 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	}
 }
 
+func TestUpdate_ValueRevealTogglesInInspectionAndIsIgnoredInConfirmationAndError(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	if model.state != inspectState {
+		t.Fatalf("state = %d, want inspectState", model.state)
+	}
+	if !strings.Contains(model.View(), "v Reveal values") {
+		t.Fatalf("inspection View() = %q, want reveal command", model.View())
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want inspection reveal toggle to stay local")
+	}
+	if !model.valuesVisible || model.state != inspectState {
+		t.Fatalf("model after inspection reveal = %#v, want inspection with values visible", model)
+	}
+	if !strings.Contains(model.View(), "v Hide values") {
+		t.Fatalf("inspection View() = %q, want hide command", model.View())
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want protected profile confirmation before apply")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+	confirmationView := model.View()
+	if strings.Contains(confirmationView, "v Reveal values") || strings.Contains(confirmationView, "v Hide values") {
+		t.Fatalf("confirmation View() = %q, must not advertise value reveal", confirmationView)
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want v ignored in confirmation")
+	}
+	if !model.valuesVisible || model.state != confirmState {
+		t.Fatalf("model after confirmation v = %#v, want reveal state and confirmation unchanged", model)
+	}
+
+	model.state = errorState
+	model.recoverableError = RecoverableError{Problem: "Action could not continue."}
+	errorView := model.View()
+	if strings.Contains(errorView, "v Reveal values") || strings.Contains(errorView, "v Hide values") {
+		t.Fatalf("error View() = %q, must not advertise value reveal", errorView)
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want v ignored in recoverable error")
+	}
+	if !model.valuesVisible || model.state != errorState || model.recoverableError.IsZero() {
+		t.Fatalf("model after error v = %#v, want error state unchanged", model)
+	}
+}
+
 func TestView_InspectionAddsDetailsNotPresentInSelectedPanel(t *testing.T) {
 	t.Setenv("PRODUCTION_DATABASE_URL", "Server=prod;Database=App;Password=super-secret;")
 

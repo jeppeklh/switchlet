@@ -377,6 +377,96 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
+func TestUpdate_ValueRevealTogglesDiffWithoutChangingComparisonRequest(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+	requestID := model.comparisonRequestID
+	profileName := model.comparisonProfileName
+	if !strings.Contains(model.View(), "v Reveal values") {
+		t.Fatalf("diff loading View() = %q, want reveal command", model.View())
+	}
+
+	updatedModel, toggleCommand := model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if toggleCommand != nil {
+		t.Fatal("toggleCommand is not nil, want local reveal toggle")
+	}
+	if !model.valuesVisible || model.state != diffLoadingState || model.comparisonRequestID != requestID || model.comparisonProfileName != profileName {
+		t.Fatalf("model after diff loading reveal = %#v, want request state preserved", model)
+	}
+	if !strings.Contains(model.View(), "v Hide values") {
+		t.Fatalf("diff loading View() = %q, want hide command", model.View())
+	}
+
+	updatedModel, readyCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if readyCommand != nil {
+		t.Fatal("readyCommand is not nil, want no command after diff result")
+	}
+	if model.state != diffReadyState || model.diffComparison == nil || !model.valuesVisible {
+		t.Fatalf("model after diff result = %#v, want ready diff with reveal state preserved", model)
+	}
+
+	updatedModel, toggleCommand = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if toggleCommand != nil {
+		t.Fatal("toggleCommand is not nil after hiding values")
+	}
+	if model.valuesVisible || model.state != diffReadyState || model.diffComparison == nil || model.comparisonRequestID != requestID {
+		t.Fatalf("model after diff ready hide = %#v, want ready diff request state preserved", model)
+	}
+	if !strings.Contains(model.View(), "v Reveal values") {
+		t.Fatalf("diff ready View() = %q, want reveal command", model.View())
+	}
+}
+
+func TestUpdate_ValueRevealIgnoredInStatusAndComparisonError(t *testing.T) {
+	model := comparisonKeyTestModel()
+	model.state = statusReadyState
+	model.statusComparison = &app.StatusComparison{Status: app.StatusComparisonUnmatched, TargetCount: 1, Complete: true}
+
+	updatedModel, command := model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want v ignored in status")
+	}
+	if model.valuesVisible || model.state != statusReadyState || model.statusComparison == nil {
+		t.Fatalf("model after status v = %#v, want status unchanged and values hidden", model)
+	}
+	statusView := model.View()
+	if strings.Contains(statusView, "v Reveal values") || strings.Contains(statusView, "v Hide values") {
+		t.Fatalf("status View() = %q, must not advertise value reveal", statusView)
+	}
+
+	model.state = comparisonErrorState
+	model.comparisonError = RecoverableError{Problem: "Could not compare profile."}
+	model.valuesVisible = true
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want v ignored in comparison error")
+	}
+	if !model.valuesVisible || model.state != comparisonErrorState || model.comparisonError.IsZero() {
+		t.Fatalf("model after comparison error v = %#v, want comparison error unchanged", model)
+	}
+	comparisonErrorView := model.View()
+	if strings.Contains(comparisonErrorView, "v Reveal values") || strings.Contains(comparisonErrorView, "v Hide values") {
+		t.Fatalf("comparison error View() = %q, must not advertise value reveal", comparisonErrorView)
+	}
+}
+
 func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.T) {
 	projectRoot := t.TempDir()
 	databaseCurrentValue := "postgres://current-database-secret"

@@ -15,6 +15,7 @@ const (
 	keyInspect = "i"
 	keyStatus  = "s"
 	keyDiff    = "d"
+	keyReveal  = "v"
 	keyRefresh = "r"
 	keyEscape  = "esc"
 	keyConfirm = "y"

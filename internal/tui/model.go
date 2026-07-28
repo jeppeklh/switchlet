@@ -37,6 +37,7 @@ type Model struct {
 	width            int
 	height           int
 	state            viewState
+	valuesVisible    bool
 	recoverableError RecoverableError
 	successResult    *app.Result
 	applyingProfile  string

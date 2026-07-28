@@ -29,6 +29,9 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	if model.cursor != 0 {
 		t.Fatalf("cursor = %d, want 0", model.cursor)
 	}
+	if model.valuesVisible {
+		t.Fatal("valuesVisible = true, want new model to start hidden")
+	}
 
 	view := model.View()
 	if !strings.Contains(view, "> Local") {
@@ -39,6 +42,46 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	}
 	if !strings.Contains(view, "* Profiles") {
 		t.Fatalf("View() = %q, want focused profiles panel", view)
+	}
+}
+
+func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;Password=secret;")}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	if model.valuesVisible {
+		t.Fatal("valuesVisible = true, want hidden by default")
+	}
+	if !strings.Contains(model.View(), "v Reveal values") {
+		t.Fatalf("View() = %q, want reveal command while values are hidden", model.View())
+	}
+
+	updatedModel, command := model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want reveal toggle to stay local")
+	}
+	if !model.valuesVisible || model.state != listState || model.cursor != 0 {
+		t.Fatalf("model after reveal = %#v, want list state with values visible and selection preserved", model)
+	}
+	if !strings.Contains(model.View(), "v Hide values") {
+		t.Fatalf("View() = %q, want hide command while values are shown", model.View())
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after hiding values")
+	}
+	if model.valuesVisible {
+		t.Fatal("valuesVisible = true, want values hidden after second toggle")
+	}
+	if !strings.Contains(model.View(), "v Reveal values") {
+		t.Fatalf("View() = %q, want reveal command after hiding values", model.View())
 	}
 }
 
