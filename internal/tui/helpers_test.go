@@ -36,6 +36,44 @@ func readFile(t *testing.T, path string) []byte {
 	return contents
 }
 
+func fileMode(t *testing.T, path string) os.FileMode {
+	t.Helper()
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat file %q: %v", path, err)
+	}
+
+	return fileInfo.Mode().Perm()
+}
+
+func assertFileUnchanged(t *testing.T, path string, originalContents []byte, originalMode os.FileMode) {
+	t.Helper()
+
+	if string(readFile(t, path)) != string(originalContents) {
+		t.Fatalf("file %q contents changed", path)
+	}
+	if mode := fileMode(t, path); mode != originalMode {
+		t.Fatalf("file %q mode = %v, want %v", path, mode, originalMode)
+	}
+}
+
+func assertNoTargetTempFile(t *testing.T, targetPath string) {
+	t.Helper()
+
+	directoryEntries, err := os.ReadDir(filepath.Dir(targetPath))
+	if err != nil {
+		t.Fatalf("read directory %q: %v", filepath.Dir(targetPath), err)
+	}
+
+	prefix := "." + filepath.Base(targetPath) + ".switchlet-"
+	for _, entry := range directoryEntries {
+		if strings.HasPrefix(entry.Name(), prefix) {
+			t.Fatalf("found target temporary file %q for %q", entry.Name(), targetPath)
+		}
+	}
+}
+
 func stringPointer(value string) *string {
 	return &value
 }

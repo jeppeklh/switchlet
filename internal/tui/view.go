@@ -251,7 +251,7 @@ func (model Model) comparisonErrorView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true},
 		},
-		Actions: []Action{{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical}},
+		Actions: comparisonActions(),
 		Width:   model.width,
 		Height:  model.height,
 	})

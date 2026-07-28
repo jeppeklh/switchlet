@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"bytes"
 	"strings"
 	"testing"
 
@@ -14,7 +13,11 @@ import (
 func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	configPath := writeTargetFile(t, projectRoot, ".switchlet.yaml", "version: 3\n")
 	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	originalConfigContents := readFile(t, configPath)
+	originalConfigMode := fileMode(t, configPath)
 	model := New(app.NewWithTargets(
 		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
 		[]config.Profile{{
@@ -75,9 +78,9 @@ func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t 
 	if !strings.Contains(model.View(), "Current profile: Local") {
 		t.Fatalf("View() = %q, want ready status feedback", model.View())
 	}
-	if !bytes.Equal(readFile(t, targetPath), originalContents) {
-		t.Fatal("target file changed during status comparison")
-	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
 func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *testing.T) {
@@ -290,7 +293,11 @@ func TestUpdate_StatusReturnIgnoresLateResultAndPreservesSelection(t *testing.T)
 func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	configPath := writeTargetFile(t, projectRoot, ".switchlet.yaml", "version: 3\n")
 	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	originalConfigContents := readFile(t, configPath)
+	originalConfigMode := fileMode(t, configPath)
 	model := New(app.NewWithTargets(
 		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
 		[]config.Profile{
@@ -365,9 +372,9 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	if model.state != diffLoadingState || model.comparisonRequestID <= readyRequestID || model.comparisonProfileName != "Local" {
 		t.Fatalf("model after diff refresh = %#v, want new Local diff loading request", model)
 	}
-	if !bytes.Equal(readFile(t, targetPath), originalContents) {
-		t.Fatal("target file changed during diff comparison")
-	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
 func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.T) {
@@ -574,7 +581,11 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 func TestUpdate_ComparisonFailureShowsRecoverableErrorWithoutWritingOrLeakingValues(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"password":"current-secret"}}`)
+	configPath := writeTargetFile(t, projectRoot, ".switchlet.yaml", "version: 3\n")
 	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	originalConfigContents := readFile(t, configPath)
+	originalConfigMode := fileMode(t, configPath)
 	model := New(app.NewWithTargets(
 		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
 		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("resolved-secret")}}}},
@@ -606,9 +617,9 @@ func TestUpdate_ComparisonFailureShowsRecoverableErrorWithoutWritingOrLeakingVal
 			t.Fatalf("comparison error leaked %q\nview: %q\nreason: %q", forbidden, view, model.comparisonError.Reason)
 		}
 	}
-	if !bytes.Equal(readFile(t, targetPath), originalContents) {
-		t.Fatal("target file changed during failed status comparison")
-	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 
 	updatedModel, returnCommand := model.Update(runeKey('q'))
 	model = updatedModel.(Model)
@@ -617,6 +628,205 @@ func TestUpdate_ComparisonFailureShowsRecoverableErrorWithoutWritingOrLeakingVal
 	}
 	if model.state != listState {
 		t.Fatalf("state = %d, want listState after comparison error return", model.state)
+	}
+}
+
+func TestUpdate_ComparisonErrorRefreshRetriesStatusAndRejectsStaleFailure(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"password":"current-secret"}}`)
+	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("local-secret")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("resolved-secret")}}},
+		},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	model = updatedModel.(Model)
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('s'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want status comparison command")
+	}
+	failedRequestID := model.comparisonRequestID
+
+	updatedModel, errorCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if errorCommand != nil {
+		t.Fatal("errorCommand is not nil, want no command after comparison failure")
+	}
+	if model.state != comparisonErrorState || model.cursor != 1 || model.width != 120 || model.height != 40 {
+		t.Fatalf("model after comparison error = %#v, want error with preserved selection and size", model)
+	}
+	staleCause := model.comparisonError.Cause
+	view := model.View()
+	for _, expected := range []string{"Comparison error", "Could not compare current status.", "r Refresh", "Esc/q Return", "Ctrl+C Exit immediately"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want comparison error detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{"current-secret", "resolved-secret"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain raw value %q", view, forbidden)
+		}
+	}
+
+	updatedModel, refreshCommand := model.Update(runeKey('r'))
+	model = updatedModel.(Model)
+	if refreshCommand == nil {
+		t.Fatal("refreshCommand is nil, want retry status comparison command")
+	}
+	if model.state != statusLoadingState || model.comparisonRequestKind != comparisonRequestStatus || model.comparisonRequestID <= failedRequestID || model.cursor != 1 || model.width != 120 || model.height != 40 {
+		t.Fatalf("model after error refresh = %#v, want refreshed status loading with preserved selection and size", model)
+	}
+	if !strings.Contains(model.View(), "Checking current managed values") {
+		t.Fatalf("View() = %q, want refreshed loading feedback", model.View())
+	}
+
+	updatedModel, staleCommand := model.Update(comparisonFailedMsg{requestID: failedRequestID, kind: comparisonRequestStatus, err: staleCause})
+	model = updatedModel.(Model)
+	if staleCommand != nil {
+		t.Fatal("staleCommand is not nil, want stale status failure ignored")
+	}
+	if model.state != statusLoadingState || !model.comparisonError.IsZero() {
+		t.Fatalf("model after stale status failure = %#v, want refreshed loading unchanged", model)
+	}
+
+	updatedModel, errorCommand = model.Update(refreshCommand())
+	model = updatedModel.(Model)
+	if errorCommand != nil {
+		t.Fatal("errorCommand is not nil after refreshed failure")
+	}
+	if model.state != comparisonErrorState {
+		t.Fatalf("state = %d, want comparisonErrorState after refreshed failure", model.state)
+	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+}
+
+func TestUpdate_ComparisonErrorRefreshRetriesDiffForFailedProfileAndIgnoresStaleResult(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"password":"current-secret"}}`)
+	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("local-secret")}}},
+			{Name: "Staging", Protected: true, Values: []config.ProfileValue{{Target: "database", Value: stringPointer("resolved-secret")}}},
+		},
+	))
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+	failedRequestID := model.comparisonRequestID
+
+	updatedModel, errorCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if errorCommand != nil {
+		t.Fatal("errorCommand is not nil, want no command after diff failure")
+	}
+	if model.state != comparisonErrorState || model.comparisonRequestKind != comparisonRequestDiff || model.comparisonProfileName != "Staging" || model.cursor != 1 {
+		t.Fatalf("model after diff error = %#v, want Staging comparison error", model)
+	}
+	view := model.View()
+	for _, expected := range []string{"Could not compare profile \"Staging\".", "Action: Selected-profile diff", "Profile: Staging", "r Refresh"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want diff error detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{"current-secret", "resolved-secret"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain raw value %q", view, forbidden)
+		}
+	}
+
+	updatedModel, refreshCommand := model.Update(runeKey('r'))
+	model = updatedModel.(Model)
+	if refreshCommand == nil {
+		t.Fatal("refreshCommand is nil, want retry diff comparison command")
+	}
+	if model.state != diffLoadingState || model.comparisonRequestKind != comparisonRequestDiff || model.comparisonProfileName != "Staging" || model.comparisonRequestID <= failedRequestID || model.cursor != 1 {
+		t.Fatalf("model after diff error refresh = %#v, want Staging diff loading", model)
+	}
+
+	updatedModel, staleCommand := model.Update(diffComparisonCompletedMsg{requestID: failedRequestID, profile: "Staging", result: app.ProfileDiff{ProfileName: "Stale"}})
+	model = updatedModel.(Model)
+	if staleCommand != nil {
+		t.Fatal("staleCommand is not nil, want stale diff result ignored")
+	}
+	if model.state != diffLoadingState || model.diffComparison != nil || model.comparisonProfileName != "Staging" {
+		t.Fatalf("model after stale diff result = %#v, want refreshed Staging loading unchanged", model)
+	}
+
+	updatedModel, errorCommand = model.Update(refreshCommand())
+	model = updatedModel.(Model)
+	if errorCommand != nil {
+		t.Fatal("errorCommand is not nil after refreshed diff failure")
+	}
+	if model.state != comparisonErrorState || model.comparisonProfileName != "Staging" {
+		t.Fatalf("model after refreshed diff failure = %#v, want Staging comparison error", model)
+	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+}
+
+func TestView_ComparisonErrorContainsLongContentAtHostileDimensions(t *testing.T) {
+	model := comparisonKeyTestModel()
+	model.state = comparisonErrorState
+	model.comparisonRequestKind = comparisonRequestDiff
+	model.comparisonProfileName = "Production profile with a very long display name"
+	model.comparisonError = RecoverableError{
+		Problem: "Could not compare profile \"Production profile with a very long display name\".",
+		Context: []string{
+			RenderKeyValue("Action", "Selected-profile diff"),
+			RenderKeyValue("Profile", "Production profile with a very long display name"),
+			RenderKeyValue("Target", "database-with-a-very-long-target-name [json]"),
+			RenderKeyValue("File", "/very/long/project/path/backend/appsettings.Development.json"),
+			RenderKeyValue("Selector", "services.database.primary.connectionStrings.defaultConnection.value"),
+		},
+		Reason:   strings.Repeat("target read failed because the configured selector could not be resolved safely ", 8),
+		Recovery: "Fix the target or profile, then return and try again.",
+	}
+
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 120, height: 40},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+		{width: 40, height: 15},
+	} {
+		t.Run(sizeLabel(size.width, size.height), func(t *testing.T) {
+			resizedModel := resizedMainModel(t, model, size.width, size.height)
+			view := resizedModel.View()
+			assertVisibleWidth(t, view, size.width)
+			assertVisibleHeight(t, view, size.height)
+			if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
+				if !strings.Contains(view, "Terminal too small") {
+					t.Fatalf("View() = %q, want intentional too-small state", view)
+				}
+				assertMainCommandBarAtBottom(t, view, "q Quit")
+				return
+			}
+
+			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+			if strings.Contains(view, "super-secret") {
+				t.Fatalf("View() = %q, must not contain raw secret values", view)
+			}
+		})
 	}
 }
 

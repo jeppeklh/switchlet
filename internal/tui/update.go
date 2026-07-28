@@ -261,8 +261,25 @@ func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.C
 }
 
 func (model Model) handleComparisonErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if matchesKey(message, keyQuit, keyEscape) {
+	switch {
+	case matchesKey(message, keyQuit, keyEscape):
 		return model.returnToListFromComparison(), nil
+	case matchesKey(message, keyRefresh):
+		switch model.comparisonRequestKind {
+		case comparisonRequestStatus:
+			return model.startStatusComparison()
+		case comparisonRequestDiff:
+			profileName := model.comparisonProfileName
+			if profileName == "" {
+				selectedProfile, ok := model.selectedProfile()
+				if !ok {
+					return model, nil
+				}
+				profileName = selectedProfile.Name
+			}
+
+			return model.startDiffComparison(profileName)
+		}
 	}
 
 	return model, nil

@@ -87,8 +87,9 @@ switchlet diff Staging
 switchlet diff Staging --json
 ```
 
-These commands are non-interactive. They do not add TUI status panels, TUI diff
-screens, or automatic main-picker current-profile badges.
+These commands are non-interactive. The interactive picker exposes the same
+read-only comparison model through explicit `s` status and `d` diff actions. It
+does not show automatic main-picker current-profile badges or dashboard panels.
 
 Both commands return `0` for successful reports, `1` for runtime,
 configuration, or target-read failures, and `2` for command-usage failures.
@@ -371,9 +372,16 @@ Main picker:
 - `Home` / `End` jumps to the first or last profile.
 - `Enter` applies the selected profile or opens protected confirmation.
 - `i` inspects the selected profile.
+- `s` opens current status for the managed configuration.
+- `d` opens a read-only diff for the selected profile.
+- `r` refreshes status, diff, loading, or comparison-error screens when shown.
 - `Esc` returns from secondary views where shown.
 - `q` quits from the list or closes a secondary view.
 - `Ctrl+C` exits immediately.
+
+Status and diff screens are read-only. They do not apply profiles, ask for
+protected-profile confirmation, write target files, create target-file temporary
+files, or edit `.switchlet.yaml`.
 
 Init wizard:
 
