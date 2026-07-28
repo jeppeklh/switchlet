@@ -83,22 +83,54 @@ func (application Application) managedPatchPreviewForConfiguredProfile(configure
 		Partial:             len(application.targets) > 0 && len(includedTargets) < len(application.targets),
 	}
 
-	groupIndexesByFile := make(map[string]int)
+	availableChanges := make([]editor.TargetChange, 0, len(includedTargets))
+	unavailableHunks := make(map[string]ManagedPatchHunk)
 	for _, target := range application.targets {
 		resolvedValue, included := valuesByTarget[target.Name]
+		if !included {
+			continue
+		}
+
+		if resolvedValue.ResolutionError != nil {
+			if _, err := editor.ReadTargetValue(target); err != nil {
+				return ManagedPatchPreview{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
+			}
+
+			preview.Complete = false
+			unavailableHunks[target.Name] = unavailableManagedPatchHunk(targetDescriptor(target), resolvedValue)
+			continue
+		}
+
+		availableChanges = append(availableChanges, editor.TargetChange{
+			Target: target,
+			Value:  resolvedValue.Value,
+		})
+	}
+
+	availableHunks := make(map[string]ManagedPatchHunk)
+	if len(availableChanges) > 0 {
+		editorPreview, err := editor.PreviewManagedTargetChanges(availableChanges)
+		if err != nil {
+			return ManagedPatchPreview{}, fmt.Errorf("preview managed patch for profile %q: %w", resolvedProfile.Name, err)
+		}
+
+		availableHunks = managedPatchHunksByTargetName(editorPreview, valuesByTarget, options)
+	}
+
+	groupIndexesByFile := make(map[string]int)
+	for _, target := range application.targets {
+		_, included := valuesByTarget[target.Name]
 		if !included {
 			preview.OmittedTargets = append(preview.OmittedTargets, targetDescriptor(target))
 			continue
 		}
 
-		currentValue, err := editor.ReadTargetValue(target)
-		if err != nil {
-			return ManagedPatchPreview{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
+		hunk, ok := unavailableHunks[target.Name]
+		if !ok {
+			hunk, ok = availableHunks[target.Name]
 		}
-
-		hunk := managedPatchHunk(targetDescriptor(target), currentValue, resolvedValue, options)
-		if hunk.Status == ManagedPatchStatusUnavailable {
-			preview.Complete = false
+		if !ok {
+			return ManagedPatchPreview{}, fmt.Errorf("managed patch preview for profile %q did not include target %q", resolvedProfile.Name, target.Name)
 		}
 		preview.Files = appendManagedPatchHunk(preview.Files, groupIndexesByFile, hunk)
 	}
@@ -145,33 +177,57 @@ func profileContentsTarget(descriptor TargetDescriptor, resolvedValue profile.Re
 	return target
 }
 
-func managedPatchHunk(descriptor TargetDescriptor, currentValue string, resolvedValue profile.ResolvedValue, options PreviewOptions) ManagedPatchHunk {
+func managedPatchHunksByTargetName(editorPreview editor.ManagedPreview, valuesByTarget map[string]profile.ResolvedValue, options PreviewOptions) map[string]ManagedPatchHunk {
+	hunksByTarget := make(map[string]ManagedPatchHunk)
+	for _, filePreview := range editorPreview.Files {
+		for _, previewHunk := range filePreview.Hunks {
+			resolvedValue := valuesByTarget[previewHunk.Target.Name]
+			hunksByTarget[previewHunk.Target.Name] = availableManagedPatchHunk(previewHunk, resolvedValue, options)
+		}
+	}
+
+	return hunksByTarget
+}
+
+func availableManagedPatchHunk(previewHunk editor.ManagedPreviewHunk, resolvedValue profile.ResolvedValue, options PreviewOptions) ManagedPatchHunk {
+	descriptor := targetDescriptor(previewHunk.Target)
 	hunk := ManagedPatchHunk{
 		TargetDescriptor:        descriptor,
 		Source:                  profileSource(resolvedValue.Source),
 		EnvironmentVariableName: resolvedValue.EnvironmentVariableName,
-		Available:               resolvedValue.ResolutionError == nil,
-	}
-	if resolvedValue.ResolutionError != nil {
-		hunk.Status = ManagedPatchStatusUnavailable
-		hunk.UnavailableReason = resolvedValue.ResolutionError.Error()
-		return hunk
+		Available:               true,
 	}
 
-	if resolvedValue.Value == currentValue {
+	if previewHunk.ProposedValue == previewHunk.OriginalValue {
 		hunk.Status = ManagedPatchStatusAlreadyMatches
 	} else {
 		hunk.Status = ManagedPatchStatusWouldUpdate
 	}
 
 	if options.valuesShown() {
-		hunk.CurrentValue = currentValue
+		hunk.CurrentValue = previewHunk.OriginalValue
 		hunk.CurrentValueVisible = true
-		hunk.ProfileValue = resolvedValue.Value
+		hunk.ProfileValue = previewHunk.ProposedValue
 		hunk.ProfileValueVisible = true
 	}
 
 	return hunk
+}
+
+func unavailableManagedPatchHunk(descriptor TargetDescriptor, resolvedValue profile.ResolvedValue) ManagedPatchHunk {
+	reason := ""
+	if resolvedValue.ResolutionError != nil {
+		reason = resolvedValue.ResolutionError.Error()
+	}
+
+	return ManagedPatchHunk{
+		TargetDescriptor:        descriptor,
+		Status:                  ManagedPatchStatusUnavailable,
+		Source:                  profileSource(resolvedValue.Source),
+		EnvironmentVariableName: resolvedValue.EnvironmentVariableName,
+		Available:               false,
+		UnavailableReason:       reason,
+	}
 }
 
 func appendProfileContentsTarget(groups []ProfileContentsFileGroup, groupIndexesByFile map[string]int, target ProfileContentsTarget) []ProfileContentsFileGroup {

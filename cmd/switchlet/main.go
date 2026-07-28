@@ -345,10 +345,14 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer) er
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	patchOutput := false
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput})
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--patch": &patchOutput})
 	if err != nil {
 		return usageCommandError(jsonOutput, "diff: %v\n\n%s", err, diffHelpText())
+	}
+	if jsonOutput && patchOutput {
+		return usageCommandError(jsonOutput, "diff --patch cannot be combined with --json\n\n%s", diffHelpText())
 	}
 	if len(positionals) == 0 {
 		return noProfileUsageCommandError(workingDirectory, "diff", jsonOutput)
@@ -363,6 +367,15 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer) er
 	}
 
 	profileName := positionals[0]
+	if patchOutput {
+		preview, err := application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown})
+		if err != nil {
+			return diffCommandError(false, application, profileName, err)
+		}
+
+		return writeManagedPatchText(output, preview)
+	}
+
 	diff, err := application.DiffProfileByName(profileName)
 	if err != nil {
 		return diffCommandError(jsonOutput, application, profileName, err)

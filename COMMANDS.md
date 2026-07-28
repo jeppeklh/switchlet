@@ -85,6 +85,8 @@ Compare one profile with current managed values:
 ```bash
 switchlet diff Staging
 switchlet diff Staging --json
+switchlet diff Staging --patch
+switchlet diff Staging --patch | delta
 ```
 
 These commands are non-interactive. The interactive picker exposes the same
@@ -150,7 +152,7 @@ Matches
 
 Profiles with missing or empty environment-backed values may be listed as
 unavailable for comparison. Raw current target values and raw resolved profile
-values are never printed.
+values are never printed by default text or JSON status output.
 
 ### Diff Behavior
 
@@ -186,7 +188,28 @@ Unavailable
 ```
 
 Diff output identifies target names, files, target types, and selectors without
-printing raw current target values or raw resolved profile values.
+printing raw current target values or raw resolved profile values unless the
+explicit `--patch` mode is requested.
+
+### Managed Patch Output
+
+Use `--patch` when you want read-only patch text for external tools:
+
+```bash
+switchlet diff Staging --patch
+switchlet diff Staging --patch | delta
+```
+
+Patch output is not a full source-control diff of the target file. It is limited
+to Switchlet-managed target locations. It does not invoke `delta`, require an
+external pager, write target files, create target-file temporary files, or edit
+`.switchlet.yaml`.
+
+Patch output intentionally includes current and profile values for would-update
+managed targets. It does not print unrelated file contents, omitted target
+values, unavailable values, or unchanged already-matching values.
+
+`--patch` cannot be combined with `--json`.
 
 ### JSON Output Contract
 
@@ -282,6 +305,8 @@ switchlet apply Local --dry-run --json
 switchlet status --json
 switchlet diff Local --json
 ```
+
+Use `--patch` with `diff` when you want managed patch text instead of JSON.
 
 JSON output includes profile names, target names, files, selectors,
 availability, and safe errors. It does not include unmasked resolved secret

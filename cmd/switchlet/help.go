@@ -8,7 +8,7 @@ func usageText() string {
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
 	  switchlet status [--json]                     Compare current managed values with configured profiles
-	  switchlet diff <profile-name> [--json]        Compare one profile with current managed values
+	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
 	  switchlet help [command]                       Show help text
 
 	Interactive workflow:
@@ -17,6 +17,7 @@ func usageText() string {
 
 	Non-interactive flags:
 	  --json               Write machine-readable JSON for list, inspect, apply, status, or diff
+	  --patch              Write read-only managed patch text for diff
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 
@@ -29,6 +30,7 @@ func usageText() string {
 	  switchlet apply Local --dry-run
 	  switchlet status
 	  switchlet diff Local
+	  switchlet diff Local --patch
 	  switchlet help apply
 
 	Exit codes:
@@ -55,17 +57,20 @@ func statusHelpText() string {
 
 func diffHelpText() string {
 	return `Usage:
-	  switchlet diff <profile-name> [--json]
+	  switchlet diff <profile-name> [--json|--patch]
 
 	Compare one configured profile with current managed target values without writing files.
 	Diff is read-only and does not require --allow-protected for protected profiles.
+	Patch output is read-only managed patch text for piping to tools such as delta.
 
 	Flags:
-	  --json   Write machine-readable JSON output
+	  --json    Write machine-readable JSON output
+	  --patch   Write managed patch text; cannot be combined with --json
 
 	Examples:
 	  switchlet diff Local
 	  switchlet diff Local --json
+	  switchlet diff Local --patch
 `
 }
 
