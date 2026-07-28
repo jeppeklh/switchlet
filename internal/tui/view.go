@@ -190,18 +190,16 @@ func (model Model) statusComparisonView() string {
 		"Checking current managed values...",
 		"No files will be modified.",
 	}
-	if model.state == statusReadyState {
-		lines = []string{
-			"Status comparison complete.",
-			"Read-only result data is ready.",
-			"No files were modified.",
-		}
+	metadata := []string{"read-only"}
+	if model.state == statusReadyState && model.statusComparison != nil {
+		lines = statusComparisonLines(*model.statusComparison, secondaryPanelContentWidth(model.width))
+		metadata = statusComparisonMetadata(*model.statusComparison)
 	}
 
 	return RenderShell(Shell{
 		Title:    "Switchlet",
 		Subtitle: "Current status",
-		Metadata: []string{"read-only"},
+		Metadata: metadata,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Status", Lines: lines, Focused: true},
@@ -269,6 +267,166 @@ func comparisonActions() []Action {
 		{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary},
 		{Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical},
 	}
+}
+
+func statusComparisonMetadata(status app.StatusComparison) []string {
+	metadata := make([]string, 0, 2)
+	if status.TargetCount > 0 {
+		metadata = append(metadata, configuredTargetCountLabel(status.TargetCount))
+	}
+
+	return append(metadata, "read-only")
+}
+
+func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []string {
+	lines := make([]string, 0)
+	switch status.Status {
+	case app.StatusComparisonMatched:
+		lines = append(lines,
+			RenderKeyValue("Current profile", statusCurrentProfileLabel(status)),
+			RenderKeyValue("State", "exact complete match"),
+			RenderKeyValue("Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount)),
+		)
+		lines = appendStatusTargetSection(lines, "Matched targets", status.MatchedTargets, maxLineWidth)
+	case app.StatusComparisonAmbiguous:
+		lines = append(lines,
+			RenderKeyValue("State", "multiple complete profiles match"),
+			RenderKeyValue("Complete matches", fmt.Sprintf("%d", len(status.Matches))),
+			RenderKeyValue("Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount)),
+		)
+		lines = appendStatusProfileMatches(lines, "Matches", status.Matches)
+		lines = appendStatusTargetSection(lines, "Matched targets", status.MatchedTargets, maxLineWidth)
+	default:
+		lines = append(lines,
+			RenderKeyValue("State", "no complete profile match"),
+			RenderKeyValue("Configured targets", fmt.Sprintf("%d", status.TargetCount)),
+		)
+		lines = appendStatusPartialMatches(lines, status.PartialMatches)
+		lines = appendStatusClosestProfiles(lines, status.ClosestProfiles)
+		if len(status.PartialMatches) == 0 && len(status.ClosestProfiles) == 0 && len(status.UnavailableProfiles) == 0 {
+			lines = append(lines, "", "No partial, closest, or unavailable profile details.")
+		}
+	}
+
+	lines = appendStatusUnavailableProfiles(lines, status.UnavailableProfiles, maxLineWidth)
+	lines = append(lines, "", "No files were modified.")
+	return lines
+}
+
+func appendStatusTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	if len(descriptors) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", heading)
+	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+}
+
+func appendStatusProfileMatches(lines []string, heading string, matches []app.ProfileMatch) []string {
+	if len(matches) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", heading)
+	for _, match := range matches {
+		lines = append(lines, "  "+profileComparisonLabel(match.ProfileName, match.Protected))
+	}
+
+	return lines
+}
+
+func appendStatusPartialMatches(lines []string, matches []app.PartialProfileMatch) []string {
+	if len(matches) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", "Partial matches")
+	for _, match := range matches {
+		summary := fmt.Sprintf("%d/%d included match; %d omitted", match.MatchedTargets, match.IncludedTargets, match.OmittedTargets)
+		lines = append(lines, "  "+profileComparisonLabel(match.ProfileName, match.Protected)+" - "+summary)
+	}
+
+	return lines
+}
+
+func appendStatusClosestProfiles(lines []string, matches []app.ClosestProfileMatch) []string {
+	if len(matches) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", "Closest profiles")
+	for _, match := range matches {
+		summary := fmt.Sprintf("%d/%d targets match", match.MatchedTargets, match.TargetCount)
+		if match.UnavailableTargets > 0 {
+			summary += fmt.Sprintf("; %d unavailable", match.UnavailableTargets)
+		}
+		lines = append(lines, "  "+profileComparisonLabel(match.ProfileName, match.Protected)+" - "+summary)
+	}
+
+	return lines
+}
+
+func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableProfile, maxLineWidth int) []string {
+	if len(profiles) == 0 {
+		return lines
+	}
+
+	lines = append(lines, "", "Unavailable profiles")
+	for _, profile := range profiles {
+		if len(profile.Values) == 0 {
+			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected))
+			if profile.Reason != "" {
+				lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(profile.Reason, maxLineWidth-2, "Reason")))
+			}
+			continue
+		}
+
+		for _, value := range profile.Values {
+			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected)+" / "+targetNameLabel(value.TargetName)+targetTypeBadge(string(value.TargetType)))
+			lines = append(lines, unavailableValueDetailLines(value, maxLineWidth)...)
+		}
+	}
+
+	return lines
+}
+
+func statusCurrentProfileLabel(status app.StatusComparison) string {
+	protected := false
+	for _, match := range status.Matches {
+		if match.ProfileName == status.CurrentProfile {
+			protected = match.Protected
+			break
+		}
+	}
+
+	return profileComparisonLabel(status.CurrentProfile, protected)
+}
+
+func profileComparisonLabel(profileName string, protected bool) string {
+	if profileName == "" {
+		profileName = "profile"
+	}
+	if !protected {
+		return profileName
+	}
+
+	return profileName + " " + RenderBadges([]Badge{{Label: "protected"}})
+}
+
+func countOfTotalLabel(count int, total int) string {
+	if total > 0 {
+		return fmt.Sprintf("%d of %d", count, total)
+	}
+
+	return fmt.Sprintf("%d", count)
+}
+
+func configuredTargetCountLabel(targetCount int) string {
+	if targetCount == 1 {
+		return "1 configured target"
+	}
+
+	return fmt.Sprintf("%d configured targets", targetCount)
 }
 
 func (model Model) inspectionView() string {

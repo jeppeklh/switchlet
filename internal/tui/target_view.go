@@ -125,6 +125,44 @@ func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 	return lines
 }
 
+func targetDescriptorDetailLines(descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	lines := make([]string, 0, len(descriptors)*4)
+	for index, descriptor := range descriptors {
+		if index > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, "  "+targetNameLabel(descriptor.TargetName)+targetTypeBadge(string(descriptor.TargetType)))
+		lines = append(lines, targetDescriptorContextLines(descriptor, maxLineWidth)...)
+	}
+
+	return lines
+}
+
+func targetDescriptorContextLines(descriptor app.TargetDescriptor, maxLineWidth int) []string {
+	lines := make([]string, 0, 2)
+	if descriptor.TargetFile != "" {
+		lines = append(lines, "  "+RenderKeyValue("File", compactPathForDisplay(descriptor.TargetFile, valueWidthForIndentedLabel(maxLineWidth, "File"))))
+	}
+	if descriptor.Selector != "" {
+		label := selectorFieldName(descriptor.SelectorName)
+		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(descriptor.Selector, maxLineWidth-2, label)))
+	}
+
+	return lines
+}
+
+func unavailableValueDetailLines(value app.UnavailableValue, maxLineWidth int) []string {
+	lines := targetDescriptorContextLines(value.TargetDescriptor, maxLineWidth)
+	if value.EnvironmentVariableName != "" {
+		lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(value.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
+	}
+	if value.Reason != "" {
+		lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(value.Reason, maxLineWidth-2, "Reason")))
+	}
+
+	return lines
+}
+
 func finalResultChangeLines(changes []app.PlannedChange) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
@@ -599,4 +637,12 @@ func valueWidthAfterPrefix(maxLineWidth int, prefix string) int {
 	}
 
 	return valueWidth
+}
+
+func valueWidthForIndentedLabel(maxLineWidth int, label string) int {
+	return valueWidthAfterPrefix(maxLineWidth-2, label+": ")
+}
+
+func fitValueForLabel(value string, maxLineWidth int, label string) string {
+	return fitLine(value, valueWidthForLabel(maxLineWidth, label))
 }

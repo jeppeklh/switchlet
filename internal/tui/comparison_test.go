@@ -72,11 +72,176 @@ func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t 
 	if model.statusComparison.CurrentProfile != "Local" {
 		t.Fatalf("CurrentProfile = %q, want Local", model.statusComparison.CurrentProfile)
 	}
-	if !strings.Contains(model.View(), "Status comparison complete") {
+	if !strings.Contains(model.View(), "Current profile: Local") {
 		t.Fatalf("View() = %q, want ready status feedback", model.View())
 	}
 	if !bytes.Equal(readFile(t, targetPath), originalContents) {
 		t.Fatal("target file changed during status comparison")
+	}
+}
+
+func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://local-current-secret"
+	targetPath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{
+			Name: "Local",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer(currentValue)},
+			},
+		}},
+	))
+
+	model = openStatusReady(t, model)
+	view := model.View()
+	for _, expected := range []string{
+		"Current profile: Local",
+		"State: exact complete match",
+		"Matched targets: 1 of 1",
+		"database [json]",
+		"File:",
+		"jsonPath: database.url",
+		"No files were modified.",
+		"r Refresh",
+		"Esc/q Return",
+		"Ctrl+C Exit immediately",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want status detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, currentValue) {
+		t.Fatalf("View() = %q, must not contain raw current or resolved value", view)
+	}
+}
+
+func TestView_StatusAmbiguousMatchRendersMatchesWithoutChoosingCurrentProfile(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://shared-secret"
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}},
+			{Name: "Local Copy", Protected: true, Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}},
+		},
+	))
+
+	model = openStatusReady(t, model)
+	view := model.View()
+	for _, expected := range []string{
+		"State: multiple complete profiles match",
+		"Complete matches: 2",
+		"Matches",
+		"Local",
+		"Local Copy",
+		"[protected]",
+		"Matched targets",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want ambiguous status detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "Current profile:") {
+		t.Fatalf("View() = %q, must not choose one current profile for ambiguous status", view)
+	}
+	if strings.Contains(view, currentValue) {
+		t.Fatalf("View() = %q, must not contain raw current or resolved value", view)
+	}
+}
+
+func TestView_StatusUnmatchedRendersPartialClosestAndUnavailableProfilesSafely(t *testing.T) {
+	projectRoot := t.TempDir()
+	databaseCurrentValue := "postgres://current-database-secret"
+	apiCurrentValue := "https://current-api-secret.example.test"
+	apiStagingValue := "https://staging-api-secret.example.test"
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+databaseCurrentValue+`"}}`)
+	apiPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL="+apiCurrentValue+"\n")
+	environmentVariableName := "SWITCHLET_STATUS_TEST_EMPTY_DATABASE_URL"
+	t.Setenv(environmentVariableName, "")
+
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: apiPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{
+			{Name: "Database only", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(databaseCurrentValue)}}},
+			{Name: "Almost", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(databaseCurrentValue)}, {Target: "frontendApi", Value: stringPointer(apiStagingValue)}}},
+			{Name: "Secret", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer(environmentVariableName)}, {Target: "frontendApi", Value: stringPointer(apiCurrentValue)}}},
+		},
+	))
+
+	model = openStatusReady(t, model)
+	view := model.View()
+	for _, expected := range []string{
+		"State: no complete profile match",
+		"Configured targets: 2",
+		"Partial matches",
+		"Database only - 1/1 included match; 1 omitted",
+		"Closest profiles",
+		"Almost - 1/2 targets match",
+		"Unavailable profiles",
+		"Secret / database [json]",
+		environmentVariableName,
+		"Reason: profile \"Secret\" value for target \"database\"",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want unmatched status detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{databaseCurrentValue, apiCurrentValue, apiStagingValue} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain raw current or resolved value %q", view, forbidden)
+		}
+	}
+}
+
+func TestView_StatusScreenContainsLongContentAtHostileDimensions(t *testing.T) {
+	model := comparisonKeyTestModel()
+	model.state = statusReadyState
+	model.statusComparison = &app.StatusComparison{
+		Status:         app.StatusComparisonMatched,
+		CurrentProfile: "Production profile with a very long display name",
+		Matches:        []app.ProfileMatch{{ProfileName: "Production profile with a very long display name", Protected: true}},
+		MatchedTargets: []app.TargetDescriptor{{
+			TargetName:   "database-with-a-very-long-target-name",
+			TargetFile:   "/very/long/project/path/backend/appsettings.Development.json",
+			TargetType:   config.TargetTypeJSON,
+			SelectorName: "jsonPath",
+			Selector:     "services.database.primary.connectionStrings.defaultConnection.value",
+		}},
+		TargetCount: 1,
+		Complete:    true,
+	}
+
+	for _, size := range []struct {
+		width  int
+		height int
+	}{
+		{width: 200, height: 60},
+		{width: 120, height: 40},
+		{width: 80, height: 24},
+		{width: 60, height: 20},
+		{width: 40, height: 15},
+	} {
+		t.Run(sizeLabel(size.width, size.height), func(t *testing.T) {
+			resizedModel := resizedMainModel(t, model, size.width, size.height)
+			view := resizedModel.View()
+			assertVisibleWidth(t, view, size.width)
+			assertVisibleHeight(t, view, size.height)
+			if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
+				if !strings.Contains(view, "Terminal too small") {
+					t.Fatalf("View() = %q, want intentional too-small state", view)
+				}
+				assertMainCommandBarAtBottom(t, view, "q Quit")
+				return
+			}
+
+			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+		})
 	}
 }
 
@@ -323,4 +488,25 @@ func comparisonKeyTestModel() Model {
 			{Name: "Production", Value: stringPointer("Server=prod;Database=App;")},
 		},
 	))
+}
+
+func openStatusReady(t *testing.T, model Model) Model {
+	t.Helper()
+
+	updatedModel, command := model.Update(runeKey('s'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want status comparison command")
+	}
+
+	updatedModel, command = model.Update(command())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after status result")
+	}
+	if model.state != statusReadyState {
+		t.Fatalf("state = %d, want statusReadyState", model.state)
+	}
+
+	return model
 }
