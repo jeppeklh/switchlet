@@ -79,8 +79,8 @@ switchlet apply Local --dry-run --json
 
 ## Example Configuration
 
-You usually do not need to write this by hand. It shows the Version `3` shape
-created by `switchlet init`.
+`switchlet init` automatically creates `.switchlet.yaml`. This example shows the
+Version `3` configuration shape.
 
 ```yaml
 version: 3
