@@ -399,10 +399,17 @@ Main picker:
 - `i` inspects the selected profile.
 - `s` opens current status for the managed configuration.
 - `d` opens a read-only diff for the selected profile.
+- `v` toggles managed value visibility in the profile list, inspection, and
+  selected-profile diff.
 - `r` refreshes status, diff, loading, or comparison-error screens when shown.
 - `Esc` returns from secondary views where shown.
 - `q` quits from the list or closes a secondary view.
 - `Ctrl+C` exits immediately.
+
+Values are hidden by default on every launch. The reveal toggle is local to the
+active TUI session and is not accepted on protected confirmation, status,
+recoverable errors, comparison errors, success screens, or final terminal
+summaries.
 
 Status and diff screens are read-only. They do not apply profiles, ask for
 protected-profile confirmation, write target files, create target-file temporary
