@@ -174,15 +174,27 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 
 	profileName := model.applyingProfile
 	model.applyingProfile = ""
+	applyExits := model.applyExits
+	model.applyExits = false
 	if message.err != nil {
 		model.state = errorState
 		model.recoverableError = model.applyFailureError(profileName, message.err)
 		model.successResult = nil
+		model.currentProfile = ""
 		return model, nil
 	}
 
-	model.state = successState
 	model.recoverableError = RecoverableError{}
+	model.refreshProfiles()
+	if !applyExits {
+		model.state = listState
+		model.successResult = nil
+		model.currentProfile = ""
+		model.currentRequestID++
+		return model, detectCurrentProfile(model.application, model.currentRequestID)
+	}
+
+	model.state = successState
 	model.successResult = &message.result
 	return model, tea.Quit
 }
@@ -249,9 +261,12 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		return model.startDiffComparison(selectedProfile.Name)
+	case matchesKey(message, keySpace):
+		model.refreshProfiles()
+		return model.applyOrConfirmSelectedProfile(false)
 	case matchesKey(message, keyEnter):
 		model.refreshProfiles()
-		return model.applyOrConfirmSelectedProfile()
+		return model.applyOrConfirmSelectedProfile(true)
 	default:
 		return model, nil
 	}
@@ -322,9 +337,12 @@ func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return model, nil
 	case matchesKey(message, keyReveal):
 		return model.toggleValueVisibility(), nil
+	case matchesKey(message, keySpace):
+		model.refreshProfiles()
+		return model.applyOrConfirmSelectedProfile(false)
 	case matchesKey(message, keyEnter):
 		model.refreshProfiles()
-		return model.applyOrConfirmSelectedProfile()
+		return model.applyOrConfirmSelectedProfile(true)
 	default:
 		return model, nil
 	}
@@ -334,6 +352,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case matchesKey(message, keyQuit, keyCancel, keyEscape):
 		model.state = listState
+		model.confirmExits = false
 		return model, nil
 	case matchesKey(message, keyConfirm, keyEnter):
 		model.refreshProfiles()
@@ -348,7 +367,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return model, nil
 		}
 
-		return model.startApplyingSelectedProfile(selectedProfile)
+		return model.startApplyingSelectedProfile(selectedProfile, model.confirmExits)
 	default:
 		return model, nil
 	}
@@ -368,7 +387,7 @@ func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return model, nil
 }
 
-func (model Model) applyOrConfirmSelectedProfile() (tea.Model, tea.Cmd) {
+func (model Model) applyOrConfirmSelectedProfile(exitAfterApply bool) (tea.Model, tea.Cmd) {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
 		return model, nil
@@ -381,15 +400,18 @@ func (model Model) applyOrConfirmSelectedProfile() (tea.Model, tea.Cmd) {
 	}
 	if selectedProfile.Protected {
 		model.state = confirmState
+		model.confirmExits = exitAfterApply
 		return model, nil
 	}
 
-	return model.startApplyingSelectedProfile(selectedProfile)
+	return model.startApplyingSelectedProfile(selectedProfile, exitAfterApply)
 }
 
-func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem) (tea.Model, tea.Cmd) {
+func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem, exitAfterApply bool) (tea.Model, tea.Cmd) {
 	model.applyingProfile = selectedProfile.Name
+	model.applyExits = exitAfterApply
 	model.applyRequestID++
+	model.confirmExits = false
 	model.recoverableError = RecoverableError{}
 	model.successResult = nil
 	model.state = listState

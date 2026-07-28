@@ -41,7 +41,9 @@ type Model struct {
 	recoverableError RecoverableError
 	successResult    *app.Result
 	applyingProfile  string
+	applyExits       bool
 	applyRequestID   int
+	confirmExits     bool
 	currentProfile   string
 	currentRequestID int
 

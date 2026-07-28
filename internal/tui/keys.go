@@ -12,6 +12,7 @@ const (
 	keyMoveUp  = "k"
 	keyMoveDn  = "j"
 	keyEnter   = "enter"
+	keySpace   = " "
 	keyInspect = "i"
 	keyStatus  = "s"
 	keyDiff    = "d"

@@ -88,6 +88,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		model.valueRevealAction(),
+		Action{Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPrioritySecondary},
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
@@ -564,7 +565,7 @@ func (model Model) inspectionView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Profile detail", Lines: profileLines, Focused: true},
 		},
-		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "i/Esc/q", Label: "Return"}, model.valueRevealAction()},
+		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPrioritySecondary}, {Key: "i/Esc/q", Label: "Return"}, model.valueRevealAction()},
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -590,13 +591,14 @@ func (model Model) confirmationView() string {
 			"Affected targets",
 		)
 		lines = append(lines, profileValueTargetLines(selectedProfile.Values, secondaryPanelContentWidth(model.width))...)
-		lines = append(lines, "", "Press Enter or y to confirm.")
+		lines = append(lines, "", model.confirmationCompletionLine(), "Press Enter or y to confirm.")
 	} else {
 		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
 		lines = append(lines,
 			"",
 			"This will update only the configured target value.",
 			"The resolved value is intentionally hidden.",
+			model.confirmationCompletionLine(),
 			"Press Enter or y to confirm.",
 		)
 	}
@@ -623,6 +625,25 @@ func enterActionLabel(profile app.ProfileItem) string {
 	default:
 		return "Apply"
 	}
+}
+
+func stayActionLabel(profile app.ProfileItem) string {
+	switch {
+	case !profile.Available:
+		return "Show Error"
+	case profile.Protected:
+		return "Continue"
+	default:
+		return "Apply+Stay"
+	}
+}
+
+func (model Model) confirmationCompletionLine() string {
+	if model.confirmExits {
+		return "After apply, Switchlet will exit."
+	}
+
+	return "After apply, return to the profile list."
 }
 
 func (model Model) errorView() string {

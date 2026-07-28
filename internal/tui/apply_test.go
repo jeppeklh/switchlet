@@ -151,6 +151,121 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	}
 }
 
+func TestUpdate_SpaceAppliesSelectedProfileAndReturnsToList(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "service": {
+    "baseUrl": "https://old.example.test"
+  }
+}
+`)+"\n")
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command")
+	}
+	if model.applyingProfile != "Local" || !model.isApplying() || model.applyExits {
+		t.Fatalf("model after Space = %#v, want Local applying without exit", model)
+	}
+
+	updatedModel, currentCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if currentCommand == nil {
+		t.Fatal("currentCommand is nil, want current-profile refresh after apply-and-stay")
+	}
+	if model.state != listState || model.successResult != nil || model.FinalMessage() != "" {
+		t.Fatalf("model after apply-and-stay = %#v, want list state without final message", model)
+	}
+	if !strings.Contains(string(readFile(t, targetPath)), "https://new.example.test") {
+		t.Fatalf("target file was not updated")
+	}
+	if strings.Contains(model.View(), "[current]") {
+		t.Fatalf("View() = %q, must wait for exact status comparison before showing current", model.View())
+	}
+
+	updatedModel, nextCommand := model.Update(currentCommand())
+	model = updatedModel.(Model)
+	if nextCommand != nil {
+		t.Fatal("nextCommand is not nil after current-profile refresh")
+	}
+	if model.currentProfile != "Local" || !strings.Contains(model.View(), "> Local [current]") {
+		t.Fatalf("model/view after current refresh = %#v\n%s", model, model.View())
+	}
+}
+
+func TestUpdate_SpaceApplyDoesNotMarkPartialProfileCurrent(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend.json", `{"database":{"url":"old"}}`)
+	apiPath := writeTargetFile(t, projectRoot, "frontend.json", `{"api":{"url":"current-api"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: apiPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
+		},
+		[]config.Profile{{Name: "Database Only", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("new-database")}}}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want partial apply command")
+	}
+	updatedModel, currentCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if currentCommand == nil {
+		t.Fatal("currentCommand is nil, want current-profile refresh")
+	}
+	updatedModel, _ = model.Update(currentCommand())
+	model = updatedModel.(Model)
+	if model.currentProfile != "" || strings.Contains(model.View(), "[current]") {
+		t.Fatalf("model/view after partial apply = %#v\n%s", model, model.View())
+	}
+}
+
+func TestUpdate_SpaceProtectedConfirmationAppliesAndReturnsToList(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"old"}}`)
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "database.url"},
+		[]config.Profile{{Name: "Production", Value: stringPointer("new"), Protected: true}},
+	))
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before protected Space apply")
+	}
+	if model.state != confirmState || model.confirmExits {
+		t.Fatalf("model after protected Space = %#v, want stay-open confirmation", model)
+	}
+	if !strings.Contains(model.View(), "After apply, return to the profile list.") {
+		t.Fatalf("confirmation View() = %q, want stay-open completion copy", model.View())
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command after protected confirmation")
+	}
+	updatedModel, currentCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if currentCommand == nil {
+		t.Fatal("currentCommand is nil, want current-profile refresh")
+	}
+	if model.state != listState || model.successResult != nil {
+		t.Fatalf("model after protected Space apply = %#v, want list state", model)
+	}
+	if !strings.Contains(string(readFile(t, targetPath)), `"new"`) {
+		t.Fatalf("target file was not updated")
+	}
+}
+
 func TestUpdate_AppliesYAMLSelectedProfileThroughCommand(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`

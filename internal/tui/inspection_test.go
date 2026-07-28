@@ -327,7 +327,7 @@ func TestView_InspectionUsesContinueHelpForProtectedProfiles(t *testing.T) {
 	if model.state != inspectState {
 		t.Fatalf("state = %d, want inspectState", model.state)
 	}
-	if !strings.Contains(model.View(), "Enter Continue  i/Esc/q Return") {
+	if !strings.Contains(model.View(), "Enter Continue") || !strings.Contains(model.View(), "Space Continue") || !strings.Contains(model.View(), "i/Esc/q Return") {
 		t.Fatalf("View() = %q, want protected inspection help text that matches Enter behavior", model.View())
 	}
 }

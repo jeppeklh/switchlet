@@ -398,7 +398,10 @@ Main picker:
 - `Up` / `Down` or `j` / `k` moves between profiles.
 - `PgUp` / `PgDn` moves one visible page in long lists.
 - `Home` / `End` jumps to the first or last profile.
-- `Enter` applies the selected profile or opens protected confirmation.
+- `Enter` applies the selected profile and exits, or opens protected
+  confirmation.
+- `Space` applies the selected profile and returns to the profile list, or opens
+  protected confirmation that returns to the list after apply.
 - `i` inspects the selected profile.
 - `s` opens current status for the managed configuration, and returns from status
   loading or status ready back to the profile list.
