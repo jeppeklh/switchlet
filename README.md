@@ -10,6 +10,8 @@ without opening files by hand.
 Run it directly in your terminal, terminal pane, or Neovim terminal buffer from
 anywhere inside a configured project.
 
+![Switchlet demo](assets/switchlet.gif)
+
 ## What It Does
 
 - Opens an interactive profile picker with `switchlet`.
