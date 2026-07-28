@@ -7,6 +7,8 @@ func usageText() string {
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
+	  switchlet status [--json]                     Compare current managed values with configured profiles
+	  switchlet diff <profile-name> [--json]        Compare one profile with current managed values
 	  switchlet help [command]                       Show help text
 
 	Interactive workflow:
@@ -14,7 +16,7 @@ func usageText() string {
 	  Protected profiles show Continue first, then require Enter/y to confirm and n/Esc/q to cancel.
 
 	Non-interactive flags:
-	  --json               Write machine-readable JSON for list, inspect, or apply
+	  --json               Write machine-readable JSON for list, inspect, apply, status, or diff
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 
@@ -25,12 +27,45 @@ func usageText() string {
 	  switchlet list
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
+	  switchlet status
+	  switchlet diff Local
 	  switchlet help apply
 
 	Exit codes:
 	  0 success
 	  1 runtime or validation failure
 	  2 command-usage failure
+`
+}
+
+func statusHelpText() string {
+	return `Usage:
+	  switchlet status [--json]
+
+	Compare current managed target values with configured profiles without writing files.
+
+	Flags:
+	  --json   Write machine-readable JSON output
+
+	Examples:
+	  switchlet status
+	  switchlet status --json
+`
+}
+
+func diffHelpText() string {
+	return `Usage:
+	  switchlet diff <profile-name> [--json]
+
+	Compare one configured profile with current managed target values without writing files.
+	Diff is read-only and does not require --allow-protected for protected profiles.
+
+	Flags:
+	  --json   Write machine-readable JSON output
+
+	Examples:
+	  switchlet diff Local
+	  switchlet diff Local --json
 `
 }
 

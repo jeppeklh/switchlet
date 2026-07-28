@@ -68,10 +68,10 @@ switchlet apply Production --allow-protected
 Protected profiles are never applied silently. Interactive use asks for
 confirmation. Non-interactive apply requires `--allow-protected`.
 
-## Planned Version 0.15 Current-State Commands
+## Current-State Commands
 
-Version 0.15 adds read-only commands for understanding current managed target
-values without launching the TUI and without writing target files.
+Read-only commands for understanding current managed target values without
+launching the TUI and without writing target files.
 
 Report whether current managed values match configured profiles:
 
@@ -87,8 +87,11 @@ switchlet diff Staging
 switchlet diff Staging --json
 ```
 
-These commands are planned for Version 0.15 and are not part of the interactive
-TUI scope for that release.
+These commands are non-interactive. They do not add TUI status panels, TUI diff
+screens, or automatic main-picker current-profile badges.
+
+Both commands return `0` for successful reports, `1` for runtime,
+configuration, or target-read failures, and `2` for command-usage failures.
 
 ### Status Behavior
 
@@ -265,12 +268,14 @@ not include raw current target values or raw resolved profile values.
 
 ## JSON Output
 
-Use `--json` with `list`, `inspect`, or `apply`:
+Use `--json` with `list`, `inspect`, `apply`, `status`, or `diff`:
 
 ```bash
 switchlet list --json
 switchlet inspect Local --json
 switchlet apply Local --dry-run --json
+switchlet status --json
+switchlet diff Local --json
 ```
 
 JSON output includes profile names, target names, files, selectors,

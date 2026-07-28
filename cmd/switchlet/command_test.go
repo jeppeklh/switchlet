@@ -919,9 +919,9 @@ func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
 
 	readme := readDocumentation("README.md")
 	for _, expected := range []string{
+		"Switchlet is a small terminal tool",
 		"go install github.com/jeppeklh/switchlet/cmd/switchlet@latest",
-		"switchlet init",
-		"[COMMANDS.md](COMMANDS.md)",
+		"go build -o switchlet ./cmd/switchlet",
 	} {
 		if !strings.Contains(readme, expected) {
 			t.Fatalf("README.md does not contain %q", expected)
@@ -936,7 +936,7 @@ func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
 		"switchlet apply Local",
 		"switchlet apply Local --dry-run",
 		"switchlet apply Production --allow-protected",
-		"Use `--json` with `list`, `inspect`, or `apply`",
+		"Use `--json` with `list`, `inspect`, `apply`, `status`, or `diff`",
 		"Text-entry screens treat `q` as literal input",
 	} {
 		if !strings.Contains(commands, expected) {

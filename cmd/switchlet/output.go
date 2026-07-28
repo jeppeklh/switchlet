@@ -102,6 +102,57 @@ func writeApplyText(output io.Writer, result app.Result) error {
 	return nil
 }
 
+func writeStatusText(output io.Writer, status app.StatusComparison) error {
+	switch status.Status {
+	case app.StatusComparisonMatched:
+		if _, err := fmt.Fprintf(output, "Current profile: %s\n", status.CurrentProfile); err != nil {
+			return err
+		}
+		if err := writeTargetDescriptorSection(output, "Matched targets", status.MatchedTargets); err != nil {
+			return err
+		}
+	case app.StatusComparisonAmbiguous:
+		if _, err := fmt.Fprintln(output, "Current configuration matches multiple complete profiles."); err != nil {
+			return err
+		}
+		if err := writeProfileMatchSection(output, "Matches", status.Matches); err != nil {
+			return err
+		}
+	default:
+		if _, err := fmt.Fprintln(output, "Current configuration does not match any complete profile."); err != nil {
+			return err
+		}
+		if err := writePartialMatchSection(output, status.PartialMatches); err != nil {
+			return err
+		}
+		if err := writeClosestProfileSection(output, status.ClosestProfiles); err != nil {
+			return err
+		}
+	}
+
+	return writeUnavailableProfileSection(output, status.UnavailableProfiles)
+}
+
+func writeDiffText(output io.Writer, diff app.ProfileDiff) error {
+	if _, err := fmt.Fprintf(output, "Diff for profile %q\n", diff.ProfileName); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "Protection: %s\n", diffProtectionLabel(diff)); err != nil {
+		return err
+	}
+
+	if err := writeTargetDescriptorSection(output, "Would update", diff.WouldUpdate); err != nil {
+		return err
+	}
+	if err := writeTargetDescriptorSection(output, "Already matches", diff.AlreadyMatches); err != nil {
+		return err
+	}
+	if err := writeUnavailableValueSection(output, "Unavailable", diff.Unavailable); err != nil {
+		return err
+	}
+	return writeTargetDescriptorSection(output, "Omitted targets", diff.OmittedTargets)
+}
+
 func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
 	encodedProfiles := make([]profileJSON, 0, len(profiles))
 	for _, profileItem := range profiles {
@@ -128,9 +179,41 @@ func writeApplyJSON(output io.Writer, result app.Result) error {
 		TargetPath:  result.TargetPath,
 		TargetFile:  result.TargetFile,
 		TargetCount: len(result.Changes),
-		Changes:     plannedChangeJSONFromChanges(result.Changes),
+		Changes:     targetDescriptorJSONFromDescriptors(result.Changes),
 		Protected:   result.Protected,
 		DryRun:      result.DryRun,
+	}})
+}
+
+func writeStatusJSON(output io.Writer, status app.StatusComparison) error {
+	return writeJSON(output, struct {
+		Result statusResultJSON `json:"result"`
+	}{Result: statusResultJSON{
+		Command:             "status",
+		Status:              string(status.Status),
+		CurrentProfile:      status.CurrentProfile,
+		Matches:             profileMatchJSONFromMatches(status.Matches),
+		MatchedTargets:      targetDescriptorJSONFromDescriptors(status.MatchedTargets),
+		PartialMatches:      partialProfileMatchJSONFromMatches(status.PartialMatches),
+		ClosestProfiles:     closestProfileMatchJSONFromMatches(status.ClosestProfiles),
+		UnavailableProfiles: unavailableProfileJSONFromProfiles(status.UnavailableProfiles),
+		TargetCount:         status.TargetCount,
+		Complete:            status.Complete,
+	}})
+}
+
+func writeDiffJSON(output io.Writer, diff app.ProfileDiff) error {
+	return writeJSON(output, struct {
+		Result diffResultJSON `json:"result"`
+	}{Result: diffResultJSON{
+		Command:        "diff",
+		ProfileName:    diff.ProfileName,
+		Protected:      diff.Protected,
+		Complete:       diff.Complete,
+		WouldUpdate:    targetDescriptorJSONFromDescriptors(diff.WouldUpdate),
+		AlreadyMatches: targetDescriptorJSONFromDescriptors(diff.AlreadyMatches),
+		Unavailable:    unavailableValueJSONFromValues(diff.Unavailable),
+		OmittedTargets: targetDescriptorJSONFromDescriptors(diff.OmittedTargets),
 	}})
 }
 
@@ -163,6 +246,14 @@ func sourceLabel(source app.ProfileSource) string {
 
 func protectionLabel(profileItem app.ProfileItem) string {
 	if profileItem.Protected {
+		return "Protected"
+	}
+
+	return "Not protected"
+}
+
+func diffProtectionLabel(diff app.ProfileDiff) string {
+	if diff.Protected {
 		return "Protected"
 	}
 
@@ -278,6 +369,181 @@ func writePlannedChangesText(output io.Writer, changes []app.PlannedChange, mark
 	return nil
 }
 
+func writeTargetDescriptorSection(output io.Writer, heading string, descriptors []app.TargetDescriptor) error {
+	if len(descriptors) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+		return err
+	}
+	for _, descriptor := range descriptors {
+		if err := writeTargetDescriptorText(output, descriptor); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeTargetDescriptorText(output io.Writer, descriptor app.TargetDescriptor) error {
+	if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(descriptor.TargetName), targetTypeBadge(string(descriptor.TargetType))); err != nil {
+		return err
+	}
+	if descriptor.TargetFile != "" {
+		if _, err := fmt.Fprintf(output, "  file: %s\n", descriptor.TargetFile); err != nil {
+			return err
+		}
+	}
+	if descriptor.Selector != "" {
+		if _, err := fmt.Fprintf(output, "  %s: %s\n", selectorFieldName(descriptor.SelectorName), descriptor.Selector); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeProfileMatchSection(output io.Writer, heading string, matches []app.ProfileMatch) error {
+	if len(matches) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+		return err
+	}
+	for _, match := range matches {
+		if _, err := fmt.Fprintf(output, "- %s\n", profileLabel(match.ProfileName, match.Protected)); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writePartialMatchSection(output io.Writer, matches []app.PartialProfileMatch) error {
+	if len(matches) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "\nPartial matches:"); err != nil {
+		return err
+	}
+	for _, match := range matches {
+		if _, err := fmt.Fprintf(
+			output,
+			"- %s: %d of %d included targets match; %d targets omitted\n",
+			profileLabel(match.ProfileName, match.Protected),
+			match.MatchedTargets,
+			match.IncludedTargets,
+			match.OmittedTargets,
+		); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeClosestProfileSection(output io.Writer, matches []app.ClosestProfileMatch) error {
+	if len(matches) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "\nClosest profiles:"); err != nil {
+		return err
+	}
+	for _, match := range matches {
+		line := fmt.Sprintf(
+			"- %s: %d of %d targets match",
+			profileLabel(match.ProfileName, match.Protected),
+			match.MatchedTargets,
+			match.TargetCount,
+		)
+		if match.UnavailableTargets > 0 {
+			line += fmt.Sprintf("; %d unavailable", match.UnavailableTargets)
+		}
+		if _, err := fmt.Fprintln(output, line); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeUnavailableProfileSection(output io.Writer, profiles []app.UnavailableProfile) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "\nUnavailable profiles:"); err != nil {
+		return err
+	}
+	for _, profile := range profiles {
+		if len(profile.Values) == 0 {
+			if _, err := fmt.Fprintf(output, "- %s\n", profileLabel(profile.ProfileName, profile.Protected)); err != nil {
+				return err
+			}
+			if profile.Reason != "" {
+				if _, err := fmt.Fprintf(output, "  reason: %s\n", profile.Reason); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		for _, value := range profile.Values {
+			if _, err := fmt.Fprintf(output, "- %s / %s%s\n", profileLabel(profile.ProfileName, profile.Protected), targetNameLabel(value.TargetName), targetTypeBadge(string(value.TargetType))); err != nil {
+				return err
+			}
+			if err := writeUnavailableValueDetails(output, value); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+func writeUnavailableValueSection(output io.Writer, heading string, values []app.UnavailableValue) error {
+	if len(values) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+		return err
+	}
+	for _, value := range values {
+		if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(value.TargetName), targetTypeBadge(string(value.TargetType))); err != nil {
+			return err
+		}
+		if err := writeUnavailableValueDetails(output, value); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeUnavailableValueDetails(output io.Writer, value app.UnavailableValue) error {
+	if value.TargetFile != "" {
+		if _, err := fmt.Fprintf(output, "  file: %s\n", value.TargetFile); err != nil {
+			return err
+		}
+	}
+	if value.Selector != "" {
+		if _, err := fmt.Fprintf(output, "  %s: %s\n", selectorFieldName(value.SelectorName), value.Selector); err != nil {
+			return err
+		}
+	}
+	if value.EnvironmentVariableName != "" {
+		if _, err := fmt.Fprintf(output, "  environment variable: %s\n", value.EnvironmentVariableName); err != nil {
+			return err
+		}
+	}
+	if value.Reason != "" {
+		if _, err := fmt.Fprintf(output, "  reason: %s\n", value.Reason); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func targetListHeading(singular string, changes []app.PlannedChange) string {
 	if len(changes) == 1 {
 		return singular
@@ -300,6 +566,14 @@ func targetTypeBadge(targetType string) string {
 	}
 
 	return " [" + targetType + "]"
+}
+
+func profileLabel(profileName string, protected bool) string {
+	if protected {
+		return profileName + " [protected]"
+	}
+
+	return profileName
 }
 
 func selectorFieldName(selectorName string) string {
@@ -396,14 +670,38 @@ type profileJSON struct {
 }
 
 type applyResultJSON struct {
-	ProfileName string              `json:"profileName"`
-	Status      string              `json:"status"`
-	TargetPath  string              `json:"targetPath"`
-	TargetFile  string              `json:"targetFile"`
-	TargetCount int                 `json:"targetCount"`
-	Changes     []plannedChangeJSON `json:"changes"`
-	Protected   bool                `json:"protected"`
-	DryRun      bool                `json:"dryRun"`
+	ProfileName string                 `json:"profileName"`
+	Status      string                 `json:"status"`
+	TargetPath  string                 `json:"targetPath"`
+	TargetFile  string                 `json:"targetFile"`
+	TargetCount int                    `json:"targetCount"`
+	Changes     []targetDescriptorJSON `json:"changes"`
+	Protected   bool                   `json:"protected"`
+	DryRun      bool                   `json:"dryRun"`
+}
+
+type statusResultJSON struct {
+	Command             string                    `json:"command"`
+	Status              string                    `json:"status"`
+	CurrentProfile      string                    `json:"currentProfile"`
+	Matches             []profileMatchJSON        `json:"matches"`
+	MatchedTargets      []targetDescriptorJSON    `json:"matchedTargets"`
+	PartialMatches      []partialProfileMatchJSON `json:"partialMatches"`
+	ClosestProfiles     []closestProfileMatchJSON `json:"closestProfiles"`
+	UnavailableProfiles []unavailableProfileJSON  `json:"unavailableProfiles"`
+	TargetCount         int                       `json:"targetCount"`
+	Complete            bool                      `json:"complete"`
+}
+
+type diffResultJSON struct {
+	Command        string                 `json:"command"`
+	ProfileName    string                 `json:"profileName"`
+	Protected      bool                   `json:"protected"`
+	Complete       bool                   `json:"complete"`
+	WouldUpdate    []targetDescriptorJSON `json:"wouldUpdate"`
+	AlreadyMatches []targetDescriptorJSON `json:"alreadyMatches"`
+	Unavailable    []unavailableValueJSON `json:"unavailable"`
+	OmittedTargets []targetDescriptorJSON `json:"omittedTargets"`
 }
 
 type profileValueJSON struct {
@@ -420,12 +718,52 @@ type profileValueJSON struct {
 	UnavailableReason       string            `json:"unavailableReason"`
 }
 
-type plannedChangeJSON struct {
+type targetDescriptorJSON struct {
 	TargetName   string `json:"targetName"`
 	TargetFile   string `json:"targetFile"`
 	TargetType   string `json:"targetType"`
 	SelectorName string `json:"selectorName"`
 	Selector     string `json:"selector"`
+}
+
+type profileMatchJSON struct {
+	ProfileName string `json:"profileName"`
+	Protected   bool   `json:"protected"`
+}
+
+type partialProfileMatchJSON struct {
+	ProfileName     string `json:"profileName"`
+	Protected       bool   `json:"protected"`
+	MatchedTargets  int    `json:"matchedTargets"`
+	IncludedTargets int    `json:"includedTargets"`
+	OmittedTargets  int    `json:"omittedTargets"`
+	TargetCount     int    `json:"targetCount"`
+}
+
+type closestProfileMatchJSON struct {
+	ProfileName        string `json:"profileName"`
+	Protected          bool   `json:"protected"`
+	MatchedTargets     int    `json:"matchedTargets"`
+	IncludedTargets    int    `json:"includedTargets"`
+	UnavailableTargets int    `json:"unavailableTargets"`
+	TargetCount        int    `json:"targetCount"`
+}
+
+type unavailableProfileJSON struct {
+	ProfileName string                 `json:"profileName"`
+	Protected   bool                   `json:"protected"`
+	Reason      string                 `json:"reason"`
+	Values      []unavailableValueJSON `json:"values"`
+}
+
+type unavailableValueJSON struct {
+	TargetName              string `json:"targetName"`
+	TargetFile              string `json:"targetFile"`
+	TargetType              string `json:"targetType"`
+	SelectorName            string `json:"selectorName"`
+	Selector                string `json:"selector"`
+	EnvironmentVariableName string `json:"environmentVariable"`
+	Reason                  string `json:"reason"`
 }
 
 func profileJSONFromItem(profileItem app.ProfileItem) profileJSON {
@@ -467,17 +805,96 @@ func profileValueJSONFromItems(values []app.ProfileValueItem) []profileValueJSON
 	return encodedValues
 }
 
-func plannedChangeJSONFromChanges(changes []app.PlannedChange) []plannedChangeJSON {
-	encodedChanges := make([]plannedChangeJSON, 0, len(changes))
-	for _, change := range changes {
-		encodedChanges = append(encodedChanges, plannedChangeJSON{
-			TargetName:   change.TargetName,
-			TargetFile:   change.TargetFile,
-			TargetType:   string(change.TargetType),
-			SelectorName: change.SelectorName,
-			Selector:     change.Selector,
+func targetDescriptorJSONFromDescriptors(descriptors []app.TargetDescriptor) []targetDescriptorJSON {
+	encodedDescriptors := make([]targetDescriptorJSON, 0, len(descriptors))
+	for _, descriptor := range descriptors {
+		encodedDescriptors = append(encodedDescriptors, targetDescriptorJSONFromDescriptor(descriptor))
+	}
+
+	return encodedDescriptors
+}
+
+func targetDescriptorJSONFromDescriptor(descriptor app.TargetDescriptor) targetDescriptorJSON {
+	return targetDescriptorJSON{
+		TargetName:   descriptor.TargetName,
+		TargetFile:   descriptor.TargetFile,
+		TargetType:   string(descriptor.TargetType),
+		SelectorName: descriptor.SelectorName,
+		Selector:     descriptor.Selector,
+	}
+}
+
+func profileMatchJSONFromMatches(matches []app.ProfileMatch) []profileMatchJSON {
+	encodedMatches := make([]profileMatchJSON, 0, len(matches))
+	for _, match := range matches {
+		encodedMatches = append(encodedMatches, profileMatchJSON{
+			ProfileName: match.ProfileName,
+			Protected:   match.Protected,
 		})
 	}
 
-	return encodedChanges
+	return encodedMatches
+}
+
+func partialProfileMatchJSONFromMatches(matches []app.PartialProfileMatch) []partialProfileMatchJSON {
+	encodedMatches := make([]partialProfileMatchJSON, 0, len(matches))
+	for _, match := range matches {
+		encodedMatches = append(encodedMatches, partialProfileMatchJSON{
+			ProfileName:     match.ProfileName,
+			Protected:       match.Protected,
+			MatchedTargets:  match.MatchedTargets,
+			IncludedTargets: match.IncludedTargets,
+			OmittedTargets:  match.OmittedTargets,
+			TargetCount:     match.TargetCount,
+		})
+	}
+
+	return encodedMatches
+}
+
+func closestProfileMatchJSONFromMatches(matches []app.ClosestProfileMatch) []closestProfileMatchJSON {
+	encodedMatches := make([]closestProfileMatchJSON, 0, len(matches))
+	for _, match := range matches {
+		encodedMatches = append(encodedMatches, closestProfileMatchJSON{
+			ProfileName:        match.ProfileName,
+			Protected:          match.Protected,
+			MatchedTargets:     match.MatchedTargets,
+			IncludedTargets:    match.IncludedTargets,
+			UnavailableTargets: match.UnavailableTargets,
+			TargetCount:        match.TargetCount,
+		})
+	}
+
+	return encodedMatches
+}
+
+func unavailableProfileJSONFromProfiles(profiles []app.UnavailableProfile) []unavailableProfileJSON {
+	encodedProfiles := make([]unavailableProfileJSON, 0, len(profiles))
+	for _, profile := range profiles {
+		encodedProfiles = append(encodedProfiles, unavailableProfileJSON{
+			ProfileName: profile.ProfileName,
+			Protected:   profile.Protected,
+			Reason:      profile.Reason,
+			Values:      unavailableValueJSONFromValues(profile.Values),
+		})
+	}
+
+	return encodedProfiles
+}
+
+func unavailableValueJSONFromValues(values []app.UnavailableValue) []unavailableValueJSON {
+	encodedValues := make([]unavailableValueJSON, 0, len(values))
+	for _, value := range values {
+		encodedValues = append(encodedValues, unavailableValueJSON{
+			TargetName:              value.TargetName,
+			TargetFile:              value.TargetFile,
+			TargetType:              string(value.TargetType),
+			SelectorName:            value.SelectorName,
+			Selector:                value.Selector,
+			EnvironmentVariableName: value.EnvironmentVariableName,
+			Reason:                  value.Reason,
+		})
+	}
+
+	return encodedValues
 }

@@ -23,8 +23,8 @@ const (
 )
 
 var (
-	commandNames   = []string{"help", "init", "list", "inspect", "apply"}
-	helpTopicNames = []string{"init", "list", "inspect", "apply"}
+	commandNames   = []string{"help", "init", "list", "inspect", "apply", "status", "diff"}
+	helpTopicNames = []string{"init", "list", "inspect", "apply", "status", "diff"}
 )
 
 type commandError struct {
@@ -84,6 +84,10 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 		return runInspectCommand(workingDirectory, args[1:], output)
 	case "apply":
 		return runApplyCommand(workingDirectory, args[1:], output)
+	case "status":
+		return runStatusCommand(workingDirectory, args[1:], output)
+	case "diff":
+		return runDiffCommand(workingDirectory, args[1:], output)
 	default:
 		return usageCommandError(false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
@@ -117,6 +121,10 @@ func helpTextForTopic(topic string) (string, error) {
 		return inspectHelpText(), nil
 	case "apply":
 		return applyHelpText(), nil
+	case "status":
+		return statusHelpText(), nil
+	case "diff":
+		return diffHelpText(), nil
 	default:
 		return "", usageCommandError(false, "%s\n\n%s", unknownHelpTopicMessage(topic), usageText())
 	}
@@ -297,6 +305,76 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer) e
 	return writeApplyText(output, result)
 }
 
+func runStatusCommand(workingDirectory string, args []string, output io.Writer) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, statusHelpText())
+		return err
+	}
+
+	jsonOutput := containsJSONFlag(args)
+
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput})
+	if err != nil {
+		return usageCommandError(jsonOutput, "status: %v\n\n%s", err, statusHelpText())
+	}
+	if len(positionals) != 0 {
+		return usageCommandError(jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
+	}
+
+	application, err := loadApplication(workingDirectory)
+	if err != nil {
+		return runtimeCommandError(jsonOutput, err)
+	}
+
+	status, err := application.CompareStatus()
+	if err != nil {
+		return comparisonCommandError(jsonOutput, "status", err)
+	}
+
+	if jsonOutput {
+		return writeStatusJSON(output, status)
+	}
+
+	return writeStatusText(output, status)
+}
+
+func runDiffCommand(workingDirectory string, args []string, output io.Writer) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, diffHelpText())
+		return err
+	}
+
+	jsonOutput := containsJSONFlag(args)
+
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput})
+	if err != nil {
+		return usageCommandError(jsonOutput, "diff: %v\n\n%s", err, diffHelpText())
+	}
+	if len(positionals) == 0 {
+		return noProfileUsageCommandError(workingDirectory, "diff", jsonOutput)
+	}
+	if len(positionals) != 1 {
+		return usageCommandError(jsonOutput, "diff requires exactly one profile name\n\n%s", diffHelpText())
+	}
+
+	application, err := loadApplication(workingDirectory)
+	if err != nil {
+		return runtimeCommandError(jsonOutput, err)
+	}
+
+	profileName := positionals[0]
+	diff, err := application.DiffProfileByName(profileName)
+	if err != nil {
+		return diffCommandError(jsonOutput, application, profileName, err)
+	}
+
+	if jsonOutput {
+		return writeDiffJSON(output, diff)
+	}
+
+	return writeDiffText(output, diff)
+}
+
 func parseArguments(args []string, allowedFlags map[string]*bool) ([]string, error) {
 	positionals := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -336,6 +414,8 @@ func profileCommandHelpText(commandName string) string {
 		return applyHelpText()
 	case "inspect":
 		return inspectHelpText()
+	case "diff":
+		return diffHelpText()
 	default:
 		return usageText()
 	}
@@ -559,6 +639,8 @@ func tryCommandForNoProfile(commandName string, profiles []app.ProfileItem) stri
 		return command
 	case "inspect":
 		return fmt.Sprintf("switchlet inspect %s", profileName)
+	case "diff":
+		return fmt.Sprintf("switchlet diff %s", profileName)
 	default:
 		return ""
 	}
@@ -658,6 +740,44 @@ func formatTargetErrorMessage(profileName string, targetErr editor.TargetError) 
 	}
 
 	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review planned targets.", profileName)
+	return builder.String()
+}
+
+func comparisonCommandError(jsonOutput bool, commandName string, err error) error {
+	var targetErr editor.TargetError
+	if errors.As(err, &targetErr) {
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetReadErrorMessage(commandName, targetErr))
+	}
+
+	return runtimeCommandError(jsonOutput, err)
+}
+
+func diffCommandError(jsonOutput bool, application app.Application, profileName string, err error) error {
+	if errors.Is(err, app.ErrProfileNotFound) {
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+	}
+
+	return comparisonCommandError(jsonOutput, "diff", err)
+}
+
+func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetError) string {
+	target := targetErr.Target
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Could not read target %q while running switchlet %s.", targetNameLabel(target.Name), commandName)
+
+	if target.File != "" {
+		fmt.Fprintf(&builder, "\n\nFile:\n%s", target.File)
+	}
+	if target.Type != "" {
+		fmt.Fprintf(&builder, "\n\nType:\n%s", target.Type)
+	}
+	if selector := selectorValue(target); selector != "" {
+		fmt.Fprintf(&builder, "\n\nSelector:\n%s", selector)
+	}
+	if targetErr.Err != nil {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", targetErr.Err)
+	}
+
 	return builder.String()
 }
 
