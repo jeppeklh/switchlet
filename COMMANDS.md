@@ -107,29 +107,31 @@ When exactly one complete profile matches:
 
 ```text
 $ switchlet status
-Current profile: Local
+Switchlet status
+Current profile   Local
 
-Matched targets:
-- database [json]
-  file: /workspace/backend/appsettings.Development.json
-  jsonPath: ConnectionStrings.DefaultConnection
-- frontendApi [dotenv]
-  file: /workspace/frontend/.env.local
-  key: VITE_API_URL
+Matched targets
+> database [json]
+  file              /workspace/backend/appsettings.Development.json
+  jsonPath          ConnectionStrings.DefaultConnection
+> frontendApi [dotenv]
+  file              /workspace/frontend/.env.local
+  key               VITE_API_URL
 ```
 
 When no complete profile matches:
 
 ```text
 $ switchlet status
-Current configuration does not match any complete profile.
+Switchlet status
+State             no complete profile match
 
-Partial matches:
-- Service Endpoint Only: 1 of 1 included targets match; 3 targets omitted
+Partial matches
+> Service Endpoint Only  1/1 included match; 3 omitted
 
-Closest profiles:
-- Local: 2 of 4 targets match
-- Staging: 1 of 4 targets match
+Closest profiles
+> Local  2/4 targets match
+> Staging  1/4 targets match
 ```
 
 When more than one complete profile matches, Switchlet reports the ambiguity
@@ -137,11 +139,12 @@ instead of choosing one:
 
 ```text
 $ switchlet status
-Current configuration matches multiple complete profiles.
+Switchlet status
+State             multiple complete profiles match
 
-Matches:
-- Local
-- Local Copy
+Matches
+> Local
+> Local Copy
 ```
 
 Profiles with missing or empty environment-backed values may be listed as
@@ -160,24 +163,25 @@ Example:
 
 ```text
 $ switchlet diff Staging
-Diff for profile "Staging"
+Switchlet diff  Staging
+Protection      protected
 
-Would update:
-- database [json]
-  file: /workspace/backend/appsettings.Development.json
-  jsonPath: ConnectionStrings.DefaultConnection
+Would update
+> database [json]
+  file              /workspace/backend/appsettings.Development.json
+  jsonPath          ConnectionStrings.DefaultConnection
 
-Already matches:
-- frontendApi [dotenv]
-  file: /workspace/frontend/.env.local
-  key: VITE_API_URL
+Already matches
+> frontendApi [dotenv]
+  file              /workspace/frontend/.env.local
+  key               VITE_API_URL
 
-Unavailable:
-- workerQueue [yaml]
-  file: /workspace/worker/config.yaml
-  yamlPath: queue.endpoint
-  environment variable: STAGING_WORKER_QUEUE_ENDPOINT
-  reason: environment variable "STAGING_WORKER_QUEUE_ENDPOINT" is not set
+Unavailable
+> workerQueue [yaml]
+  file              /workspace/worker/config.yaml
+  yamlPath          queue.endpoint
+  environment       STAGING_WORKER_QUEUE_ENDPOINT
+  reason            environment variable "STAGING_WORKER_QUEUE_ENDPOINT" is not set
 ```
 
 Diff output identifies target names, files, target types, and selectors without

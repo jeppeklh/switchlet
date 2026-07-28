@@ -445,8 +445,14 @@ func writeCommandError(err error, output io.Writer, errorOutput io.Writer) error
 	writer := errorOutput
 
 	var commandFailure commandError
-	if errors.As(err, &commandFailure) && commandFailure.jsonOutput {
-		writer = output
+	if errors.As(err, &commandFailure) {
+		if commandFailure.jsonOutput {
+			_, writeErr := fmt.Fprintln(output, err)
+			return writeErr
+		}
+
+		_, writeErr := fmt.Fprintln(writer, renderCommandErrorText(commandFailure.message))
+		return writeErr
 	}
 
 	_, writeErr := fmt.Fprintln(writer, err)

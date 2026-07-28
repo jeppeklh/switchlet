@@ -103,54 +103,60 @@ func writeApplyText(output io.Writer, result app.Result) error {
 }
 
 func writeStatusText(output io.Writer, status app.StatusComparison) error {
+	styles := defaultCommandOutputStyles()
+	if _, err := fmt.Fprintln(output, styles.title.Render("Switchlet status")); err != nil {
+		return err
+	}
+
 	switch status.Status {
 	case app.StatusComparisonMatched:
-		if _, err := fmt.Fprintf(output, "Current profile: %s\n", status.CurrentProfile); err != nil {
+		if err := writeCommandDetail(output, styles, "Current profile", styles.success.Render(status.CurrentProfile)); err != nil {
 			return err
 		}
-		if err := writeTargetDescriptorSection(output, "Matched targets", status.MatchedTargets); err != nil {
+		if err := writeTargetDescriptorSection(output, styles, "Matched targets", status.MatchedTargets); err != nil {
 			return err
 		}
 	case app.StatusComparisonAmbiguous:
-		if _, err := fmt.Fprintln(output, "Current configuration matches multiple complete profiles."); err != nil {
+		if err := writeCommandDetail(output, styles, "State", styles.warning.Render("multiple complete profiles match")); err != nil {
 			return err
 		}
-		if err := writeProfileMatchSection(output, "Matches", status.Matches); err != nil {
+		if err := writeProfileMatchSection(output, styles, "Matches", status.Matches); err != nil {
 			return err
 		}
 	default:
-		if _, err := fmt.Fprintln(output, "Current configuration does not match any complete profile."); err != nil {
+		if err := writeCommandDetail(output, styles, "State", styles.warning.Render("no complete profile match")); err != nil {
 			return err
 		}
-		if err := writePartialMatchSection(output, status.PartialMatches); err != nil {
+		if err := writePartialMatchSection(output, styles, status.PartialMatches); err != nil {
 			return err
 		}
-		if err := writeClosestProfileSection(output, status.ClosestProfiles); err != nil {
+		if err := writeClosestProfileSection(output, styles, status.ClosestProfiles); err != nil {
 			return err
 		}
 	}
 
-	return writeUnavailableProfileSection(output, status.UnavailableProfiles)
+	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles)
 }
 
 func writeDiffText(output io.Writer, diff app.ProfileDiff) error {
-	if _, err := fmt.Fprintf(output, "Diff for profile %q\n", diff.ProfileName); err != nil {
+	styles := defaultCommandOutputStyles()
+	if _, err := fmt.Fprintf(output, "%s  %s\n", styles.title.Render("Switchlet diff"), styles.heading.Render(diff.ProfileName)); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "Protection: %s\n", diffProtectionLabel(diff)); err != nil {
+	if err := writeCommandDetail(output, styles, "Protection", styledDiffProtectionLabel(styles, diff)); err != nil {
 		return err
 	}
 
-	if err := writeTargetDescriptorSection(output, "Would update", diff.WouldUpdate); err != nil {
+	if err := writeTargetDescriptorSection(output, styles, "Would update", diff.WouldUpdate); err != nil {
 		return err
 	}
-	if err := writeTargetDescriptorSection(output, "Already matches", diff.AlreadyMatches); err != nil {
+	if err := writeTargetDescriptorSection(output, styles, "Already matches", diff.AlreadyMatches); err != nil {
 		return err
 	}
-	if err := writeUnavailableValueSection(output, "Unavailable", diff.Unavailable); err != nil {
+	if err := writeUnavailableValueSection(output, styles, "Unavailable", diff.Unavailable); err != nil {
 		return err
 	}
-	return writeTargetDescriptorSection(output, "Omitted targets", diff.OmittedTargets)
+	return writeTargetDescriptorSection(output, styles, "Omitted targets", diff.OmittedTargets)
 }
 
 func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
@@ -369,15 +375,29 @@ func writePlannedChangesText(output io.Writer, changes []app.PlannedChange, mark
 	return nil
 }
 
-func writeTargetDescriptorSection(output io.Writer, heading string, descriptors []app.TargetDescriptor) error {
+func writeCommandDetail(output io.Writer, styles commandOutputStyles, label string, value string) error {
+	_, err := fmt.Fprintf(output, "%s  %s\n", styles.label.Render(commandDetailLabel(label)), value)
+	return err
+}
+
+func writeTargetDetail(output io.Writer, styles commandOutputStyles, label string, value string) error {
+	_, err := fmt.Fprintf(output, "  %s  %s\n", styles.label.Render(commandDetailLabel(label)), value)
+	return err
+}
+
+func commandDetailLabel(label string) string {
+	return fmt.Sprintf("%-16s", label)
+}
+
+func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, heading string, descriptors []app.TargetDescriptor) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, heading)); err != nil {
 		return err
 	}
 	for _, descriptor := range descriptors {
-		if err := writeTargetDescriptorText(output, descriptor); err != nil {
+		if err := writeTargetDescriptorText(output, styles, descriptor); err != nil {
 			return err
 		}
 	}
@@ -385,17 +405,17 @@ func writeTargetDescriptorSection(output io.Writer, heading string, descriptors 
 	return nil
 }
 
-func writeTargetDescriptorText(output io.Writer, descriptor app.TargetDescriptor) error {
-	if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(descriptor.TargetName), targetTypeBadge(string(descriptor.TargetType))); err != nil {
+func writeTargetDescriptorText(output io.Writer, styles commandOutputStyles, descriptor app.TargetDescriptor) error {
+	if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(descriptor.TargetName)), styledTargetTypeBadge(styles, string(descriptor.TargetType))); err != nil {
 		return err
 	}
 	if descriptor.TargetFile != "" {
-		if _, err := fmt.Fprintf(output, "  file: %s\n", descriptor.TargetFile); err != nil {
+		if err := writeTargetDetail(output, styles, "file", descriptor.TargetFile); err != nil {
 			return err
 		}
 	}
 	if descriptor.Selector != "" {
-		if _, err := fmt.Fprintf(output, "  %s: %s\n", selectorFieldName(descriptor.SelectorName), descriptor.Selector); err != nil {
+		if err := writeTargetDetail(output, styles, selectorFieldName(descriptor.SelectorName), descriptor.Selector); err != nil {
 			return err
 		}
 	}
@@ -403,15 +423,15 @@ func writeTargetDescriptorText(output io.Writer, descriptor app.TargetDescriptor
 	return nil
 }
 
-func writeProfileMatchSection(output io.Writer, heading string, matches []app.ProfileMatch) error {
+func writeProfileMatchSection(output io.Writer, styles commandOutputStyles, heading string, matches []app.ProfileMatch) error {
 	if len(matches) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, heading)); err != nil {
 		return err
 	}
 	for _, match := range matches {
-		if _, err := fmt.Fprintf(output, "- %s\n", profileLabel(match.ProfileName, match.Protected)); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s\n", styles.marker.Render(">"), styledProfileLabel(styles, match.ProfileName, match.Protected)); err != nil {
 			return err
 		}
 	}
@@ -419,21 +439,20 @@ func writeProfileMatchSection(output io.Writer, heading string, matches []app.Pr
 	return nil
 }
 
-func writePartialMatchSection(output io.Writer, matches []app.PartialProfileMatch) error {
+func writePartialMatchSection(output io.Writer, styles commandOutputStyles, matches []app.PartialProfileMatch) error {
 	if len(matches) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintln(output, "\nPartial matches:"); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, "Partial matches")); err != nil {
 		return err
 	}
 	for _, match := range matches {
 		if _, err := fmt.Fprintf(
 			output,
-			"- %s: %d of %d included targets match; %d targets omitted\n",
-			profileLabel(match.ProfileName, match.Protected),
-			match.MatchedTargets,
-			match.IncludedTargets,
-			match.OmittedTargets,
+			"%s %s  %s\n",
+			styles.marker.Render(">"),
+			styledProfileLabel(styles, match.ProfileName, match.Protected),
+			styles.muted.Render(fmt.Sprintf("%d/%d included match; %d omitted", match.MatchedTargets, match.IncludedTargets, match.OmittedTargets)),
 		); err != nil {
 			return err
 		}
@@ -442,24 +461,23 @@ func writePartialMatchSection(output io.Writer, matches []app.PartialProfileMatc
 	return nil
 }
 
-func writeClosestProfileSection(output io.Writer, matches []app.ClosestProfileMatch) error {
+func writeClosestProfileSection(output io.Writer, styles commandOutputStyles, matches []app.ClosestProfileMatch) error {
 	if len(matches) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintln(output, "\nClosest profiles:"); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, "Closest profiles")); err != nil {
 		return err
 	}
 	for _, match := range matches {
 		line := fmt.Sprintf(
-			"- %s: %d of %d targets match",
-			profileLabel(match.ProfileName, match.Protected),
+			"%d/%d targets match",
 			match.MatchedTargets,
 			match.TargetCount,
 		)
 		if match.UnavailableTargets > 0 {
 			line += fmt.Sprintf("; %d unavailable", match.UnavailableTargets)
 		}
-		if _, err := fmt.Fprintln(output, line); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s  %s\n", styles.marker.Render(">"), styledProfileLabel(styles, match.ProfileName, match.Protected), styles.muted.Render(line)); err != nil {
 			return err
 		}
 	}
@@ -467,20 +485,20 @@ func writeClosestProfileSection(output io.Writer, matches []app.ClosestProfileMa
 	return nil
 }
 
-func writeUnavailableProfileSection(output io.Writer, profiles []app.UnavailableProfile) error {
+func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles, profiles []app.UnavailableProfile) error {
 	if len(profiles) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintln(output, "\nUnavailable profiles:"); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, "Unavailable profiles")); err != nil {
 		return err
 	}
 	for _, profile := range profiles {
 		if len(profile.Values) == 0 {
-			if _, err := fmt.Fprintf(output, "- %s\n", profileLabel(profile.ProfileName, profile.Protected)); err != nil {
+			if _, err := fmt.Fprintf(output, "%s %s\n", styles.marker.Render(">"), styledProfileLabel(styles, profile.ProfileName, profile.Protected)); err != nil {
 				return err
 			}
 			if profile.Reason != "" {
-				if _, err := fmt.Fprintf(output, "  reason: %s\n", profile.Reason); err != nil {
+				if err := writeCommandDetail(output, styles, "reason", profile.Reason); err != nil {
 					return err
 				}
 			}
@@ -488,10 +506,10 @@ func writeUnavailableProfileSection(output io.Writer, profiles []app.Unavailable
 		}
 
 		for _, value := range profile.Values {
-			if _, err := fmt.Fprintf(output, "- %s / %s%s\n", profileLabel(profile.ProfileName, profile.Protected), targetNameLabel(value.TargetName), targetTypeBadge(string(value.TargetType))); err != nil {
+			if _, err := fmt.Fprintf(output, "%s %s %s %s%s\n", styles.marker.Render(">"), styledProfileLabel(styles, profile.ProfileName, profile.Protected), styles.muted.Render("/"), styles.heading.Render(targetNameLabel(value.TargetName)), styledTargetTypeBadge(styles, string(value.TargetType))); err != nil {
 				return err
 			}
-			if err := writeUnavailableValueDetails(output, value); err != nil {
+			if err := writeUnavailableValueDetails(output, styles, value); err != nil {
 				return err
 			}
 		}
@@ -500,18 +518,18 @@ func writeUnavailableProfileSection(output io.Writer, profiles []app.Unavailable
 	return nil
 }
 
-func writeUnavailableValueSection(output io.Writer, heading string, values []app.UnavailableValue) error {
+func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, heading string, values []app.UnavailableValue) error {
 	if len(values) == 0 {
 		return nil
 	}
-	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, heading)); err != nil {
 		return err
 	}
 	for _, value := range values {
-		if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(value.TargetName), targetTypeBadge(string(value.TargetType))); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(value.TargetName)), styledTargetTypeBadge(styles, string(value.TargetType))); err != nil {
 			return err
 		}
-		if err := writeUnavailableValueDetails(output, value); err != nil {
+		if err := writeUnavailableValueDetails(output, styles, value); err != nil {
 			return err
 		}
 	}
@@ -519,29 +537,67 @@ func writeUnavailableValueSection(output io.Writer, heading string, values []app
 	return nil
 }
 
-func writeUnavailableValueDetails(output io.Writer, value app.UnavailableValue) error {
+func writeUnavailableValueDetails(output io.Writer, styles commandOutputStyles, value app.UnavailableValue) error {
 	if value.TargetFile != "" {
-		if _, err := fmt.Fprintf(output, "  file: %s\n", value.TargetFile); err != nil {
+		if err := writeTargetDetail(output, styles, "file", value.TargetFile); err != nil {
 			return err
 		}
 	}
 	if value.Selector != "" {
-		if _, err := fmt.Fprintf(output, "  %s: %s\n", selectorFieldName(value.SelectorName), value.Selector); err != nil {
+		if err := writeTargetDetail(output, styles, selectorFieldName(value.SelectorName), value.Selector); err != nil {
 			return err
 		}
 	}
 	if value.EnvironmentVariableName != "" {
-		if _, err := fmt.Fprintf(output, "  environment variable: %s\n", value.EnvironmentVariableName); err != nil {
+		if err := writeTargetDetail(output, styles, "environment", value.EnvironmentVariableName); err != nil {
 			return err
 		}
 	}
 	if value.Reason != "" {
-		if _, err := fmt.Fprintf(output, "  reason: %s\n", value.Reason); err != nil {
+		if err := writeTargetDetail(output, styles, "reason", value.Reason); err != nil {
 			return err
 		}
 	}
 
 	return nil
+}
+
+func styledSectionHeading(styles commandOutputStyles, heading string) string {
+	switch heading {
+	case "Matched targets", "Matches", "Already matches":
+		return styles.success.Bold(true).Render(heading)
+	case "Would update", "Partial matches", "Closest profiles", "Omitted targets":
+		return styles.warning.Bold(true).Render(heading)
+	case "Unavailable", "Unavailable profiles":
+		return styles.error.Bold(true).Render(heading)
+	default:
+		return styles.heading.Render(heading)
+	}
+}
+
+func styledTargetTypeBadge(styles commandOutputStyles, targetType string) string {
+	if targetType == "" {
+		return ""
+	}
+
+	return " " + styles.badge.Render("["+targetType+"]")
+}
+
+func styledProfileLabel(styles commandOutputStyles, profileName string, protected bool) string {
+	label := styles.heading.Render(profileName)
+	if protected {
+		label += " " + styles.badge.Render("[protected]")
+	}
+
+	return label
+}
+
+func styledDiffProtectionLabel(styles commandOutputStyles, diff app.ProfileDiff) string {
+	if diff.Protected {
+		return styles.warning.Render("protected")
+	}
+
+	return styles.muted.Render("not protected")
 }
 
 func targetListHeading(singular string, changes []app.PlannedChange) string {

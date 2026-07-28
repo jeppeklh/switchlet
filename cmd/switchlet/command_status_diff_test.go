@@ -35,14 +35,16 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		"Current profile: Local",
-		"Matched targets:",
-		"- database [json]",
-		"file: " + databasePath,
-		"jsonPath: database.url",
-		"- frontendApi [dotenv]",
-		"file: " + frontendPath,
-		"key: VITE_API_URL",
+		"Switchlet status",
+		"Current profile",
+		"Local",
+		"Matched targets",
+		"> database [json]",
+		databasePath,
+		"jsonPath          database.url",
+		"> frontendApi [dotenv]",
+		frontendPath,
+		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -88,12 +90,14 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		"Current configuration does not match any complete profile.",
-		"Partial matches:",
-		"- Database Only: 1 of 1 included targets match; 1 targets omitted",
-		"Closest profiles:",
-		"- Local: 1 of 2 targets match",
-		"- Staging: 0 of 2 targets match",
+		"Switchlet status",
+		"State",
+		"no complete profile match",
+		"Partial matches",
+		"> Database Only  1/1 included match; 1 omitted",
+		"Closest profiles",
+		"> Local  1/2 targets match",
+		"> Staging  0/2 targets match",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -129,10 +133,12 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		"Current configuration matches multiple complete profiles.",
-		"Matches:",
-		"- Local",
-		"- Local Copy",
+		"Switchlet status",
+		"State",
+		"multiple complete profiles match",
+		"Matches",
+		"> Local",
+		"> Local Copy",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -156,23 +162,25 @@ func TestRunCommand_StatusReportsMixedTargetExactMatchAndUnavailableProfileWitho
 	}
 
 	for _, expected := range []string{
-		"Current profile: Local",
-		"Matched targets:",
-		"- database [json]",
-		"file: " + targetPaths["database"],
-		"jsonPath: database.url",
-		"- workerQueue [yaml]",
-		"file: " + targetPaths["workerQueue"],
-		"yamlPath: queue.endpoint",
-		"- serviceEndpoint [toml]",
-		"file: " + targetPaths["serviceEndpoint"],
-		"tomlPath: services.api.endpoint",
-		"- frontendApi [dotenv]",
-		"file: " + targetPaths["frontendApi"],
-		"key: VITE_API_URL",
-		"Unavailable profiles:",
-		"- Staging [protected] / workerQueue [yaml]",
-		"environment variable: " + workerEnv,
+		"Switchlet status",
+		"Current profile",
+		"Local",
+		"Matched targets",
+		"> database [json]",
+		targetPaths["database"],
+		"jsonPath          database.url",
+		"> workerQueue [yaml]",
+		targetPaths["workerQueue"],
+		"yamlPath          queue.endpoint",
+		"> serviceEndpoint [toml]",
+		targetPaths["serviceEndpoint"],
+		"tomlPath          services.api.endpoint",
+		"> frontendApi [dotenv]",
+		targetPaths["frontendApi"],
+		"key               VITE_API_URL",
+		"Unavailable profiles",
+		"> Staging [protected] / workerQueue [yaml]",
+		"environment       " + workerEnv,
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -263,16 +271,17 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		`Diff for profile "Staging"`,
-		"Protection: Not protected",
-		"Would update:",
-		"- database [json]",
-		"file: " + databasePath,
-		"jsonPath: database.url",
-		"Already matches:",
-		"- frontendApi [dotenv]",
-		"file: " + frontendPath,
-		"key: VITE_API_URL",
+		"Switchlet diff",
+		"Staging",
+		"Protection        not protected",
+		"Would update",
+		"> database [json]",
+		databasePath,
+		"jsonPath          database.url",
+		"Already matches",
+		"> frontendApi [dotenv]",
+		frontendPath,
+		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -306,15 +315,16 @@ profiles:
 	}
 
 	for _, expected := range []string{
-		`Diff for profile "Database Only"`,
-		"Unavailable:",
-		"- database [json]",
-		"environment variable: MISSING_DATABASE_URL",
+		"Switchlet diff",
+		"Database Only",
+		"Unavailable",
+		"> database [json]",
+		"environment       MISSING_DATABASE_URL",
 		`environment variable "MISSING_DATABASE_URL" is not set`,
-		"Omitted targets:",
-		"- frontendApi [dotenv]",
-		"file: " + frontendPath,
-		"key: VITE_API_URL",
+		"Omitted targets",
+		"> frontendApi [dotenv]",
+		frontendPath,
+		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -399,7 +409,7 @@ profiles:
 	if result.exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "Protection: Protected") || !strings.Contains(result.stdout, "Already matches:") {
+	if !strings.Contains(result.stdout, "Protection        protected") || !strings.Contains(result.stdout, "Already matches") {
 		t.Fatalf("stdout %q does not include protected read-only diff context", result.stdout)
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
