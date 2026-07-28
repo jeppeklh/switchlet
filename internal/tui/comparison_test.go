@@ -349,7 +349,7 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	if staleCommand != nil {
 		t.Fatal("staleCommand is not nil, want stale diff result ignored")
 	}
-	if model.state != diffLoadingState || model.diffComparison != nil || model.comparisonProfileName != "Local" {
+	if model.state != diffLoadingState || model.diffPreview != nil || model.comparisonProfileName != "Local" {
 		t.Fatalf("model after stale diff result = %#v, want Local loading unchanged", model)
 	}
 
@@ -359,7 +359,7 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	if readyCommand != nil {
 		t.Fatal("readyCommand is not nil, want no command after diff result")
 	}
-	if model.state != diffReadyState || model.diffComparison == nil || model.diffComparison.ProfileName != "Local" {
+	if model.state != diffReadyState || model.diffPreview == nil || model.diffPreview.ProfileName != "Local" {
 		t.Fatalf("model after diff result = %#v, want Local diff ready", model)
 	}
 
@@ -415,7 +415,7 @@ func TestUpdate_ValueRevealTogglesDiffWithoutChangingComparisonRequest(t *testin
 	if readyCommand != nil {
 		t.Fatal("readyCommand is not nil, want no command after diff result")
 	}
-	if model.state != diffReadyState || model.diffComparison == nil || !model.valuesVisible {
+	if model.state != diffReadyState || model.diffPreview == nil || !model.valuesVisible {
 		t.Fatalf("model after diff result = %#v, want ready diff with reveal state preserved", model)
 	}
 
@@ -424,7 +424,7 @@ func TestUpdate_ValueRevealTogglesDiffWithoutChangingComparisonRequest(t *testin
 	if toggleCommand != nil {
 		t.Fatal("toggleCommand is not nil after hiding values")
 	}
-	if model.valuesVisible || model.state != diffReadyState || model.diffComparison == nil || model.comparisonRequestID != requestID {
+	if model.valuesVisible || model.state != diffReadyState || model.diffPreview == nil || model.comparisonRequestID != requestID {
 		t.Fatalf("model after diff ready hide = %#v, want ready diff request state preserved", model)
 	}
 	if !strings.Contains(model.View(), "v Reveal values") {
@@ -467,7 +467,7 @@ func TestUpdate_ValueRevealIgnoredInStatusAndComparisonError(t *testing.T) {
 	}
 }
 
-func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.T) {
+func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t *testing.T) {
 	projectRoot := t.TempDir()
 	databaseCurrentValue := "postgres://current-database-secret"
 	databaseResolvedValue := "postgres://staging-database-secret"
@@ -502,24 +502,33 @@ func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.
 	view := model.View()
 	for _, expected := range []string{
 		"Profile diff",
+		"Managed patch",
 		"Profile: Staging",
 		"[protected]",
 		"State: some profile values unavailable",
 		"Included targets: 3 of 4",
-		"Would update: 1",
-		"Already matching: 1",
-		"Unavailable: 1",
+		"Values: hidden",
 		"Omitted targets: 1",
-		"Total targets: 4",
-		"Protection: Required for apply; read-only diff only",
-		"Would update",
+		"Protection: Required for apply; read-only preview only",
+		"Affected files",
+		"backend/appsettings.Development.json",
+		"@@ database [json]",
 		"database [json]",
 		"jsonPath: database.url",
-		"Already matching",
+		"Status: would update",
+		"- current: hidden",
+		"+ profile: hidden",
+		"frontend/.env.local",
+		"@@ frontendApi [dotenv]",
 		"frontendApi [dotenv]",
 		"key: VITE_API_URL",
-		"Unavailable",
+		"Status: already matches",
+		"= value: hidden",
+		"worker/config.json",
+		"@@ workerQueue [json]",
 		"workerQueue [json]",
+		"Status: unavailable",
+		"Value: unavailable",
 		environmentVariableName,
 		"Reason: profile \"Staging\" value for target \"workerQueue\"",
 		"Omitted targets",
@@ -543,6 +552,41 @@ func TestView_DiffRendersTargetCategoriesCountsProtectionAndNoValues(t *testing.
 	lines := visibleLines(view)
 	if strings.Contains(lines[len(lines)-1], "Apply") {
 		t.Fatalf("command bar = %q, must not include an apply action", lines[len(lines)-1])
+	}
+}
+
+func TestView_DiffManagedPatchRevealsManagedValuesWhenShown(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://current-managed-value"
+	profileValue := "postgres://staging-managed-value"
+	targetPath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(profileValue)}}}},
+	))
+
+	model = openDiffReady(t, model)
+	hiddenView := model.View()
+	if strings.Contains(hiddenView, currentValue) || strings.Contains(hiddenView, profileValue) {
+		t.Fatalf("View() = %q, must not reveal managed values while hidden", hiddenView)
+	}
+
+	updatedModel, command := model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want local reveal toggle")
+	}
+
+	shownView := model.View()
+	for _, expected := range []string{
+		"Values: shown",
+		"v Hide values",
+		"- current: " + currentValue,
+		"+ profile: " + profileValue,
+	} {
+		if !strings.Contains(shownView, expected) {
+			t.Fatalf("View() = %q, want revealed managed patch detail %q", shownView, expected)
+		}
 	}
 }
 
@@ -573,16 +617,30 @@ func TestView_DiffScreenContainsLongContentAtHostileDimensions(t *testing.T) {
 	model.state = diffReadyState
 	model.comparisonRequestKind = comparisonRequestDiff
 	model.comparisonProfileName = "Production profile with a very long display name"
-	model.diffComparison = &app.ProfileDiff{
-		ProfileName: "Production profile with a very long display name",
-		Protected:   true,
-		Complete:    true,
-		WouldUpdate: []app.TargetDescriptor{{
-			TargetName:   "database-with-a-very-long-target-name",
-			TargetFile:   "/very/long/project/path/backend/appsettings.Development.json",
-			TargetType:   config.TargetTypeJSON,
-			SelectorName: "jsonPath",
-			Selector:     "services.database.primary.connectionStrings.defaultConnection.value",
+	model.diffPreview = &app.ManagedPatchPreview{
+		ProfileName:         "Production profile with a very long display name",
+		Protected:           true,
+		Complete:            true,
+		TargetCount:         2,
+		IncludedTargetCount: 1,
+		OmittedTargetCount:  1,
+		Files: []app.ManagedPatchFileGroup{{
+			TargetFile: "/very/long/project/path/backend/appsettings.Development.json",
+			Hunks: []app.ManagedPatchHunk{{
+				TargetDescriptor: app.TargetDescriptor{
+					TargetName:   "database-with-a-very-long-target-name",
+					TargetFile:   "/very/long/project/path/backend/appsettings.Development.json",
+					TargetType:   config.TargetTypeJSON,
+					SelectorName: "jsonPath",
+					Selector:     "services.database.primary.connectionStrings.defaultConnection.value",
+				},
+				Status:              app.ManagedPatchStatusWouldUpdate,
+				Source:              app.ProfileSourceLiteral,
+				CurrentValue:        strings.Repeat("current-value-", 12),
+				CurrentValueVisible: true,
+				ProfileValue:        strings.Repeat("profile-value-", 12),
+				ProfileValueVisible: true,
+			}},
 		}},
 		OmittedTargets: []app.TargetDescriptor{{
 			TargetName:   "frontend-api-with-a-very-long-target-name",
@@ -651,7 +709,7 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 			if model.state != listState || model.cursor != 1 {
 				t.Fatalf("state/cursor = %d/%d, want list with preserved selection", model.state, model.cursor)
 			}
-			if model.statusComparison != nil || model.diffComparison != nil || !model.comparisonError.IsZero() || model.comparisonRequestKind != comparisonRequestNone {
+			if model.statusComparison != nil || model.diffPreview != nil || !model.comparisonError.IsZero() || model.comparisonRequestKind != comparisonRequestNone {
 				t.Fatalf("comparison state was not cleared: %#v", model)
 			}
 		})
@@ -850,12 +908,12 @@ func TestUpdate_ComparisonErrorRefreshRetriesDiffForFailedProfileAndIgnoresStale
 		t.Fatalf("model after diff error refresh = %#v, want Staging diff loading", model)
 	}
 
-	updatedModel, staleCommand := model.Update(diffComparisonCompletedMsg{requestID: failedRequestID, profile: "Staging", result: app.ProfileDiff{ProfileName: "Stale"}})
+	updatedModel, staleCommand := model.Update(diffPreviewCompletedMsg{requestID: failedRequestID, profile: "Staging", result: app.ManagedPatchPreview{ProfileName: "Stale"}})
 	model = updatedModel.(Model)
 	if staleCommand != nil {
 		t.Fatal("staleCommand is not nil, want stale diff result ignored")
 	}
-	if model.state != diffLoadingState || model.diffComparison != nil || model.comparisonProfileName != "Staging" {
+	if model.state != diffLoadingState || model.diffPreview != nil || model.comparisonProfileName != "Staging" {
 		t.Fatalf("model after stale diff result = %#v, want refreshed Staging loading unchanged", model)
 	}
 

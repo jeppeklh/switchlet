@@ -44,7 +44,7 @@ type Model struct {
 	applyRequestID   int
 
 	statusComparison      *app.StatusComparison
-	diffComparison        *app.ProfileDiff
+	diffPreview           *app.ManagedPatchPreview
 	comparisonError       RecoverableError
 	comparisonRequestID   int
 	comparisonRequestKind comparisonRequestKind

@@ -238,8 +238,8 @@ func (model Model) statusComparisonView() string {
 
 func (model Model) diffComparisonView() string {
 	profileName := model.comparisonProfileName
-	if model.state == diffReadyState && model.diffComparison != nil && model.diffComparison.ProfileName != "" {
-		profileName = model.diffComparison.ProfileName
+	if model.state == diffReadyState && model.diffPreview != nil && model.diffPreview.ProfileName != "" {
+		profileName = model.diffPreview.ProfileName
 	}
 	if profileName == "" {
 		if selectedProfile, ok := model.selectedProfile(); ok {
@@ -248,10 +248,10 @@ func (model Model) diffComparisonView() string {
 	}
 
 	lines := diffComparisonLoadingLines(profileName)
-	metadata := profileDiffMetadata(profileName)
-	if model.state == diffReadyState && model.diffComparison != nil {
-		lines = diffComparisonLines(*model.diffComparison, secondaryPanelContentWidth(model.width))
-		metadata = profileDiffMetadata(model.diffComparison.ProfileName)
+	metadata := profileDiffMetadata(profileName, model.valuesVisible)
+	if model.state == diffReadyState && model.diffPreview != nil {
+		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, secondaryPanelContentWidth(model.width))
+		metadata = profileDiffMetadata(model.diffPreview.ProfileName, model.valuesVisible)
 	}
 
 	return RenderShell(Shell{
@@ -260,7 +260,7 @@ func (model Model) diffComparisonView() string {
 		Metadata: metadata,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Diff", Lines: lines, Focused: true},
+			{Title: "Managed patch", Lines: lines, Focused: true},
 		},
 		Actions: comparisonActions(true, model.valuesVisible),
 		Width:   model.width,
@@ -295,12 +295,13 @@ func diffComparisonLoadingLines(profileName string) []string {
 	)
 }
 
-func profileDiffMetadata(profileName string) []string {
-	metadata := make([]string, 0, 2)
+func profileDiffMetadata(profileName string, valuesVisible bool) []string {
+	metadata := make([]string, 0, 3)
 	if profileName != "" {
 		metadata = append(metadata, profileName)
 	}
 
+	metadata = append(metadata, "values "+valueVisibilityLabel(valuesVisible))
 	return append(metadata, "read-only")
 }
 
@@ -362,79 +363,43 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 	return lines
 }
 
-func diffComparisonLines(diff app.ProfileDiff, maxLineWidth int) []string {
-	includedTargets := len(diff.WouldUpdate) + len(diff.AlreadyMatches) + len(diff.Unavailable)
-	totalTargets := includedTargets + len(diff.OmittedTargets)
+func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible bool, maxLineWidth int) []string {
 	lines := []string{
-		RenderKeyValue("Profile", profileComparisonLabel(diff.ProfileName, diff.Protected)),
-		RenderKeyValue("State", profileDiffStateLabel(diff)),
-		RenderKeyValue("Included targets", countOfTotalLabel(includedTargets, totalTargets)),
-		RenderKeyValue("Would update", fmt.Sprintf("%d", len(diff.WouldUpdate))),
-		RenderKeyValue("Already matching", fmt.Sprintf("%d", len(diff.AlreadyMatches))),
-		RenderKeyValue("Unavailable", fmt.Sprintf("%d", len(diff.Unavailable))),
-		RenderKeyValue("Omitted targets", fmt.Sprintf("%d", len(diff.OmittedTargets))),
-		RenderKeyValue("Total targets", fmt.Sprintf("%d", totalTargets)),
+		RenderKeyValue("Profile", profileComparisonLabel(preview.ProfileName, preview.Protected)),
+		RenderKeyValue("State", managedPatchStateLabel(preview)),
+		RenderKeyValue("Included targets", countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount)),
+		RenderKeyValue("Values", valueVisibilityLabel(valuesVisible)),
 	}
-	if diff.Protected {
-		lines = append(lines, RenderKeyValue("Protection", "Required for apply; read-only diff only"))
+	if preview.OmittedTargetCount > 0 {
+		lines = append(lines, RenderKeyValue("Omitted targets", fmt.Sprintf("%d", preview.OmittedTargetCount)))
+	}
+	if preview.Protected {
+		lines = append(lines, RenderKeyValue("Protection", "Required for apply; read-only preview only"))
 	}
 
-	lines = appendDiffTargetSection(lines, "Would update", diff.WouldUpdate, maxLineWidth)
-	lines = appendDiffTargetSection(lines, "Already matching", diff.AlreadyMatches, maxLineWidth)
-	lines = appendDiffUnavailableSection(lines, diff.Unavailable, maxLineWidth)
-	lines = appendDiffOmittedTargets(lines, diff.OmittedTargets, maxLineWidth)
+	lines = appendManagedPatchFileGroups(lines, preview.Files, valuesVisible, maxLineWidth)
+	lines = appendManagedPatchOmittedTargets(lines, preview.OmittedTargets, maxLineWidth)
 	lines = append(lines, "", "No files were modified.")
 	return lines
 }
 
-func profileDiffStateLabel(diff app.ProfileDiff) string {
-	if !diff.Complete {
+func managedPatchStateLabel(preview app.ManagedPatchPreview) string {
+	if !preview.Complete {
 		return "some profile values unavailable"
 	}
-	if len(diff.WouldUpdate) == 0 {
+	for _, group := range preview.Files {
+		for _, hunk := range group.Hunks {
+			if hunk.Status == app.ManagedPatchStatusWouldUpdate {
+				return "would update included targets"
+			}
+		}
+	}
+
+	if preview.IncludedTargetCount > 0 {
 		return "included targets already match"
 	}
 
-	return "would update included targets"
-}
-
-func appendDiffTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
-	if len(descriptors) == 0 {
-		return lines
-	}
-
-	lines = append(lines, "", heading)
-	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
-}
-
-func appendDiffUnavailableSection(lines []string, values []app.UnavailableValue, maxLineWidth int) []string {
-	if len(values) == 0 {
-		return lines
-	}
-
-	lines = append(lines, "", "Unavailable")
-	for index, value := range values {
-		if index > 0 {
-			lines = append(lines, "")
-		}
-		lines = append(lines, "  "+targetNameLabel(value.TargetName)+targetTypeBadge(string(value.TargetType)))
-		lines = append(lines, unavailableValueDetailLines(value, maxLineWidth)...)
-	}
-
-	return lines
-}
-
-func appendDiffOmittedTargets(lines []string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
-	if len(descriptors) == 0 {
-		return lines
-	}
-
-	lines = append(lines,
-		"",
-		"Omitted targets",
-		"  Unchanged by this partial profile.",
-	)
-	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+	return "no included targets"
 }
 
 func appendStatusTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {

@@ -19,10 +19,10 @@ type statusComparisonCompletedMsg struct {
 	result    app.StatusComparison
 }
 
-type diffComparisonCompletedMsg struct {
+type diffPreviewCompletedMsg struct {
 	requestID int
 	profile   string
-	result    app.ProfileDiff
+	result    app.ManagedPatchPreview
 }
 
 type comparisonFailedMsg struct {
@@ -39,8 +39,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.handleApplyCompleted(message)
 	case statusComparisonCompletedMsg:
 		return model.handleStatusComparisonCompleted(message)
-	case diffComparisonCompletedMsg:
-		return model.handleDiffComparisonCompleted(message)
+	case diffPreviewCompletedMsg:
+		return model.handleDiffPreviewCompleted(message)
 	case comparisonFailedMsg:
 		return model.handleComparisonFailed(message)
 	case tea.WindowSizeMsg:
@@ -110,19 +110,19 @@ func (model Model) handleStatusComparisonCompleted(message statusComparisonCompl
 
 	result := message.result
 	model.statusComparison = &result
-	model.diffComparison = nil
+	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusReadyState
 	return model, nil
 }
 
-func (model Model) handleDiffComparisonCompleted(message diffComparisonCompletedMsg) (tea.Model, tea.Cmd) {
+func (model Model) handleDiffPreviewCompleted(message diffPreviewCompletedMsg) (tea.Model, tea.Cmd) {
 	if !model.isActiveComparisonRequest(comparisonRequestDiff, message.requestID) || message.profile != model.comparisonProfileName {
 		return model, nil
 	}
 
 	result := message.result
-	model.diffComparison = &result
+	model.diffPreview = &result
 	model.statusComparison = nil
 	model.comparisonError = RecoverableError{}
 	model.state = diffReadyState
@@ -138,7 +138,7 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 	}
 
 	model.statusComparison = nil
-	model.diffComparison = nil
+	model.diffPreview = nil
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
 	return model, nil
@@ -379,7 +379,7 @@ func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.comparisonRequestKind = comparisonRequestStatus
 	model.comparisonProfileName = ""
 	model.statusComparison = nil
-	model.diffComparison = nil
+	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusLoadingState
 
@@ -391,7 +391,7 @@ func (model Model) startDiffComparison(profileName string) (tea.Model, tea.Cmd) 
 	model.comparisonRequestKind = comparisonRequestDiff
 	model.comparisonProfileName = profileName
 	model.statusComparison = nil
-	model.diffComparison = nil
+	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = diffLoadingState
 
@@ -412,7 +412,7 @@ func (model Model) toggleValueVisibility() Model {
 
 func (model *Model) clearComparisonState() {
 	model.statusComparison = nil
-	model.diffComparison = nil
+	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.comparisonRequestKind = comparisonRequestNone
 	model.comparisonProfileName = ""
@@ -471,11 +471,11 @@ func compareStatus(application app.Application, requestID int) tea.Cmd {
 
 func compareDiff(application app.Application, profileName string, requestID int) tea.Cmd {
 	return func() tea.Msg {
-		result, err := application.DiffProfileByName(profileName)
+		result, err := application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown})
 		if err != nil {
 			return comparisonFailedMsg{requestID: requestID, kind: comparisonRequestDiff, profile: profileName, err: err}
 		}
 
-		return diffComparisonCompletedMsg{requestID: requestID, profile: profileName, result: result}
+		return diffPreviewCompletedMsg{requestID: requestID, profile: profileName, result: result}
 	}
 }

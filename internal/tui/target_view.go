@@ -204,6 +204,117 @@ func unavailableValueDetailLines(value app.UnavailableValue, maxLineWidth int) [
 	return lines
 }
 
+func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileGroup, valuesVisible bool, maxLineWidth int) []string {
+	if len(groups) == 0 {
+		return append(lines, "", "No included managed targets.")
+	}
+
+	for groupIndex, group := range groups {
+		lines = append(lines, "")
+		if groupIndex == 0 && len(groups) > 1 {
+			lines = append(lines, "Affected files")
+		}
+		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
+		for _, hunk := range group.Hunks {
+			lines = append(lines, managedPatchHunkLines(hunk, valuesVisible, maxLineWidth)...)
+		}
+	}
+
+	return lines
+}
+
+func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) []string {
+	lines := []string{"  @@ " + targetNameLabel(hunk.TargetName) + targetTypeBadge(string(hunk.TargetType))}
+	if hunk.Selector != "" {
+		label := selectorFieldName(hunk.SelectorName)
+		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(hunk.Selector, maxLineWidth-2, label)))
+	}
+	lines = append(lines, "  "+RenderKeyValue("Status", managedPatchStatusLabel(hunk.Status)))
+	lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(hunk.Source)))
+
+	if hunk.EnvironmentVariableName != "" {
+		lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(hunk.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
+	}
+
+	switch hunk.Status {
+	case app.ManagedPatchStatusWouldUpdate:
+		return append(lines, managedPatchChangedValueLines(hunk, valuesVisible, maxLineWidth)...)
+	case app.ManagedPatchStatusAlreadyMatches:
+		return append(lines, managedPatchUnchangedValueLine(hunk, valuesVisible, maxLineWidth))
+	case app.ManagedPatchStatusUnavailable:
+		lines = append(lines, "  "+RenderKeyValue("Value", "unavailable"))
+		if hunk.UnavailableReason != "" {
+			lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(hunk.UnavailableReason, maxLineWidth-2, "Reason")))
+		}
+	}
+
+	return lines
+}
+
+func managedPatchChangedValueLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) []string {
+	styles := defaultStyles()
+	return []string{
+		styles.error.Render(managedPatchValueLine("  - current: ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth)),
+		styles.success.Render(managedPatchValueLine("  + profile: ", managedPatchProfileValueLabel(hunk, valuesVisible), maxLineWidth)),
+	}
+}
+
+func managedPatchUnchangedValueLine(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) string {
+	return defaultStyles().muted.Render(managedPatchValueLine("  = value: ", managedPatchCurrentValueLabel(hunk, valuesVisible), maxLineWidth))
+}
+
+func managedPatchValueLine(prefix string, value string, maxLineWidth int) string {
+	return prefix + fitLine(value, valueWidthAfterPrefix(maxLineWidth, prefix))
+}
+
+func managedPatchCurrentValueLabel(hunk app.ManagedPatchHunk, valuesVisible bool) string {
+	if !valuesVisible || !hunk.CurrentValueVisible {
+		return "hidden"
+	}
+	if hunk.CurrentValue == "" {
+		return "<empty>"
+	}
+
+	return hunk.CurrentValue
+}
+
+func managedPatchProfileValueLabel(hunk app.ManagedPatchHunk, valuesVisible bool) string {
+	if !valuesVisible || !hunk.ProfileValueVisible {
+		return "hidden"
+	}
+	if hunk.ProfileValue == "" {
+		return "<empty>"
+	}
+
+	return hunk.ProfileValue
+}
+
+func managedPatchStatusLabel(status app.ManagedPatchStatus) string {
+	switch status {
+	case app.ManagedPatchStatusWouldUpdate:
+		return "would update"
+	case app.ManagedPatchStatusAlreadyMatches:
+		return "already matches"
+	case app.ManagedPatchStatusUnavailable:
+		return "unavailable"
+	default:
+		return "unknown"
+	}
+}
+
+func appendManagedPatchOmittedTargets(lines []string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	if len(descriptors) == 0 {
+		return lines
+	}
+
+	lines = append(lines,
+		"",
+		"Omitted targets",
+		"  Unchanged by this partial profile.",
+	)
+	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+}
+
 func finalResultChangeLines(changes []app.PlannedChange) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
