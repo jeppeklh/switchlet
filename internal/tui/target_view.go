@@ -303,6 +303,38 @@ func (model Model) targetFailureError(profileName string, failure app.TargetFail
 	}
 }
 
+func (model Model) comparisonFailureError(kind comparisonRequestKind, profileName string, cause error) RecoverableError {
+	problem := "Could not compare current status."
+	context := []string{RenderKeyValue("Action", "Current status")}
+	if kind == comparisonRequestDiff {
+		problem = fmt.Sprintf("Could not compare profile %q.", profileName)
+		context = []string{RenderKeyValue("Action", "Selected-profile diff"), RenderKeyValue("Profile", profileName)}
+	}
+
+	if targetFailure, ok := app.TargetFailureFromError(cause); ok {
+		context = append(context, RenderKeyValue("Target", targetNameLabel(targetFailure.TargetName)+targetTypeBadge(string(targetFailure.TargetType))))
+		if targetFailure.TargetFile != "" {
+			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(targetFailure.TargetFile, "File")))
+		}
+		if targetFailure.Selector != "" {
+			context = append(context, RenderKeyValue(targetFailureSelectorLabel(targetFailure.SelectorName), targetFailure.Selector))
+		}
+	}
+
+	reason := "Unknown error."
+	if cause != nil {
+		reason = cause.Error()
+	}
+
+	return RecoverableError{
+		Problem:  problem,
+		Context:  context,
+		Reason:   reason,
+		Recovery: "Fix the target or profile, then return and try again.",
+		Cause:    cause,
+	}
+}
+
 func (model Model) genericRecoverableError(cause error) RecoverableError {
 	reason := "Unknown error."
 	if cause != nil {

@@ -14,6 +14,19 @@ const (
 	confirmState
 	errorState
 	successState
+	statusLoadingState
+	statusReadyState
+	diffLoadingState
+	diffReadyState
+	comparisonErrorState
+)
+
+type comparisonRequestKind int
+
+const (
+	comparisonRequestNone comparisonRequestKind = iota
+	comparisonRequestStatus
+	comparisonRequestDiff
 )
 
 // Model is the Bubble Tea model for the Switchlet terminal interface.
@@ -28,6 +41,13 @@ type Model struct {
 	successResult    *app.Result
 	applyingProfile  string
 	applyRequestID   int
+
+	statusComparison      *app.StatusComparison
+	diffComparison        *app.ProfileDiff
+	comparisonError       RecoverableError
+	comparisonRequestID   int
+	comparisonRequestKind comparisonRequestKind
+	comparisonProfileName string
 }
 
 // New creates the terminal model.

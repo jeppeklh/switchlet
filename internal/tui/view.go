@@ -27,6 +27,12 @@ func (model Model) View() string {
 		return model.errorView()
 	case successState:
 		return model.successView()
+	case statusLoadingState, statusReadyState:
+		return model.statusComparisonView()
+	case diffLoadingState, diffReadyState:
+		return model.diffComparisonView()
+	case comparisonErrorState:
+		return model.comparisonErrorView()
 	default:
 		return model.listView()
 	}
@@ -71,7 +77,9 @@ func (model Model) listActions() []Action {
 	}
 	actions = append(actions,
 		Action{Key: "Enter", Label: enterActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
-		Action{Key: "i", Label: "Inspect", Priority: ActionPrioritySecondary},
+		Action{Key: "i", Label: "Inspect", Priority: ActionPriorityNormal},
+		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
+		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
@@ -175,6 +183,92 @@ func (model Model) tooSmallTerminalView() string {
 		Width:   model.width,
 		Height:  model.height,
 	})
+}
+
+func (model Model) statusComparisonView() string {
+	lines := []string{
+		"Checking current managed values...",
+		"No files will be modified.",
+	}
+	if model.state == statusReadyState {
+		lines = []string{
+			"Status comparison complete.",
+			"Read-only result data is ready.",
+			"No files were modified.",
+		}
+	}
+
+	return RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Current status",
+		Metadata: []string{"read-only"},
+		Panels: []Panel{
+			model.profilePanel(RowInactiveSelected, false),
+			{Title: "Status", Lines: lines, Focused: true},
+		},
+		Actions: comparisonActions(),
+		Width:   model.width,
+		Height:  model.height,
+	})
+}
+
+func (model Model) diffComparisonView() string {
+	profileName := model.comparisonProfileName
+	if profileName == "" {
+		if selectedProfile, ok := model.selectedProfile(); ok {
+			profileName = selectedProfile.Name
+		}
+	}
+
+	lines := []string{
+		RenderKeyValue("Profile", profileName),
+		"Comparing selected profile...",
+		"No files will be modified.",
+	}
+	if model.state == diffReadyState {
+		lines = []string{
+			RenderKeyValue("Profile", profileName),
+			"Diff comparison complete.",
+			"Read-only result data is ready.",
+			"No files were modified.",
+		}
+	}
+
+	return RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Profile diff",
+		Metadata: []string{"read-only"},
+		Panels: []Panel{
+			model.profilePanel(RowInactiveSelected, false),
+			{Title: "Diff", Lines: lines, Focused: true},
+		},
+		Actions: comparisonActions(),
+		Width:   model.width,
+		Height:  model.height,
+	})
+}
+
+func (model Model) comparisonErrorView() string {
+	return RenderShell(Shell{
+		Title:    "Switchlet",
+		Subtitle: "Comparison error",
+		Metadata: []string{"read-only"},
+		Panels: []Panel{
+			model.profilePanel(RowInactiveSelected, false),
+			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true},
+		},
+		Actions: []Action{{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical}},
+		Width:   model.width,
+		Height:  model.height,
+	})
+}
+
+func comparisonActions() []Action {
+	return []Action{
+		{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
+		{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary},
+		{Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical},
+	}
 }
 
 func (model Model) inspectionView() string {
