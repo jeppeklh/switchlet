@@ -38,7 +38,7 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 		rows = append(rows, ListRow{
 			Label:  item.Name,
 			State:  state,
-			Badges: profileListBadges(item, index == model.cursor),
+			Badges: model.profileBadges(item),
 		})
 	}
 
@@ -140,10 +140,10 @@ func profileBadges(profile app.ProfileItem) []Badge {
 	return badges
 }
 
-func profileListBadges(profile app.ProfileItem, selected bool) []Badge {
+func (model Model) profileBadges(profile app.ProfileItem) []Badge {
 	badges := make([]Badge, 0, 5)
-	if selected {
-		badges = append(badges, Badge{Label: "selected"})
+	if model.currentProfile != "" && profile.Name == model.currentProfile {
+		badges = append(badges, Badge{Label: "current"})
 	}
 
 	return append(badges, profileBadges(profile)...)

@@ -91,7 +91,10 @@ switchlet diff Staging --patch | delta
 
 These commands are non-interactive. The interactive picker exposes the same
 read-only comparison model through explicit `s` status and `d` diff actions. It
-does not show automatic main-picker current-profile badges or dashboard panels.
+also runs one read-only startup status comparison to mark exactly one complete
+matching profile as `[current]` in the main picker. Ambiguous matches, no matches,
+and comparison failures show no current badge. The picker does not add dashboard
+panels.
 
 Both commands return `0` for successful reports, `1` for runtime,
 configuration, or target-read failures, and `2` for command-usage failures.

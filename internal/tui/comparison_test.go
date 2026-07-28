@@ -83,6 +83,44 @@ func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t 
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
+func TestUpdate_StatusActionIgnoresStaleStartupCurrentProfileDetection(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://local-current"
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}}},
+	))
+	startupCommand := model.Init()
+	if startupCommand == nil {
+		t.Fatal("startupCommand is nil, want current-profile detection command")
+	}
+
+	updatedModel, statusCommand := model.Update(runeKey('s'))
+	model = updatedModel.(Model)
+	if statusCommand == nil {
+		t.Fatal("statusCommand is nil, want explicit status command")
+	}
+
+	updatedModel, staleCommand := model.Update(startupCommand())
+	model = updatedModel.(Model)
+	if staleCommand != nil {
+		t.Fatal("staleCommand is not nil, want stale startup detection ignored")
+	}
+	if model.state != statusLoadingState || model.currentProfile != "" {
+		t.Fatalf("model after stale startup detection = %#v, want status loading with no current badge", model)
+	}
+
+	updatedModel, readyCommand := model.Update(statusCommand())
+	model = updatedModel.(Model)
+	if readyCommand != nil {
+		t.Fatal("readyCommand is not nil after status result")
+	}
+	if model.state != statusReadyState || model.currentProfile != "Local" {
+		t.Fatalf("model after status result = %#v, want explicit status result to set current profile", model)
+	}
+}
+
 func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *testing.T) {
 	projectRoot := t.TempDir()
 	currentValue := "postgres://local-current-secret"

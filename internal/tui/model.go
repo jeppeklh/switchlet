@@ -42,6 +42,8 @@ type Model struct {
 	successResult    *app.Result
 	applyingProfile  string
 	applyRequestID   int
+	currentProfile   string
+	currentRequestID int
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -53,7 +55,7 @@ type Model struct {
 
 // New creates the terminal model.
 func New(application app.Application) Model {
-	model := Model{application: application}
+	model := Model{application: application, currentRequestID: 1}
 	model.refreshProfiles()
 
 	return model
@@ -61,7 +63,7 @@ func New(application app.Application) Model {
 
 // Init starts the Bubble Tea model.
 func (model Model) Init() tea.Cmd {
-	return nil
+	return detectCurrentProfile(model.application, model.currentRequestID)
 }
 
 func (model *Model) refreshProfiles() {

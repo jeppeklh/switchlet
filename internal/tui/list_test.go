@@ -45,6 +45,72 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	}
 }
 
+func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://local-current"
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
+	configPath := writeTargetFile(t, projectRoot, ".switchlet.yaml", "version: 3\n")
+	originalContents := readFile(t, targetPath)
+	originalMode := fileMode(t, targetPath)
+	originalConfigContents := readFile(t, configPath)
+	originalConfigMode := fileMode(t, configPath)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}},
+		},
+	))
+
+	command := model.Init()
+	if command == nil {
+		t.Fatal("Init() command is nil, want current-profile detection command")
+	}
+	updatedModel, nextCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if nextCommand != nil {
+		t.Fatal("nextCommand is not nil after current-profile detection")
+	}
+	if model.state != listState || model.currentProfile != "Local" {
+		t.Fatalf("model after current-profile detection = %#v, want Local current badge state", model)
+	}
+	view := model.View()
+	if !strings.Contains(view, "> Local [current]") {
+		t.Fatalf("View() = %q, want Local current badge", view)
+	}
+	if strings.Contains(view, "Staging [current]") {
+		t.Fatalf("View() = %q, must not mark non-matching profile current", view)
+	}
+	assertFileUnchanged(t, targetPath, originalContents, originalMode)
+	assertNoTargetTempFile(t, targetPath)
+	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
+}
+
+func TestInit_DoesNotShowCurrentBadgeForAmbiguousMatches(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://shared-current"
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}},
+			{Name: "Local Copy", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}},
+		},
+	))
+
+	updatedModel, nextCommand := model.Update(model.Init()())
+	model = updatedModel.(Model)
+	if nextCommand != nil {
+		t.Fatal("nextCommand is not nil after ambiguous current-profile detection")
+	}
+	if model.currentProfile != "" {
+		t.Fatalf("currentProfile = %q, want no current profile for ambiguous matches", model.currentProfile)
+	}
+	if strings.Contains(model.View(), "[current]") {
+		t.Fatalf("View() = %q, must not show current badge for ambiguous matches", model.View())
+	}
+}
+
 func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	managedValue := "visible-managed-value"
 	model := New(app.New(
@@ -104,7 +170,7 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `> Production [selected] [protected]`) {
+	if !strings.Contains(view, `> Production [protected]`) {
 		t.Fatalf("View() = %q, want selected profile context", view)
 	}
 	if strings.Contains(view, `[literal]`) {

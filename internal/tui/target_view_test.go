@@ -240,7 +240,7 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 		t.Fatalf("header line = %q, must not duplicate selected-profile target context", headerLine)
 	}
 	for _, expected := range []string{
-		"> Database Only [selected] [1 target] [partial]",
+		"> Database Only [1 target] [partial]",
 		"Profile contents",
 		"Ready to apply | 1 of 2 targets",
 		"values hidden",

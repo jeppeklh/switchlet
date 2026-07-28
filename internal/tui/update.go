@@ -32,6 +32,12 @@ type comparisonFailedMsg struct {
 	err       error
 }
 
+type currentProfileDetectedMsg struct {
+	requestID int
+	result    app.StatusComparison
+	err       error
+}
+
 // Update handles user input and application results.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
@@ -43,6 +49,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.handleDiffPreviewCompleted(message)
 	case comparisonFailedMsg:
 		return model.handleComparisonFailed(message)
+	case currentProfileDetectedMsg:
+		return model.handleCurrentProfileDetected(message)
 	case tea.WindowSizeMsg:
 		model.width = message.Width
 		model.height = message.Height
@@ -110,6 +118,7 @@ func (model Model) handleStatusComparisonCompleted(message statusComparisonCompl
 
 	result := message.result
 	model.statusComparison = &result
+	model.updateCurrentProfile(result)
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusReadyState
@@ -139,8 +148,22 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 
 	model.statusComparison = nil
 	model.diffPreview = nil
+	model.currentProfile = ""
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
+	return model, nil
+}
+
+func (model Model) handleCurrentProfileDetected(message currentProfileDetectedMsg) (tea.Model, tea.Cmd) {
+	if message.requestID != model.currentRequestID {
+		return model, nil
+	}
+	if message.err != nil {
+		model.currentProfile = ""
+		return model, nil
+	}
+
+	model.updateCurrentProfile(message.result)
 	return model, nil
 }
 
@@ -376,6 +399,7 @@ func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem)
 
 func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.comparisonRequestID++
+	model.currentRequestID++
 	model.comparisonRequestKind = comparisonRequestStatus
 	model.comparisonProfileName = ""
 	model.statusComparison = nil
@@ -408,6 +432,15 @@ func (model Model) returnToListFromComparison() Model {
 func (model Model) toggleValueVisibility() Model {
 	model.valuesVisible = !model.valuesVisible
 	return model
+}
+
+func (model *Model) updateCurrentProfile(status app.StatusComparison) {
+	if status.Status == app.StatusComparisonMatched && status.CurrentProfile != "" {
+		model.currentProfile = status.CurrentProfile
+		return
+	}
+
+	model.currentProfile = ""
 }
 
 func (model *Model) clearComparisonState() {
@@ -466,6 +499,13 @@ func compareStatus(application app.Application, requestID int) tea.Cmd {
 		}
 
 		return statusComparisonCompletedMsg{requestID: requestID, result: result}
+	}
+}
+
+func detectCurrentProfile(application app.Application, requestID int) tea.Cmd {
+	return func() tea.Msg {
+		result, err := application.CompareStatus()
+		return currentProfileDetectedMsg{requestID: requestID, result: result, err: err}
 	}
 }
 
