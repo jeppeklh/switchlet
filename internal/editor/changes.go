@@ -15,6 +15,27 @@ type TargetChange struct {
 	Value  string
 }
 
+// ManagedPreview contains side-effect-free preview data for managed target changes.
+type ManagedPreview struct {
+	Files []ManagedPreviewFile
+}
+
+// ManagedPreviewFile contains preview hunks for one prepared target file.
+type ManagedPreviewFile struct {
+	TargetFile string
+	TargetType config.TargetType
+	Hunks      []ManagedPreviewHunk
+}
+
+// ManagedPreviewHunk describes one configured target location in a managed preview.
+type ManagedPreviewHunk struct {
+	Target        config.Target
+	SelectorName  string
+	Selector      string
+	OriginalValue string
+	ProposedValue string
+}
+
 // PreparedChanges contains target-file updates that have all been validated
 // and serialized but not yet written.
 type PreparedChanges struct {
@@ -107,34 +128,12 @@ func ReadTargetValue(target config.Target) (string, error) {
 		return "", targetError(normalizedTarget, err)
 	}
 
-	switch normalizedTarget.Type {
-	case config.TargetTypeJSON:
-		value, err := readJSONStringTargetValue(contents, normalizedTarget.JSONPath)
-		if err != nil {
-			return "", targetError(normalizedTarget, err)
-		}
-		return value, nil
-	case config.TargetTypeDotenv:
-		value, err := readDotenvTargetValue(contents, normalizedTarget.Key)
-		if err != nil {
-			return "", targetError(normalizedTarget, err)
-		}
-		return value, nil
-	case config.TargetTypeYAML:
-		value, err := readYAMLStringTargetValue(contents, normalizedTarget.YAMLPath)
-		if err != nil {
-			return "", targetError(normalizedTarget, err)
-		}
-		return value, nil
-	case config.TargetTypeTOML:
-		value, err := readTOMLStringTargetValue(contents, normalizedTarget.TOMLPath)
-		if err != nil {
-			return "", targetError(normalizedTarget, err)
-		}
-		return value, nil
-	default:
-		return "", targetError(normalizedTarget, fmt.Errorf("target type %q is not supported", normalizedTarget.Type))
+	value, err := readTargetValueFromContents(contents, normalizedTarget)
+	if err != nil {
+		return "", targetError(normalizedTarget, err)
 	}
+
+	return value, nil
 }
 
 // PreviewTargetChanges validates and serializes target changes without writing
@@ -142,6 +141,31 @@ func ReadTargetValue(target config.Target) (string, error) {
 func PreviewTargetChanges(changes []TargetChange) error {
 	_, err := PrepareTargetChanges(changes)
 	return err
+}
+
+// PreviewManagedTargetChanges validates and prepares changes, then returns
+// managed target-level preview data without writing target files.
+func PreviewManagedTargetChanges(changes []TargetChange) (ManagedPreview, error) {
+	if len(changes) == 0 {
+		return ManagedPreview{}, fmt.Errorf("at least one target change must be requested")
+	}
+
+	groups, err := groupTargetChanges(changes)
+	if err != nil {
+		return ManagedPreview{}, err
+	}
+
+	files := make([]ManagedPreviewFile, 0, len(groups))
+	for _, group := range groups {
+		filePreview, err := prepareManagedPreviewFile(group)
+		if err != nil {
+			return ManagedPreview{}, err
+		}
+
+		files = append(files, filePreview)
+	}
+
+	return ManagedPreview{Files: files}, nil
 }
 
 // ApplyTargetChanges prepares every affected target file before writing any
@@ -311,7 +335,78 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 		return preparedFileChange{}, targetError(group.changes[0].Target, err)
 	}
 
+	updatedContents, err := prepareTargetFileContents(contents, group)
+	if err != nil {
+		return preparedFileChange{}, err
+	}
+
+	return preparedFileChange{
+		targetFile:  group.targetFile,
+		contents:    updatedContents,
+		permissions: targetInfo.Mode().Perm(),
+	}, nil
+}
+
+func prepareManagedPreviewFile(group targetChangeGroup) (ManagedPreviewFile, error) {
+	contents, _, err := readTargetFile(group.targetFile)
+	if err != nil {
+		return ManagedPreviewFile{}, targetError(group.changes[0].Target, err)
+	}
+
+	hunks, err := managedPreviewHunks(contents, group)
+	if err != nil {
+		return ManagedPreviewFile{}, err
+	}
+	if _, err := prepareTargetFileContents(contents, group); err != nil {
+		return ManagedPreviewFile{}, err
+	}
+
+	return ManagedPreviewFile{
+		TargetFile: group.targetFile,
+		TargetType: group.targetType,
+		Hunks:      hunks,
+	}, nil
+}
+
+func managedPreviewHunks(contents []byte, group targetChangeGroup) ([]ManagedPreviewHunk, error) {
+	hunks := make([]ManagedPreviewHunk, 0, len(group.changes))
+	for _, change := range group.changes {
+		originalValue, err := readTargetValueFromContents(contents, change.Target)
+		if err != nil {
+			return nil, targetError(change.Target, err)
+		}
+
+		selectorName, selector := targetSelectorSummary(change.Target)
+		hunks = append(hunks, ManagedPreviewHunk{
+			Target:        change.Target,
+			SelectorName:  selectorName,
+			Selector:      selector,
+			OriginalValue: originalValue,
+			ProposedValue: change.Value,
+		})
+	}
+
+	return hunks, nil
+}
+
+func readTargetValueFromContents(contents []byte, target config.Target) (string, error) {
+	switch target.Type {
+	case config.TargetTypeJSON:
+		return readJSONStringTargetValue(contents, target.JSONPath)
+	case config.TargetTypeDotenv:
+		return readDotenvTargetValue(contents, target.Key)
+	case config.TargetTypeYAML:
+		return readYAMLStringTargetValue(contents, target.YAMLPath)
+	case config.TargetTypeTOML:
+		return readTOMLStringTargetValue(contents, target.TOMLPath)
+	default:
+		return "", fmt.Errorf("target type %q is not supported", target.Type)
+	}
+}
+
+func prepareTargetFileContents(contents []byte, group targetChangeGroup) ([]byte, error) {
 	var updatedContents []byte
+	var err error
 	switch group.targetType {
 	case config.TargetTypeJSON:
 		updatedContents, err = replaceJSONTargetValues(contents, group.changes)
@@ -325,14 +420,10 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 		err = fmt.Errorf("target type %q is not supported", group.targetType)
 	}
 	if err != nil {
-		return preparedFileChange{}, err
+		return nil, err
 	}
 
-	return preparedFileChange{
-		targetFile:  group.targetFile,
-		contents:    updatedContents,
-		permissions: targetInfo.Mode().Perm(),
-	}, nil
+	return updatedContents, nil
 }
 
 func targetError(target config.Target, err error) error {
