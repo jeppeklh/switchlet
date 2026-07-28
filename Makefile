@@ -2,6 +2,7 @@ PACKAGE := ./cmd/switchlet
 BINARY := switchlet
 VERSION ?= dev
 DIST_DIR := dist/$(VERSION)
+CHECKSUM_FILE := $(DIST_DIR)/checksums.txt
 RELEASE_PLATFORMS := \
 	linux/amd64 \
 	linux/arm64 \
@@ -10,7 +11,7 @@ RELEASE_PLATFORMS := \
 	windows/amd64 \
 	windows/arm64
 
-.PHONY: build install verify clean release-binaries release-check
+.PHONY: build install verify clean release-binaries release-checksums release-check
 
 build:
 	go build -o $(BINARY) $(PACKAGE)
@@ -38,4 +39,8 @@ release-binaries:
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -o "$$output" $(PACKAGE) || exit 1; \
 	done
 
-release-check: verify release-binaries
+release-checksums: release-binaries
+	rm -f $(CHECKSUM_FILE)
+	cd $(DIST_DIR) && sha256sum * > checksums.txt
+
+release-check: verify release-checksums

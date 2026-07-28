@@ -1,21 +1,23 @@
 # Switchlet
 
+[![CI](https://github.com/jeppeklh/switchlet/actions/workflows/ci.yml/badge.svg)](https://github.com/jeppeklh/switchlet/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Switchlet is a small terminal tool for safely switching named project
-configuration profiles. It changes only explicitly configured JSON, YAML, TOML,
-or dotenv values, and it keeps the main workflow focused on choosing a profile,
-reviewing what will change, and applying it without editing files by hand.
+configuration profiles. It updates only explicitly configured JSON, YAML, TOML,
+or dotenv values, so local development configuration can be changed repeatably
+without opening files by hand.
 
-Switchlet is editor-independent. Run it from a terminal, a terminal pane, or a
-Neovim terminal buffer inside a project that contains `.switchlet.yaml`.
+Run it directly in your terminal, terminal pane, or Neovim terminal buffer from
+anywhere inside a configured project.
 
-## Supported Workflows
+## What It Does
 
-- Launch the interactive profile picker with `switchlet`.
-- Create project configuration with `switchlet init`.
-- Use `list`, `inspect`, `apply`, `status`, and `diff` for non-interactive work.
-- Manage configured values in JSON, YAML, TOML, and dotenv files.
-- Validate changes with dry-run mode before writing files.
-- Use `--json` output for scripts and automation.
+- Opens an interactive profile picker with `switchlet`.
+- Creates project configuration with `switchlet init`.
+- Lists, inspects, applies, checks status, and compares profiles from the CLI.
+- Supports JSON, YAML, TOML, and dotenv managed values.
+- Provides dry-run mode and JSON output for automation.
+- Keeps normal output free of raw replacement values.
 
 ## Install
 
@@ -25,8 +27,9 @@ Install with Go:
 go install github.com/jeppeklh/switchlet/cmd/switchlet@latest
 ```
 
-When release binaries are available, download the archive for your platform from
-GitHub Releases and place the `switchlet` binary on your `PATH`.
+Tagged releases publish binaries for Linux, macOS, and Windows. Download the
+binary for your platform from [GitHub Releases](https://github.com/jeppeklh/switchlet/releases)
+and place the `switchlet` binary on your `PATH`.
 
 Local build:
 
@@ -36,9 +39,48 @@ go build -o switchlet ./cmd/switchlet
 
 ## Quick Start
 
-Create a `.switchlet.yaml` in your project root, or run `switchlet init` for the
-guided setup flow. Target files and selected values must already exist before
-Switchlet writes to them.
+Start with the guided setup flow:
+
+```bash
+switchlet init
+```
+
+The wizard creates `.switchlet.yaml` after you select existing target files,
+selectors, and profiles. Target files and selected values must already exist
+before Switchlet writes to them.
+
+List and inspect profiles:
+
+```bash
+switchlet list
+switchlet inspect Local
+```
+
+Validate and apply a profile:
+
+```bash
+switchlet apply Local --dry-run
+switchlet apply Local
+```
+
+Check current managed state and compare a profile without writing files:
+
+```bash
+switchlet status
+switchlet diff Local
+```
+
+Use JSON output for automation:
+
+```bash
+switchlet list --json
+switchlet apply Local --dry-run --json
+```
+
+## Example Configuration
+
+You usually do not need to write this by hand. It shows the Version `3` shape
+created by `switchlet init`.
 
 ```yaml
 version: 3
@@ -71,34 +113,6 @@ profiles:
         value: https://api.staging.example.com
 ```
 
-List and inspect profiles:
-
-```bash
-switchlet list
-switchlet inspect Local
-```
-
-Validate and apply a profile:
-
-```bash
-switchlet apply Local --dry-run
-switchlet apply Local
-```
-
-Check current managed state and compare a profile without writing files:
-
-```bash
-switchlet status
-switchlet diff Local
-```
-
-Use JSON output where supported:
-
-```bash
-switchlet list --json
-switchlet apply Local --dry-run --json
-```
-
 ## Safety Model
 
 - Only explicitly configured values are changed.
@@ -107,9 +121,10 @@ switchlet apply Local --dry-run --json
 - Protected profiles require explicit approval before apply.
 - Normal command output avoids raw replacement values.
 
-## Documentation
+## Commands
 
-- [COMMANDS.md](COMMANDS.md) is the detailed command reference.
+See [COMMANDS.md](COMMANDS.md) for the full command reference, including
+interactive keys, JSON output, status, diff, and managed patch output.
 
 ## License
 
