@@ -38,7 +38,7 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 		rows = append(rows, ListRow{
 			Label:  item.Name,
 			State:  state,
-			Badges: profileBadges(item),
+			Badges: profileListBadges(item, index == model.cursor),
 		})
 	}
 
@@ -123,7 +123,7 @@ func selectedProfileTitle(profile app.ProfileItem) string {
 }
 
 func profileBadges(profile app.ProfileItem) []Badge {
-	badges := make([]Badge, 0, 5)
+	badges := make([]Badge, 0, 4)
 	if shouldShowTargetCount(profile) {
 		badges = append(badges, Badge{Label: targetCountLabel(profile.TargetCount)})
 	}
@@ -136,14 +136,15 @@ func profileBadges(profile app.ProfileItem) []Badge {
 	if !profile.Available {
 		badges = append(badges, Badge{Label: "unavailable"})
 	}
-	switch profile.Source {
-	case app.ProfileSourceEnvironment:
-		badges = append(badges, Badge{Label: "env"})
-	case app.ProfileSourceLiteral:
-		badges = append(badges, Badge{Label: "literal"})
-	case app.ProfileSourceMixed:
-		badges = append(badges, Badge{Label: "mixed"})
-	}
 
 	return badges
+}
+
+func profileListBadges(profile app.ProfileItem, selected bool) []Badge {
+	badges := make([]Badge, 0, 5)
+	if selected {
+		badges = append(badges, Badge{Label: "selected"})
+	}
+
+	return append(badges, profileBadges(profile)...)
 }

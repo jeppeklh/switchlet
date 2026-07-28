@@ -397,7 +397,8 @@ Main picker:
 - `Home` / `End` jumps to the first or last profile.
 - `Enter` applies the selected profile or opens protected confirmation.
 - `i` inspects the selected profile.
-- `s` opens current status for the managed configuration.
+- `s` opens current status for the managed configuration, and returns from status
+  loading or status ready back to the profile list.
 - `d` opens a read-only diff for the selected profile, and returns from diff
   loading or diff ready back to the profile list.
 - `v` toggles managed value visibility in the profile list, inspection, and

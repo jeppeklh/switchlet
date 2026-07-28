@@ -104,8 +104,11 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `Production [protected] [literal]`) {
+	if !strings.Contains(view, `> Production [selected] [protected]`) {
 		t.Fatalf("View() = %q, want selected profile context", view)
+	}
+	if strings.Contains(view, `[literal]`) {
+		t.Fatalf("View() = %q, main picker must not show source badges", view)
 	}
 	if !strings.Contains(view, `Ready to apply`) {
 		t.Fatalf("View() = %q, want actionable selected profile state", view)
@@ -136,7 +139,7 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Profile contents",
-		"Production [protected] [env]",
+		"Production [protected]",
 		"Ready to apply",
 		"values hidden",
 		"config/development.json",
@@ -149,7 +152,7 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 			t.Fatalf("View() = %q, want profile-contents context %q", view, expected)
 		}
 	}
-	for _, forbidden := range []string{"Profile:", "State:", "Source:", "Changes:", "Values:", "Enter:", "Protection:", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
+	for _, forbidden := range []string{"Profile:", "State:", "Source:", "Changes:", "Values:", "Enter:", "Protection:", "[env]", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, profile contents must not duplicate inspection detail %q", view, forbidden)
 		}

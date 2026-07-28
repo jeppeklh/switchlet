@@ -108,6 +108,7 @@ func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *te
 		"jsonPath: database.url",
 		"No files were modified.",
 		"r Refresh",
+		"s Return",
 		"Esc/q Return",
 		"Ctrl+C Exit immediately",
 	} {
@@ -725,7 +726,9 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 		key   tea.KeyMsg
 	}{
 		{name: "status loading q", state: statusLoadingState, key: runeKey('q')},
+		{name: "status loading s", state: statusLoadingState, key: runeKey('s')},
 		{name: "status ready esc", state: statusReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},
+		{name: "status ready s", state: statusReadyState, key: runeKey('s')},
 		{name: "diff loading q", state: diffLoadingState, key: runeKey('q')},
 		{name: "diff loading d", state: diffLoadingState, key: runeKey('d')},
 		{name: "diff ready esc", state: diffReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},

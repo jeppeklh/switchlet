@@ -53,7 +53,7 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if strings.Contains(view, "super-secret") {
 		t.Fatalf("View() = %q, must not contain unmasked secret", view)
 	}
-	if !strings.Contains(view, "~ Test [env]") {
+	if !strings.Contains(view, "~ Test [selected]") {
 		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 
@@ -277,7 +277,7 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	if strings.Contains(view, "Password=****") {
 		t.Fatalf("View() = %q, must not contain masked connection string in confirmation", view)
 	}
-	if !strings.Contains(view, "~ Production [protected] [literal]") {
+	if !strings.Contains(view, "~ Production [selected] [protected]") {
 		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 

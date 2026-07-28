@@ -228,7 +228,7 @@ func (model Model) statusComparisonView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Status", Lines: lines, Focused: true},
 		},
-		Actions: comparisonActions(false, model.valuesVisible),
+		Actions: comparisonActions(comparisonRequestStatus, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -257,7 +257,7 @@ func (model Model) diffComparisonView() string {
 		Title:    "Switchlet",
 		Metadata: metadata,
 		Panels:   []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
-		Actions:  comparisonActions(true, model.valuesVisible),
+		Actions:  comparisonActions(comparisonRequestDiff, model.valuesVisible),
 		Width:    model.width,
 		Height:   model.height,
 	})
@@ -272,7 +272,7 @@ func (model Model) comparisonErrorView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true},
 		},
-		Actions: comparisonActions(false, model.valuesVisible),
+		Actions: comparisonActions(comparisonRequestNone, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -301,11 +301,14 @@ func profileDiffMetadata(profileName string, valuesVisible bool) []string {
 	return append(metadata, valueState+" | read-only")
 }
 
-func comparisonActions(includeDiffActions bool, valuesVisible bool) []Action {
+func comparisonActions(kind comparisonRequestKind, valuesVisible bool) []Action {
 	actions := []Action{
 		{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
 	}
-	if includeDiffActions {
+	switch kind {
+	case comparisonRequestStatus:
+		actions = append(actions, Action{Key: "s", Label: "Return", Priority: ActionPriorityPrimary})
+	case comparisonRequestDiff:
 		actions = append(actions, valueRevealAction(valuesVisible))
 		actions = append(actions, Action{Key: "d", Label: "Return", Priority: ActionPriorityPrimary})
 	}

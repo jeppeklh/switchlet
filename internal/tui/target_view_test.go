@@ -240,7 +240,7 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 		t.Fatalf("header line = %q, must not duplicate selected-profile target context", headerLine)
 	}
 	for _, expected := range []string{
-		"> Database Only [1 target] [partial]",
+		"> Database Only [selected] [1 target] [partial]",
 		"Profile contents",
 		"Ready to apply | 1 of 2 targets",
 		"values hidden",
@@ -305,6 +305,34 @@ func TestView_ProfileContentsGroupsMultiTargetProfileByFile(t *testing.T) {
 	for _, forbidden := range []string{"postgres://staging", "redis://staging", "https://api.staging.example.test"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, must not reveal managed value %q while hidden", view, forbidden)
+		}
+	}
+}
+
+func TestProfileContentsTargetLinesSeparateSelectorFromValue(t *testing.T) {
+	lines := profileContentsTargetLines(app.ProfileContentsTarget{
+		TargetDescriptor: app.TargetDescriptor{
+			TargetName:   "database",
+			TargetType:   config.TargetTypeJSON,
+			SelectorName: "jsonPath",
+			Selector:     "database.url",
+		},
+		Available: true,
+	}, 80)
+
+	expectedLines := []string{
+		"  database [json]",
+		"  jsonPath: database.url",
+		"",
+		"  Profile value",
+		"    " + hiddenValuePlaceholder,
+	}
+	if len(lines) != len(expectedLines) {
+		t.Fatalf("profileContentsTargetLines() = %#v, want %#v", lines, expectedLines)
+	}
+	for index, expected := range expectedLines {
+		if lines[index] != expected {
+			t.Fatalf("profileContentsTargetLines()[%d] = %q, want %q", index, lines[index], expected)
 		}
 	}
 }

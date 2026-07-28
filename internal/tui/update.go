@@ -236,7 +236,7 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyEscape):
+	case matchesKey(message, keyQuit, keyEscape, keyStatus):
 		return model.returnToListFromComparison(), nil
 	case matchesKey(message, keyRefresh):
 		return model.startStatusComparison()

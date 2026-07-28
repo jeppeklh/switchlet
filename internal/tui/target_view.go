@@ -92,7 +92,13 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 			lines = append(lines, "Affected files")
 		}
 		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
-		for _, target := range group.Targets {
+		if len(group.Targets) > 0 {
+			lines = append(lines, "")
+		}
+		for targetIndex, target := range group.Targets {
+			if targetIndex > 0 {
+				lines = append(lines, "")
+			}
 			lines = append(lines, profileContentsTargetLines(target, maxLineWidth)...)
 		}
 	}
@@ -118,7 +124,7 @@ func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth i
 		return lines
 	}
 
-	lines = append(lines, "  Profile value", "  "+profileContentsValueLabel(target, maxLineWidth))
+	lines = append(lines, "", "  Profile value", "    "+profileContentsValueLabel(target, maxLineWidth))
 	return lines
 }
 
@@ -134,7 +140,7 @@ func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth in
 		return "<empty>"
 	}
 
-	return fitLine(target.Value, maxLineWidth-2)
+	return fitLine(target.Value, maxLineWidth-4)
 }
 
 func omittedTargetsLabel(count int) string {
