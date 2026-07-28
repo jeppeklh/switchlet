@@ -73,6 +73,100 @@ type TargetDescriptor struct {
 	Selector     string
 }
 
+// ValueVisibility identifies whether app-owned preview data should include
+// managed values for an explicit interactive reveal surface.
+type ValueVisibility string
+
+const (
+	// ValueVisibilityHidden omits raw managed values from preview data.
+	ValueVisibilityHidden ValueVisibility = "hidden"
+	// ValueVisibilityShown includes raw managed values in supported preview data.
+	ValueVisibilityShown ValueVisibility = "shown"
+)
+
+// PreviewOptions controls app-owned profile contents and managed patch preview data.
+type PreviewOptions struct {
+	ValueVisibility ValueVisibility
+}
+
+// ProfileContents describes the selected profile's included managed targets
+// grouped for the main picker profile-contents panel.
+type ProfileContents struct {
+	ProfileName        string
+	Protected          bool
+	Available          bool
+	Source             ProfileSource
+	UnavailableReason  string
+	TargetCount        int
+	TotalTargets       int
+	OmittedTargetCount int
+	Partial            bool
+	Files              []ProfileContentsFileGroup
+	OmittedTargets     []TargetDescriptor
+}
+
+// ProfileContentsFileGroup contains included profile targets for one target file.
+type ProfileContentsFileGroup struct {
+	TargetFile string
+	Targets    []ProfileContentsTarget
+}
+
+// ProfileContentsTarget describes one included managed target in profile contents.
+type ProfileContentsTarget struct {
+	TargetDescriptor
+	Source                  ProfileSource
+	EnvironmentVariableName string
+	Available               bool
+	UnavailableReason       string
+	Value                   string
+	ValueVisible            bool
+}
+
+// ManagedPatchStatus identifies one managed patch preview target state.
+type ManagedPatchStatus string
+
+const (
+	// ManagedPatchStatusWouldUpdate means the selected profile value differs from the current target value.
+	ManagedPatchStatusWouldUpdate ManagedPatchStatus = "would_update"
+	// ManagedPatchStatusAlreadyMatches means the selected profile value already matches the current target value.
+	ManagedPatchStatusAlreadyMatches ManagedPatchStatus = "already_matches"
+	// ManagedPatchStatusUnavailable means the selected profile value could not be resolved safely.
+	ManagedPatchStatusUnavailable ManagedPatchStatus = "unavailable"
+)
+
+// ManagedPatchPreview describes selected-profile diff data for managed patch rendering.
+type ManagedPatchPreview struct {
+	ProfileName         string
+	Protected           bool
+	Complete            bool
+	TargetCount         int
+	IncludedTargetCount int
+	OmittedTargetCount  int
+	Partial             bool
+	Files               []ManagedPatchFileGroup
+	OmittedTargets      []TargetDescriptor
+}
+
+// ManagedPatchFileGroup contains managed patch hunks for one target file.
+type ManagedPatchFileGroup struct {
+	TargetFile string
+	Hunks      []ManagedPatchHunk
+}
+
+// ManagedPatchHunk describes one configured target location in a managed patch preview.
+type ManagedPatchHunk struct {
+	TargetDescriptor
+	Status                  ManagedPatchStatus
+	Source                  ProfileSource
+	EnvironmentVariableName string
+	Available               bool
+	UnavailableReason       string
+	CurrentValue            string
+	CurrentValueVisible     bool
+	ProfileValue            string
+	ProfileValueVisible     bool
+}
+
 // Result describes a successful profile application or dry run.
 type Result struct {
 	ProfileName string
