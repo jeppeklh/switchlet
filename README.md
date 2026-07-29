@@ -2,15 +2,14 @@
 
 [![CI](https://github.com/jeppeklh/switchlet/actions/workflows/ci.yml/badge.svg)](https://github.com/jeppeklh/switchlet/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![Switchlet demo](assets/switchlet.gif)
-
-Switchlet is a small terminal tool for safely switching named project
+Switchlet is a terminal tool for safely switching named project
 configuration profiles. It updates only explicitly configured JSON, YAML, TOML,
 or dotenv values, so local development configuration can be changed repeatably
 without opening files by hand.
 
-Run it directly in your terminal, terminal pane, or Neovim terminal buffer from
-anywhere inside a configured project.
+Run it directly in your terminal
+
+![Switchlet demo](assets/switchlet.gif)
 
 ## What It Does
 
