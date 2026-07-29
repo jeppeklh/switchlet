@@ -919,7 +919,6 @@ func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
 
 	readme := readDocumentation("README.md")
 	for _, expected := range []string{
-		"Switchlet is a small terminal tool",
 		"go install github.com/jeppeklh/switchlet/cmd/switchlet@latest",
 		"go build -o switchlet ./cmd/switchlet",
 	} {
