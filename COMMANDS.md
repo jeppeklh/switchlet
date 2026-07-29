@@ -391,7 +391,7 @@ No changes were written.
 
 The active command bar is the source of truth. In narrow terminals,
 lower-priority movement or editing hints may be hidden before apply, back,
-cancel, quit, or immediate-exit actions.
+cancel, or quit actions.
 
 Main picker:
 
@@ -411,8 +411,9 @@ Main picker:
   selected-profile diff.
 - `r` refreshes status, diff, loading, or comparison-error screens when shown.
 - `Esc` returns from secondary views where shown.
-- `q` quits from the list or closes a secondary view.
-- `Ctrl+C` exits immediately.
+- `q` quits from the list or any secondary main-picker view without applying
+  changes.
+- `Ctrl+C` exits immediately, but main picker command bars do not advertise it.
 
 Values are hidden by default on every launch. The reveal toggle is local to the
 active TUI session and is not accepted on protected confirmation, status,

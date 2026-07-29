@@ -37,8 +37,11 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	if !strings.Contains(view, "> Local") {
 		t.Fatalf("View() = %q, want selected Local profile", view)
 	}
-	if !strings.Contains(view, "x Production [protected] [unavailable]") {
-		t.Fatalf("View() = %q, want protected and unavailable indicators", view)
+	if !strings.Contains(view, "x Production") {
+		t.Fatalf("View() = %q, want unavailable row marker", view)
+	}
+	if strings.Contains(view, "x Production [protected]") || strings.Contains(view, "x Production [unavailable]") {
+		t.Fatalf("View() = %q, main profile list must not show non-current badges", view)
 	}
 	if !strings.Contains(view, "* Profiles") {
 		t.Fatalf("View() = %q, want focused profiles panel", view)
@@ -127,7 +130,7 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if !strings.Contains(hiddenView, "v Reveal values") {
 		t.Fatalf("View() = %q, want reveal command while values are hidden", hiddenView)
 	}
-	if !strings.Contains(hiddenView, "values hidden") || !strings.Contains(hiddenView, hiddenValuePlaceholder) {
+	if !strings.Contains(hiddenView, hiddenValuePlaceholder) || strings.Contains(hiddenView, "values hidden") {
 		t.Fatalf("View() = %q, want hidden value state in profile contents", hiddenView)
 	}
 	if strings.Contains(hiddenView, managedValue) {
@@ -146,7 +149,7 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	if !strings.Contains(shownView, "v Hide values") {
 		t.Fatalf("View() = %q, want hide command while values are shown", shownView)
 	}
-	if !strings.Contains(shownView, "values shown") || !strings.Contains(shownView, managedValue) {
+	if strings.Contains(shownView, "values shown") || !strings.Contains(shownView, managedValue) {
 		t.Fatalf("View() = %q, want shown managed value in profile contents", shownView)
 	}
 
@@ -163,15 +166,18 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	}
 }
 
-func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
+func TestView_ListViewUsesNeutralProtectedStatusAndApplyHelp(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `> Production [protected]`) {
+	if !strings.Contains(view, `> Production`) || !strings.Contains(view, `Production [protected]`) {
 		t.Fatalf("View() = %q, want selected profile context", view)
+	}
+	if strings.Contains(view, `> Production [protected]`) {
+		t.Fatalf("View() = %q, main profile list must not show protected badge", view)
 	}
 	if strings.Contains(view, `[literal]`) {
 		t.Fatalf("View() = %q, main picker must not show source badges", view)
@@ -182,7 +188,7 @@ func TestView_ListViewUsesNeutralProtectedStatusAndContinueHelp(t *testing.T) {
 	if strings.Contains(view, `requires confirmation`) {
 		t.Fatalf("View() = %q, must not show premature confirmation status copy", view)
 	}
-	if !strings.Contains(view, "Enter Continue") {
+	if !strings.Contains(view, "Enter Apply+Exit") {
 		t.Fatalf("View() = %q, want Enter help text that matches the protected flow", view)
 	}
 }
@@ -207,11 +213,12 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 		"Profile contents",
 		"Production [protected]",
 		"Ready to apply",
-		"values hidden",
 		"config/development.json",
 		"default [json]",
-		"jsonPath: database.primary.url",
-		"Profile value",
+		"Managed value",
+		"Selector",
+		"database.primary.url",
+		"Value",
 		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
@@ -258,8 +265,9 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 				"Profile contents",
 				testCase.target.Name + " [" + string(testCase.target.Type) + "]",
 				testCase.target.File,
-				testCase.selectorName + ": " + testCase.selector,
-				"Profile value",
+				"Selector",
+				testCase.selector,
+				"Value",
 				hiddenValuePlaceholder,
 			} {
 				if !strings.Contains(view, expected) {
@@ -280,10 +288,11 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 
 			inspectionView := model.View()
 			for _, expected := range []string{
-				"Inspect Profile",
-				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
-				"Target file: " + testCase.target.File,
-				testCase.selectorName + ": " + testCase.selector,
+				"Profile detail",
+				"Managed value  " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				testCase.target.File,
+				"Selector",
+				testCase.selector,
 				"Masked value: Server=prod;Password=****;",
 			} {
 				if !strings.Contains(inspectionView, expected) {
@@ -305,10 +314,11 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 
 			confirmationView := model.View()
 			for _, expected := range []string{
-				"Apply protected profile?",
-				"Name: " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
-				"Target file: " + testCase.target.File,
-				testCase.selectorName + ": " + testCase.selector,
+				"Confirmation",
+				"Managed value  " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				testCase.target.File,
+				"Selector",
+				testCase.selector,
 				"resolved value is intentionally hidden",
 			} {
 				if !strings.Contains(confirmationView, expected) {
@@ -423,9 +433,9 @@ func TestView_PathTargetSuccessFinalMessageAndErrorsUseSafeTargetContext(t *test
 				"Could not prepare target \"" + testCase.targetName + "\".",
 				"Context:",
 				"Profile: Local",
-				"Target: " + testCase.targetName + " [" + string(testCase.targetType) + "]",
+				"Managed value: " + testCase.targetName + " [" + string(testCase.targetType) + "]",
 				"File: " + testCase.targetFile,
-				testCase.selectorName + ": " + testCase.missingSelector,
+				"Selector: " + testCase.missingSelector,
 				"Reason:",
 				"missing segment \"missing\"",
 				"Recovery:",
@@ -524,7 +534,7 @@ func TestView_WindowedProfileListShowsPositionContext(t *testing.T) {
 		numberedProfiles(30),
 	))
 
-	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 24})
 	model = updatedModel.(Model)
 	start, end := model.visibleProfileRange()
 	expected := fmt.Sprintf("Showing %d-%d of %d profiles", start+1, end, len(model.profiles))

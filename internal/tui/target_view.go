@@ -38,23 +38,14 @@ func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []
 	}
 
 	groups := groupProfileValuesByFile(values)
-	lines := make([]string, 0, len(values)*5+len(groups))
+	lines := make([]string, 0, len(values)*6+len(groups))
 	for groupIndex, group := range groups {
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
 		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
 		for _, valueItem := range group.values {
-			lines = append(lines, "  "+profileValueTargetSummary(valueItem))
-			lines = append(lines, "  "+RenderKeyValue("Source", sourceLabel(valueItem.Source)))
-			if valueItem.EnvironmentVariableName != "" {
-				lines = append(lines, "  "+RenderKeyValue("Environment variable", valueItem.EnvironmentVariableName))
-			}
-			if valueItem.UnavailableReason != "" {
-				lines = append(lines, "  "+RenderKeyValue("Resolution error", valueItem.UnavailableReason))
-			} else {
-				lines = append(lines, "  "+RenderKeyValue("Value", profileValueMaskedValueLabel(valueItem)))
-			}
+			lines = append(lines, profileValueDetailFieldLines(valueItem, maxLineWidth)...)
 		}
 	}
 
@@ -74,7 +65,7 @@ func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []
 		}
 		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
 		for _, valueItem := range group.values {
-			lines = append(lines, "  "+profileValueTargetSummary(valueItem))
+			lines = append(lines, profileValueTargetFieldLines(valueItem, maxLineWidth)...)
 		}
 	}
 
@@ -85,6 +76,9 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 	if len(groups) == 0 {
 		return append(lines, "", "No included managed targets.")
 	}
+	if target, ok := singleProfileContentsTarget(groups); ok {
+		return appendProfileContentsSingleTarget(lines, groups[0].TargetFile, target, maxLineWidth)
+	}
 
 	for groupIndex, group := range groups {
 		lines = append(lines, "")
@@ -92,9 +86,6 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 			lines = append(lines, "Affected files")
 		}
 		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
-		if len(group.Targets) > 0 {
-			lines = append(lines, "")
-		}
 		for targetIndex, target := range group.Targets {
 			if targetIndex > 0 {
 				lines = append(lines, "")
@@ -106,26 +97,55 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 	return lines
 }
 
-func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth int) []string {
-	lines := []string{"  " + profileContentsTargetLabel(target)}
-	if target.Selector != "" {
-		label := selectorFieldName(target.SelectorName)
-		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(target.Selector, maxLineWidth-2, label)))
+func singleProfileContentsTarget(groups []app.ProfileContentsFileGroup) (app.ProfileContentsTarget, bool) {
+	if len(groups) != 1 || len(groups[0].Targets) != 1 {
+		return app.ProfileContentsTarget{}, false
+	}
+
+	return groups[0].Targets[0], true
+}
+
+func appendProfileContentsSingleTarget(lines []string, targetFile string, target app.ProfileContentsTarget, maxLineWidth int) []string {
+	fields := targetDescriptorFields(target.TargetDescriptor, true)
+	if targetFile != "" && target.TargetFile == "" {
+		fields = append([]DetailField{{Label: "File", Value: targetFile}}, fields...)
 	}
 	if !target.Available {
-		lines = append(lines, "  unavailable")
-		if target.EnvironmentVariableName != "" {
-			lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(target.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
-		}
-		if target.UnavailableReason != "" {
-			lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(target.UnavailableReason, maxLineWidth-2, "Reason")))
-		}
-
-		return lines
+		fields = appendUnavailableProfileContentsFields(fields, target)
+		lines = append(lines, "", RenderSectionHeading("Target"))
+		return append(lines, renderIndentedDetailFields("  ", fields, maxLineWidth)...)
 	}
 
-	lines = append(lines, "", "  Profile value", "    "+profileContentsValueLabel(target, maxLineWidth))
+	lines = append(lines, "", RenderSectionHeading("Target"))
+	lines = append(lines, renderIndentedDetailFields("  ", fields, maxLineWidth)...)
+	lines = append(lines, "", RenderSectionHeading("Value"), "  "+profileContentsValueLabel(target, maxLineWidth))
 	return lines
+}
+
+func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth int) []string {
+	fields := []DetailField{{Label: "Managed value", Value: profileContentsTargetLabel(target)}}
+	if target.Selector != "" {
+		fields = append(fields, DetailField{Label: "Selector", Value: target.Selector})
+	}
+	if !target.Available {
+		fields = appendUnavailableProfileContentsFields(fields, target)
+		return renderIndentedDetailFields("  ", fields, maxLineWidth)
+	}
+
+	fields = append(fields, DetailField{Label: "Value", Value: profileContentsValueLabel(target, maxLineWidth)})
+	return renderIndentedDetailFields("  ", fields, maxLineWidth)
+}
+
+func appendUnavailableProfileContentsFields(fields []DetailField, target app.ProfileContentsTarget) []DetailField {
+	fields = append(fields, DetailField{Label: "Availability", Value: "Unavailable"})
+	if target.EnvironmentVariableName != "" {
+		fields = append(fields, DetailField{Label: "Environment variable", Value: target.EnvironmentVariableName})
+	}
+	if target.UnavailableReason != "" {
+		fields = append(fields, DetailField{Label: "Reason", Value: target.UnavailableReason})
+	}
+
+	return fields
 }
 
 func profileContentsTargetLabel(target app.ProfileContentsTarget) string {
@@ -178,36 +198,22 @@ func targetDescriptorDetailLines(descriptors []app.TargetDescriptor, maxLineWidt
 		if index > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, "  "+targetNameLabel(descriptor.TargetName)+targetTypeBadge(string(descriptor.TargetType)))
-		lines = append(lines, targetDescriptorContextLines(descriptor, maxLineWidth)...)
-	}
-
-	return lines
-}
-
-func targetDescriptorContextLines(descriptor app.TargetDescriptor, maxLineWidth int) []string {
-	lines := make([]string, 0, 2)
-	if descriptor.TargetFile != "" {
-		lines = append(lines, "  "+RenderKeyValue("File", compactPathForDisplay(descriptor.TargetFile, valueWidthForIndentedLabel(maxLineWidth, "File"))))
-	}
-	if descriptor.Selector != "" {
-		label := selectorFieldName(descriptor.SelectorName)
-		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(descriptor.Selector, maxLineWidth-2, label)))
+		lines = append(lines, renderIndentedDetailFields("  ", targetDescriptorFields(descriptor, true), maxLineWidth)...)
 	}
 
 	return lines
 }
 
 func unavailableValueDetailLines(value app.UnavailableValue, maxLineWidth int) []string {
-	lines := targetDescriptorContextLines(value.TargetDescriptor, maxLineWidth)
+	fields := targetDescriptorFields(value.TargetDescriptor, true)
 	if value.EnvironmentVariableName != "" {
-		lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(value.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
+		fields = append(fields, DetailField{Label: "Environment variable", Value: value.EnvironmentVariableName})
 	}
 	if value.Reason != "" {
-		lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(value.Reason, maxLineWidth-2, "Reason")))
+		fields = append(fields, DetailField{Label: "Reason", Value: value.Reason})
 	}
 
-	return lines
+	return renderIndentedDetailFields("  ", fields, maxLineWidth)
 }
 
 func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileGroup, valuesVisible bool, maxLineWidth int) []string {
@@ -230,25 +236,19 @@ func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileG
 }
 
 func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) []string {
-	lines := []string{"  @@ " + targetNameLabel(hunk.TargetName) + targetTypeBadge(string(hunk.TargetType))}
-	if hunk.Selector != "" {
-		label := selectorFieldName(hunk.SelectorName)
-		lines = append(lines, "  "+RenderKeyValue(label, fitValueForLabel(hunk.Selector, maxLineWidth-2, label)))
-	}
-
+	fields := targetDescriptorFields(hunk.TargetDescriptor, false)
 	if hunk.EnvironmentVariableName != "" {
-		lines = append(lines, "  "+RenderKeyValue("Environment variable", fitValueForLabel(hunk.EnvironmentVariableName, maxLineWidth-2, "Environment variable")))
+		fields = append(fields, DetailField{Label: "Environment variable", Value: hunk.EnvironmentVariableName})
 	}
+	lines := renderIndentedDetailFields("  ", fields, maxLineWidth)
 
 	switch hunk.Status {
 	case app.ManagedPatchStatusWouldUpdate:
-		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
 		return append(lines, managedPatchChangedValueLines(hunk, valuesVisible, maxLineWidth)...)
 	case app.ManagedPatchStatusAlreadyMatches:
-		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
 		return append(lines, managedPatchUnchangedValueLine(hunk, valuesVisible, maxLineWidth))
 	case app.ManagedPatchStatusUnavailable:
-		lines = append(lines, "  "+managedPatchStatusLabel(hunk.Status))
+		lines = append(lines, "  "+RenderKeyValue("State", managedPatchStatusLabel(hunk.Status)))
 		if hunk.UnavailableReason != "" {
 			lines = append(lines, "  "+RenderKeyValue("Reason", fitValueForLabel(hunk.UnavailableReason, maxLineWidth-2, "Reason")))
 		}
@@ -399,6 +399,35 @@ func profileValueTargetLabel(valueItem app.ProfileValueItem) string {
 	return targetNameLabel(valueItem.TargetName) + targetTypeBadge(string(valueItem.TargetType))
 }
 
+func profileValueTargetFieldLines(valueItem app.ProfileValueItem, maxLineWidth int) []string {
+	fields := []DetailField{{Label: "Managed value", Value: profileValueTargetLabel(valueItem)}}
+	if valueItem.Selector != "" {
+		fields = append(fields, DetailField{Label: "Selector", Value: valueItem.Selector})
+	}
+
+	return renderIndentedDetailFields("  ", fields, maxLineWidth)
+}
+
+func profileValueDetailFieldLines(valueItem app.ProfileValueItem, maxLineWidth int) []string {
+	fields := []DetailField{
+		{Label: "Managed value", Value: profileValueTargetLabel(valueItem)},
+	}
+	if valueItem.Selector != "" {
+		fields = append(fields, DetailField{Label: "Selector", Value: valueItem.Selector})
+	}
+	fields = append(fields, DetailField{Label: "Source", Value: sourceLabel(valueItem.Source)})
+	if valueItem.EnvironmentVariableName != "" {
+		fields = append(fields, DetailField{Label: "Environment variable", Value: valueItem.EnvironmentVariableName})
+	}
+	if valueItem.UnavailableReason != "" {
+		fields = append(fields, DetailField{Label: "Resolution error", Value: valueItem.UnavailableReason})
+	} else {
+		fields = append(fields, DetailField{Label: "Value", Value: profileValueMaskedValueLabel(valueItem)})
+	}
+
+	return renderIndentedDetailFields("  ", fields, maxLineWidth)
+}
+
 func profileValueMaskedValueLabel(valueItem app.ProfileValueItem) string {
 	if !valueItem.Available {
 		return "Unavailable"
@@ -429,7 +458,13 @@ func recoverableProfileContextLines(profile app.ProfileItem, maxLineWidth int) [
 			continue
 		}
 
-		lines = append(lines, RenderKeyValue("Unavailable target", targetNameLabel(valueItem.TargetName)))
+		lines = append(lines, RenderKeyValue("Managed value", profileValueTargetLabel(valueItem)))
+		if valueItem.TargetFile != "" {
+			lines = append(lines, RenderKeyValue("File", compactPathForDisplay(valueItem.TargetFile, valueWidthForLabel(maxLineWidth, "File"))))
+		}
+		if valueItem.Selector != "" {
+			lines = append(lines, RenderKeyValue("Selector", fitValueForLabel(valueItem.Selector, maxLineWidth, "Selector")))
+		}
 		if valueItem.EnvironmentVariableName != "" {
 			lines = append(lines, RenderKeyValue("Environment variable", valueItem.EnvironmentVariableName))
 		}
@@ -445,9 +480,12 @@ func (model Model) unavailableProfileError(profile app.ProfileItem) RecoverableE
 	unavailableValues := unavailableProfileValues(profile)
 	context := []string{RenderKeyValue("Profile", selectedProfileTitle(profile))}
 	for _, valueItem := range unavailableValues {
-		context = append(context, "", RenderKeyValue("Affected target", profileValueTargetSummary(valueItem)))
+		context = append(context, "", RenderKeyValue("Managed value", profileValueTargetLabel(valueItem)))
 		if valueItem.TargetFile != "" {
 			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(valueItem.TargetFile, "File")))
+		}
+		if valueItem.Selector != "" {
+			context = append(context, RenderKeyValue("Selector", fitValueForLabel(valueItem.Selector, secondaryPanelContentWidth(model.width), "Selector")))
 		}
 		if valueItem.EnvironmentVariableName != "" {
 			context = append(context, RenderKeyValue("Environment variable", valueItem.EnvironmentVariableName))
@@ -477,12 +515,12 @@ func (model Model) unavailableProfileError(profile app.ProfileItem) RecoverableE
 
 func (model Model) targetFailureError(profileName string, failure app.TargetFailure, cause error) RecoverableError {
 	context := []string{RenderKeyValue("Profile", profileName)}
-	context = append(context, RenderKeyValue("Target", targetNameLabel(failure.TargetName)+targetTypeBadge(string(failure.TargetType))))
+	context = append(context, RenderKeyValue("Managed value", targetNameLabel(failure.TargetName)+targetTypeBadge(string(failure.TargetType))))
 	if failure.TargetFile != "" {
 		context = append(context, RenderKeyValue("File", model.compactTargetFileValue(failure.TargetFile, "File")))
 	}
 	if failure.Selector != "" {
-		context = append(context, RenderKeyValue(targetFailureSelectorLabel(failure.SelectorName), failure.Selector))
+		context = append(context, RenderKeyValue("Selector", failure.Selector))
 	}
 
 	reason := failure.Reason
@@ -508,12 +546,12 @@ func (model Model) comparisonFailureError(kind comparisonRequestKind, profileNam
 	}
 
 	if targetFailure, ok := app.TargetFailureFromError(cause); ok {
-		context = append(context, RenderKeyValue("Target", targetNameLabel(targetFailure.TargetName)+targetTypeBadge(string(targetFailure.TargetType))))
+		context = append(context, RenderKeyValue("Managed value", targetNameLabel(targetFailure.TargetName)+targetTypeBadge(string(targetFailure.TargetType))))
 		if targetFailure.TargetFile != "" {
 			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(targetFailure.TargetFile, "File")))
 		}
 		if targetFailure.Selector != "" {
-			context = append(context, RenderKeyValue(targetFailureSelectorLabel(targetFailure.SelectorName), targetFailure.Selector))
+			context = append(context, RenderKeyValue("Selector", targetFailure.Selector))
 		}
 	}
 
@@ -588,25 +626,6 @@ func targetTypeBadge(targetType string) string {
 	return " [" + targetType + "]"
 }
 
-func targetSelectorDisplayLabel(selectorName string) string {
-	if selectorName == "key" {
-		return "Target key"
-	}
-
-	if selectorName == "yamlPath" {
-		return "yamlPath"
-	}
-	if selectorName == "tomlPath" {
-		return "tomlPath"
-	}
-
-	if selectorName == "jsonPath" || selectorName == "" {
-		return "Target JSON path"
-	}
-
-	return "Target selector"
-}
-
 func selectorFieldName(selectorName string) string {
 	if selectorName == "" {
 		return "selector"
@@ -631,12 +650,48 @@ func plannedChangeSelectorLine(change app.PlannedChange) string {
 	return selectorSummary(change.SelectorName, change.Selector)
 }
 
-func targetFailureSelectorLabel(selectorName string) string {
-	if selectorName == "yamlPath" || selectorName == "tomlPath" {
-		return selectorFieldName(selectorName)
+func targetDescriptorFields(descriptor app.TargetDescriptor, includeFile bool) []DetailField {
+	fields := make([]DetailField, 0, 3)
+	if includeFile && descriptor.TargetFile != "" {
+		fields = append(fields, DetailField{Label: "File", Value: descriptor.TargetFile})
+	}
+	fields = append(fields, DetailField{Label: "Managed value", Value: targetNameLabel(descriptor.TargetName) + targetTypeBadge(string(descriptor.TargetType))})
+	if descriptor.Selector != "" {
+		fields = append(fields, DetailField{Label: "Selector", Value: descriptor.Selector})
 	}
 
-	return "Selector"
+	return fields
+}
+
+func renderIndentedDetailFields(indent string, fields []DetailField, maxLineWidth int) []string {
+	return RenderIndentedFieldRows(indent, fitDetailFields(fields, indent, maxLineWidth))
+}
+
+func fitDetailFields(fields []DetailField, indent string, maxLineWidth int) []DetailField {
+	if maxLineWidth <= 0 || len(fields) == 0 {
+		return fields
+	}
+
+	labelWidth := maxDetailFieldLabelWidth(fields)
+	valueWidth := maxLineWidth - lipgloss.Width(indent) - labelWidth - 2
+	if valueWidth < lipgloss.Width(textEllipsis)+1 {
+		valueWidth = maxLineWidth - lipgloss.Width(indent)
+	}
+	if valueWidth <= 0 {
+		return fields
+	}
+
+	fittedFields := make([]DetailField, 0, len(fields))
+	for _, field := range fields {
+		if field.Label == "File" {
+			field.Value = compactPathForDisplay(field.Value, valueWidth)
+		} else {
+			field.Value = fitLine(field.Value, valueWidth)
+		}
+		fittedFields = append(fittedFields, field)
+	}
+
+	return fittedFields
 }
 
 func isSingleTargetResult(result app.Result) bool {
@@ -765,10 +820,6 @@ func trailingTextWithinWidth(value string, maxWidth int) string {
 	return value
 }
 
-func headerMetadataWidth(shellWidth int) int {
-	return normalizedWidth(shellWidth) / 2
-}
-
 func secondaryPanelContentWidth(shellWidth int) int {
 	width := normalizedWidth(shellWidth)
 	panelWidth := width
@@ -795,10 +846,6 @@ func valueWidthAfterPrefix(maxLineWidth int, prefix string) int {
 	}
 
 	return valueWidth
-}
-
-func valueWidthForIndentedLabel(maxLineWidth int, label string) int {
-	return valueWidthAfterPrefix(maxLineWidth-2, label+": ")
 }
 
 func fitValueForLabel(value string, maxLineWidth int, label string) string {

@@ -40,15 +40,12 @@ func (model Model) View() string {
 
 func (model Model) listView() string {
 	profileLines := []string{"No profiles available."}
-	metadata := []string(nil)
 	if len(model.profiles) > 0 {
 		profileLines = RenderListRows(model.profileRows(RowSelected))
-		metadata = []string{model.valueVisibilityMetadata()}
 	}
 
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Metadata: metadata,
+		Headerless: true,
 		Panels: []Panel{
 			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 			{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()},
@@ -65,7 +62,7 @@ func (model Model) shouldFillWorkspacePanels() bool {
 
 func (model Model) listActions() []Action {
 	if model.isApplying() {
-		return []Action{{Key: "Ctrl+C", Label: "Exit immediately"}}
+		return []Action{{Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}
 	}
 
 	selectedProfile, ok := model.selectedProfile()
@@ -84,11 +81,11 @@ func (model Model) listActions() []Action {
 	}
 	actions = append(actions,
 		Action{Key: "Enter", Label: enterActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
+		Action{Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
 		Action{Key: "i", Label: "Inspect", Priority: ActionPriorityNormal},
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		model.valueRevealAction(),
-		Action{Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPrioritySecondary},
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
@@ -122,7 +119,6 @@ func (model Model) profileContentsLines() []string {
 	lines := []string{
 		selectedProfileTitle(selectedProfile),
 		strings.Join(summaryParts, " | "),
-		"values " + valueVisibilityLabel(model.valuesVisible),
 	}
 	if contents.Partial {
 		lines = append(lines, omittedTargetsLabel(contents.OmittedTargetCount))
@@ -145,16 +141,12 @@ func (model Model) profileContentsPreviewOptions() app.PreviewOptions {
 func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, model Model) []string {
 	targetFile := model.application.TargetFile()
 	targetLabel := ""
-	selectorName := "jsonPath"
 	selector := model.application.TargetPath()
 
 	if valueItem, ok := singleProfileValue(profile); ok {
 		targetLabel = profileValueTargetLabel(valueItem)
 		if valueItem.TargetFile != "" {
 			targetFile = valueItem.TargetFile
-		}
-		if valueItem.SelectorName != "" {
-			selectorName = valueItem.SelectorName
 		}
 		if valueItem.Selector != "" {
 			selector = valueItem.Selector
@@ -165,18 +157,19 @@ func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, mod
 		return lines
 	}
 
-	lines = append(lines, "", "Target")
-	if targetLabel != "" {
-		lines = append(lines, RenderKeyValue("Name", targetLabel))
-	}
+	fields := make([]DetailField, 0, 3)
 	if targetFile != "" {
-		lines = append(lines, RenderKeyValue("Target file", model.compactTargetFileValue(targetFile, "Target file")))
+		fields = append(fields, DetailField{Label: "File", Value: targetFile})
+	}
+	if targetLabel != "" {
+		fields = append(fields, DetailField{Label: "Managed value", Value: targetLabel})
 	}
 	if selector != "" {
-		lines = append(lines, RenderKeyValue(targetSelectorDisplayLabel(selectorName), selector))
+		fields = append(fields, DetailField{Label: "Selector", Value: selector})
 	}
 
-	return lines
+	lines = append(lines, "", RenderSectionHeading("Target"))
+	return append(lines, renderIndentedDetailFields("  ", fields, secondaryPanelContentWidth(model.width))...)
 }
 
 func singleProfileValue(profile app.ProfileItem) (app.ProfileValueItem, bool) {
@@ -204,30 +197,23 @@ func (model Model) tooSmallTerminalView() string {
 			fmt.Sprintf("Current size: %dx%d", model.width, model.height),
 			"Resize the terminal to continue.",
 		}}},
-		Actions: []Action{{Key: "q", Label: "Quit"}, {Key: "Ctrl+C", Label: "Exit immediately"}},
+		Actions: []Action{{Key: "q", Label: "Quit"}},
 		Width:   model.width,
 		Height:  model.height,
 	})
 }
 
 func (model Model) statusComparisonView() string {
-	lines := []string{
-		"Checking current managed values...",
-		"No files will be modified.",
-	}
-	metadata := []string{"read-only"}
+	lines := []string{"Checking current managed values..."}
 	if model.state == statusReadyState && model.statusComparison != nil {
 		lines = statusComparisonLines(*model.statusComparison, secondaryPanelContentWidth(model.width))
-		metadata = statusComparisonMetadata(*model.statusComparison)
 	}
 
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Current status",
-		Metadata: metadata,
+		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Status", Lines: lines, Focused: true},
+			{Title: "Status", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
 		Actions: comparisonActions(comparisonRequestStatus, model.valuesVisible),
 		Width:   model.width,
@@ -248,30 +234,25 @@ func (model Model) diffComparisonView() string {
 
 	panelWidth := fullPanelContentWidth(model.width)
 	lines := diffComparisonLoadingLines(profileName)
-	metadata := profileDiffMetadata(profileName, model.valuesVisible)
 	if model.state == diffReadyState && model.diffPreview != nil {
 		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, panelWidth)
-		metadata = profileDiffMetadata(model.diffPreview.ProfileName, model.valuesVisible)
 	}
 
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Metadata: metadata,
-		Panels:   []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
-		Actions:  comparisonActions(comparisonRequestDiff, model.valuesVisible),
-		Width:    model.width,
-		Height:   model.height,
+		Headerless: true,
+		Panels:     []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
+		Actions:    comparisonActions(comparisonRequestDiff, model.valuesVisible),
+		Width:      model.width,
+		Height:     model.height,
 	})
 }
 
 func (model Model) comparisonErrorView() string {
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Comparison error",
-		Metadata: []string{"read-only"},
+		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true},
+			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
 		Actions: comparisonActions(comparisonRequestNone, model.valuesVisible),
 		Width:   model.width,
@@ -280,26 +261,12 @@ func (model Model) comparisonErrorView() string {
 }
 
 func diffComparisonLoadingLines(profileName string) []string {
-	lines := make([]string, 0, 3)
+	lines := make([]string, 0, 2)
 	if profileName != "" {
 		lines = append(lines, RenderKeyValue("Profile", profileName))
 	}
 
-	return append(lines,
-		"Comparing selected profile...",
-		"No files will be modified.",
-	)
-}
-
-func profileDiffMetadata(profileName string, valuesVisible bool) []string {
-	metadata := make([]string, 0, 1)
-	valueState := "values " + valueVisibilityLabel(valuesVisible)
-	if profileName != "" {
-		metadata = append(metadata, profileName+" | "+valueState+" | read-only")
-		return metadata
-	}
-
-	return append(metadata, valueState+" | read-only")
+	return append(lines, "Comparing selected profile...")
 }
 
 func comparisonActions(kind comparisonRequestKind, valuesVisible bool) []Action {
@@ -315,18 +282,9 @@ func comparisonActions(kind comparisonRequestKind, valuesVisible bool) []Action 
 	}
 
 	return append(actions,
-		Action{Key: "Esc/q", Label: "Return", Priority: ActionPriorityPrimary},
-		Action{Key: "Ctrl+C", Label: "Exit immediately", Priority: ActionPriorityCritical},
+		Action{Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary},
+		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
-}
-
-func statusComparisonMetadata(status app.StatusComparison) []string {
-	metadata := make([]string, 0, 2)
-	if status.TargetCount > 0 {
-		metadata = append(metadata, configuredTargetCountLabel(status.TargetCount))
-	}
-
-	return append(metadata, "read-only")
 }
 
 func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []string {
@@ -334,22 +292,22 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 	switch status.Status {
 	case app.StatusComparisonMatched:
 		lines = append(lines,
-			RenderKeyValue("Current profile", statusCurrentProfileLabel(status)),
-			RenderKeyValue("State", "exact complete match"),
-			RenderKeyValue("Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount)),
+			RenderSectionHeading("Exact match"),
+			"The managed files match one complete profile.",
 		)
-		lines = appendStatusTargetSection(lines, "Matched targets", status.MatchedTargets, maxLineWidth)
+		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, maxLineWidth)
 	case app.StatusComparisonAmbiguous:
 		lines = append(lines,
-			RenderKeyValue("State", "multiple complete profiles match"),
-			RenderKeyValue("Complete matches", fmt.Sprintf("%d", len(status.Matches))),
-			RenderKeyValue("Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount)),
+			RenderSectionHeading("Ambiguous match"),
+			"The managed files match more than one complete profile.",
 		)
-		lines = appendStatusProfileMatches(lines, "Matches", status.Matches)
-		lines = appendStatusTargetSection(lines, "Matched targets", status.MatchedTargets, maxLineWidth)
+		lines = appendStatusProfileMatches(lines, "Matching profiles", status.Matches)
+		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, maxLineWidth)
 	default:
 		lines = append(lines,
-			RenderKeyValue("State", "no complete profile match"),
+			RenderSectionHeading("No exact match"),
+			"No complete profile matches the managed files.",
+			"",
 			RenderKeyValue("Configured targets", fmt.Sprintf("%d", status.TargetCount)),
 		)
 		lines = appendStatusPartialMatches(lines, status.PartialMatches)
@@ -360,58 +318,64 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 	}
 
 	lines = appendStatusUnavailableProfiles(lines, status.UnavailableProfiles, maxLineWidth)
-	lines = append(lines, "", "No files were modified.")
 	return lines
 }
 
 func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible bool, maxLineWidth int) []string {
-	summaryParts := []string{
-		managedPatchStateLabel(preview),
-		countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount),
-		"values " + valueVisibilityLabel(valuesVisible),
-	}
 	lines := []string{
 		profileComparisonLabel(preview.ProfileName, preview.Protected),
-		strings.Join(summaryParts, " | "),
+		RenderSectionHeading(managedPatchStateLabel(preview)),
+	}
+	if preview.Complete && preview.IncludedTargetCount > 0 && managedPatchWouldUpdateCount(preview) == 0 {
+		lines = append(lines, "All included targets already match this profile.")
 	}
 	if preview.OmittedTargetCount > 0 {
-		lines = append(lines, omittedTargetsLabel(preview.OmittedTargetCount))
-	}
-	if preview.Protected {
-		lines = append(lines, "Protected profile; read-only preview only.")
+		lines = append(lines, RenderKeyValue("Included targets", countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount)))
 	}
 
 	lines = appendManagedPatchFileGroups(lines, preview.Files, valuesVisible, maxLineWidth)
 	lines = appendManagedPatchOmittedTargets(lines, preview.OmittedTargets, maxLineWidth)
-	lines = append(lines, "", "No files were modified.")
 	return lines
 }
 
 func managedPatchStateLabel(preview app.ManagedPatchPreview) string {
 	if !preview.Complete {
-		return "some profile values unavailable"
+		return "Some values unavailable"
 	}
+	wouldUpdateCount := managedPatchWouldUpdateCount(preview)
+	if wouldUpdateCount > 0 {
+		return "Would update " + targetCountLabel(wouldUpdateCount)
+	}
+
+	if preview.IncludedTargetCount > 0 {
+		return "No changes"
+	}
+
+	return "No included targets"
+}
+
+func managedPatchWouldUpdateCount(preview app.ManagedPatchPreview) int {
+	count := 0
 	for _, group := range preview.Files {
 		for _, hunk := range group.Hunks {
 			if hunk.Status == app.ManagedPatchStatusWouldUpdate {
-				return "would update included targets"
+				count++
 			}
 		}
 	}
 
-	if preview.IncludedTargetCount > 0 {
-		return "included targets already match"
-	}
-
-	return "no included targets"
+	return count
 }
 
-func appendStatusTargetSection(lines []string, heading string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
-	if len(descriptors) == 0 {
+func appendStatusTargetSection(lines []string, heading string, countLabel string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+	if countLabel == "" && len(descriptors) == 0 {
 		return lines
 	}
 
-	lines = append(lines, "", heading)
+	lines = append(lines, "", RenderSectionHeading(heading))
+	if countLabel != "" {
+		lines = append(lines, countLabel)
+	}
 	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
 }
 
@@ -420,7 +384,7 @@ func appendStatusProfileMatches(lines []string, heading string, matches []app.Pr
 		return lines
 	}
 
-	lines = append(lines, "", heading)
+	lines = append(lines, "", RenderSectionHeading(heading))
 	for _, match := range matches {
 		lines = append(lines, "  "+profileComparisonLabel(match.ProfileName, match.Protected))
 	}
@@ -433,7 +397,7 @@ func appendStatusPartialMatches(lines []string, matches []app.PartialProfileMatc
 		return lines
 	}
 
-	lines = append(lines, "", "Partial matches")
+	lines = append(lines, "", RenderSectionHeading("Partial matches"))
 	for _, match := range matches {
 		summary := fmt.Sprintf("%d/%d included match; %d omitted", match.MatchedTargets, match.IncludedTargets, match.OmittedTargets)
 		lines = append(lines, "  "+profileComparisonLabel(match.ProfileName, match.Protected)+" - "+summary)
@@ -447,7 +411,7 @@ func appendStatusClosestProfiles(lines []string, matches []app.ClosestProfileMat
 		return lines
 	}
 
-	lines = append(lines, "", "Closest profiles")
+	lines = append(lines, "", RenderSectionHeading("Closest profiles"))
 	for _, match := range matches {
 		summary := fmt.Sprintf("%d/%d targets match", match.MatchedTargets, match.TargetCount)
 		if match.UnavailableTargets > 0 {
@@ -464,7 +428,7 @@ func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableP
 		return lines
 	}
 
-	lines = append(lines, "", "Unavailable profiles")
+	lines = append(lines, "", RenderSectionHeading("Unavailable profiles"))
 	for _, profile := range profiles {
 		if len(profile.Values) == 0 {
 			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected))
@@ -475,24 +439,12 @@ func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableP
 		}
 
 		for _, value := range profile.Values {
-			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected)+" / "+targetNameLabel(value.TargetName)+targetTypeBadge(string(value.TargetType)))
+			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected))
 			lines = append(lines, unavailableValueDetailLines(value, maxLineWidth)...)
 		}
 	}
 
 	return lines
-}
-
-func statusCurrentProfileLabel(status app.StatusComparison) string {
-	protected := false
-	for _, match := range status.Matches {
-		if match.ProfileName == status.CurrentProfile {
-			protected = match.Protected
-			break
-		}
-	}
-
-	return profileComparisonLabel(status.CurrentProfile, protected)
 }
 
 func profileComparisonLabel(profileName string, protected bool) string {
@@ -512,14 +464,6 @@ func countOfTotalLabel(count int, total int) string {
 	}
 
 	return fmt.Sprintf("%d", count)
-}
-
-func configuredTargetCountLabel(targetCount int) string {
-	if targetCount == 1 {
-		return "1 configured target"
-	}
-
-	return fmt.Sprintf("%d configured targets", targetCount)
 }
 
 func (model Model) inspectionView() string {
@@ -558,14 +502,12 @@ func (model Model) inspectionView() string {
 	}
 
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Inspect Profile",
-		Metadata: model.targetMetadata(),
+		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Profile detail", Lines: profileLines, Focused: true},
+			{Title: "Profile detail", Lines: profileLines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPrioritySecondary}, {Key: "i/Esc/q", Label: "Return"}, model.valueRevealAction()},
+		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary}, {Key: "i", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary}, model.valueRevealAction(), {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}},
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -604,13 +546,12 @@ func (model Model) confirmationView() string {
 	}
 
 	return RenderShell(Shell{
-		Title:    "Apply protected profile?",
-		Metadata: model.targetMetadata(),
+		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Confirmation", Lines: lines, Focused: true},
+			{Title: "Confirmation", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: []Action{{Key: "Enter/y", Label: "Confirm"}, {Key: "n/Esc/q", Label: "Cancel"}},
+		Actions: []Action{{Key: "Enter/y", Label: "Confirm", Priority: ActionPriorityPrimary}, {Key: "n/Esc", Label: "Cancel", Priority: ActionPriorityPrimary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}},
 		Width:   model.width,
 		Height:  model.height,
 	})
@@ -619,22 +560,18 @@ func (model Model) confirmationView() string {
 func enterActionLabel(profile app.ProfileItem) string {
 	switch {
 	case !profile.Available:
-		return "Show Error"
-	case profile.Protected:
-		return "Continue"
+		return "Details"
 	default:
-		return "Apply"
+		return "Apply+Exit"
 	}
 }
 
 func stayActionLabel(profile app.ProfileItem) string {
 	switch {
 	case !profile.Available:
-		return "Show Error"
-	case profile.Protected:
-		return "Continue"
+		return "Details"
 	default:
-		return "Apply+Stay"
+		return "Apply"
 	}
 }
 
@@ -648,12 +585,10 @@ func (model Model) confirmationCompletionLine() string {
 
 func (model Model) errorView() string {
 	return RenderShell(Shell{
-		Title:    "Switchlet",
-		Subtitle: "Recoverable error",
-		Metadata: model.targetMetadata(),
+		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
-			{Title: "Error", Lines: RecoverableErrorLines(model.recoverableError, secondaryPanelContentWidth(model.width)), Focused: true},
+			{Title: "Error", Lines: RecoverableErrorLines(model.recoverableError, secondaryPanelContentWidth(model.width)), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
 		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
 		Width:   model.width,
@@ -711,25 +646,6 @@ func targetListHeading(singular string, changes []app.PlannedChange) string {
 	}
 
 	return singular + "s"
-}
-
-func (model Model) targetMetadata() []string {
-	if selectedProfile, ok := model.selectedProfile(); ok && selectedProfile.TotalTargets > 1 {
-		return []string{
-			fmt.Sprintf("%d configured targets", selectedProfile.TotalTargets),
-			"Selected: " + changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets),
-		}
-	}
-
-	metadata := make([]string, 0, 2)
-	if model.application.TargetFile() != "" {
-		metadata = append(metadata, compactPathForDisplay(model.application.TargetFile(), headerMetadataWidth(model.width)))
-	}
-	if model.application.TargetPath() != "" {
-		metadata = append(metadata, model.application.TargetPath())
-	}
-
-	return metadata
 }
 
 func sourceLabel(source app.ProfileSource) string {
@@ -797,18 +713,6 @@ func maskedValueLabel(profile app.ProfileItem) string {
 
 func (model Model) valueRevealAction() Action {
 	return valueRevealAction(model.valuesVisible)
-}
-
-func (model Model) valueVisibilityMetadata() string {
-	return "values " + valueVisibilityLabel(model.valuesVisible)
-}
-
-func valueVisibilityLabel(valuesVisible bool) string {
-	if valuesVisible {
-		return "shown"
-	}
-
-	return "hidden"
 }
 
 func valueRevealAction(valuesVisible bool) Action {

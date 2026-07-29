@@ -39,7 +39,8 @@ func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t 
 	if model.comparisonRequestKind != comparisonRequestStatus || model.statusComparison != nil {
 		t.Fatalf("comparison request = %d/%#v, want active status loading without result", model.comparisonRequestKind, model.statusComparison)
 	}
-	if !strings.Contains(model.View(), "Checking current managed values") || !strings.Contains(model.View(), "No files will be modified") {
+	loadingView := model.View()
+	if !strings.Contains(loadingView, "Checking current managed values") || strings.Contains(loadingView, "No files will be modified") {
 		t.Fatalf("View() = %q, want immediate status loading feedback", model.View())
 	}
 	firstRequestID := model.comparisonRequestID
@@ -75,7 +76,7 @@ func TestUpdate_StatusActionRequestsComparisonRefreshesAndIgnoresStaleResults(t 
 	if model.statusComparison.CurrentProfile != "Local" {
 		t.Fatalf("CurrentProfile = %q, want Local", model.statusComparison.CurrentProfile)
 	}
-	if !strings.Contains(model.View(), "Current profile: Local") {
+	if !strings.Contains(model.View(), "Exact match") {
 		t.Fatalf("View() = %q, want ready status feedback", model.View())
 	}
 	assertFileUnchanged(t, targetPath, originalContents, originalMode)
@@ -138,17 +139,20 @@ func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *te
 	model = openStatusReady(t, model)
 	view := model.View()
 	for _, expected := range []string{
-		"Current profile: Local",
-		"State: exact complete match",
-		"Matched targets: 1 of 1",
+		"Local [current]",
+		"Exact match",
+		"The managed files match one complete profile.",
+		"Matched targets",
+		"1 of 1",
 		"database [json]",
-		"File:",
-		"jsonPath: database.url",
-		"No files were modified.",
+		"File",
+		"Managed value",
+		"Selector",
+		"database.url",
 		"r Refresh",
 		"s Return",
-		"Esc/q Return",
-		"Ctrl+C Exit immediately",
+		"Esc Return",
+		"q Quit",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want status detail %q", view, expected)
@@ -156,6 +160,9 @@ func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *te
 	}
 	if strings.Contains(view, currentValue) {
 		t.Fatalf("View() = %q, must not contain raw current or resolved value", view)
+	}
+	if strings.Contains(view, "Current profile:") || strings.Contains(view, "No files were modified.") {
+		t.Fatalf("View() = %q, must not contain old status meta text", view)
 	}
 }
 
@@ -174,13 +181,15 @@ func TestView_StatusAmbiguousMatchRendersMatchesWithoutChoosingCurrentProfile(t 
 	model = openStatusReady(t, model)
 	view := model.View()
 	for _, expected := range []string{
-		"State: multiple complete profiles match",
-		"Complete matches: 2",
-		"Matches",
+		"Ambiguous match",
+		"The managed files match more than one complete profile.",
+		"Matching profiles",
 		"Local",
 		"Local Copy",
 		"[protected]",
 		"Matched targets",
+		"Managed value",
+		"Selector",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want ambiguous status detail %q", view, expected)
@@ -219,16 +228,20 @@ func TestView_StatusUnmatchedRendersPartialClosestAndUnavailableProfilesSafely(t
 	model = openStatusReady(t, model)
 	view := model.View()
 	for _, expected := range []string{
-		"State: no complete profile match",
+		"No exact match",
+		"No complete profile matches the managed files.",
 		"Configured targets: 2",
 		"Partial matches",
 		"Database only - 1/1 included match; 1 omitted",
 		"Closest profiles",
 		"Almost - 1/2 targets match",
 		"Unavailable profiles",
-		"Secret / database [json]",
+		"Secret",
+		"Managed value",
+		"database [json]",
+		"Selector",
 		environmentVariableName,
-		"Reason: profile \"Secret\" value for target \"database\"",
+		"Reason",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want unmatched status detail %q", view, expected)
@@ -282,7 +295,7 @@ func TestView_StatusScreenContainsLongContentAtHostileDimensions(t *testing.T) {
 				return
 			}
 
-			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+			assertMainCommandBarAtBottom(t, view, "q Quit")
 		})
 	}
 }
@@ -552,34 +565,32 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 		"Managed patch",
 		"Staging",
 		"[protected]",
-		"some profile values unavailable | 3 of 4 | values hidden",
-		"1 target unchanged",
-		"Protected profile; read-only preview only.",
+		"Some values unavailable",
+		"Included targets: 3 of 4",
 		"Affected files",
 		"backend/appsettings.Development.json",
-		"@@ database [json]",
-		"jsonPath: database.url",
-		"would update",
+		"Managed value",
+		"database [json]",
+		"Selector",
+		"database.url",
 		"- current  " + hiddenValuePlaceholder,
 		"+ profile  " + hiddenValuePlaceholder,
 		"frontend/.env.local",
-		"@@ frontendApi [dotenv]",
-		"key: VITE_API_URL",
-		"already matches",
+		"frontendApi [dotenv]",
+		"VITE_API_URL",
 		"= value    " + hiddenValuePlaceholder,
 		"worker/config.json",
-		"@@ workerQueue [json]",
-		"unavailable",
+		"workerQueue [json]",
+		"State: unavailable",
 		environmentVariableName,
 		"Reason: profile \"Staging\" value for target \"workerQueue\"",
 		"Omitted targets",
 		"Unchanged by this partial profile.",
 		"redis [json]",
-		"No files were modified.",
 		"r Refresh",
 		"d Return",
-		"Esc/q Return",
-		"Ctrl+C Exit immediately",
+		"Esc Return",
+		"q Quit",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want diff detail %q", view, expected)
@@ -590,10 +601,46 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 			t.Fatalf("View() = %q, must not contain raw current or resolved value %q", view, forbidden)
 		}
 	}
+	for _, forbidden := range []string{"values hidden", "No files were modified.", "Protected profile; read-only preview only."} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain old diff meta text %q", view, forbidden)
+		}
+	}
 
 	lines := visibleLines(view)
 	if strings.Contains(lines[len(lines)-1], "Apply") {
 		t.Fatalf("command bar = %q, must not include an apply action", lines[len(lines)-1])
+	}
+}
+
+func TestView_DiffNoChangeUsesHeadingAndAlignedValueRow(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://current-managed-value"
+	targetPath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}}},
+	))
+
+	model = openDiffReady(t, model)
+	view := model.View()
+	for _, expected := range []string{
+		"No changes",
+		"All included targets already match this profile.",
+		"Managed value",
+		"database [json]",
+		"Selector",
+		"database.url",
+		"= value    " + hiddenValuePlaceholder,
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want no-change diff detail %q", view, expected)
+		}
+	}
+	for _, forbidden := range []string{currentValue, "- current", "+ profile", "No files were modified.", "values hidden"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain no-change forbidden text %q", view, forbidden)
+		}
 	}
 }
 
@@ -621,7 +668,7 @@ func TestView_DiffManagedPatchRevealsManagedValuesWhenShown(t *testing.T) {
 
 	shownView := model.View()
 	for _, expected := range []string{
-		"values shown",
+		"Would update 1 target",
 		"v Hide values",
 		"- current  " + currentValue,
 		"+ profile  " + profileValue,
@@ -647,10 +694,13 @@ func TestView_DiffLoadingShowsSelectedProfileContextAndReadOnlyCommands(t *testi
 	}
 
 	view := model.View()
-	for _, expected := range []string{"Profile: Staging", "Comparing selected profile...", "No files will be modified.", "r Refresh", "d Return", "Esc/q Return", "Ctrl+C Exit immediately"} {
+	for _, expected := range []string{"Profile: Staging", "Comparing selected profile...", "r Refresh", "d Return", "Esc Return", "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want diff loading detail %q", view, expected)
 		}
+	}
+	if strings.Contains(view, "No files will be modified.") {
+		t.Fatalf("View() = %q, must not contain old no-write meta text", view)
 	}
 }
 
@@ -752,7 +802,7 @@ func TestView_DiffScreenContainsLongContentAtHostileDimensions(t *testing.T) {
 				return
 			}
 
-			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+			assertMainCommandBarAtBottom(t, view, "q Quit")
 		})
 	}
 }
@@ -763,15 +813,12 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 		state viewState
 		key   tea.KeyMsg
 	}{
-		{name: "status loading q", state: statusLoadingState, key: runeKey('q')},
 		{name: "status loading s", state: statusLoadingState, key: runeKey('s')},
 		{name: "status ready esc", state: statusReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},
 		{name: "status ready s", state: statusReadyState, key: runeKey('s')},
-		{name: "diff loading q", state: diffLoadingState, key: runeKey('q')},
 		{name: "diff loading d", state: diffLoadingState, key: runeKey('d')},
 		{name: "diff ready esc", state: diffReadyState, key: tea.KeyMsg{Type: tea.KeyEsc}},
 		{name: "diff ready d", state: diffReadyState, key: runeKey('d')},
-		{name: "comparison error q", state: comparisonErrorState, key: runeKey('q')},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			model := comparisonKeyTestModel()
@@ -796,6 +843,19 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 				t.Fatalf("comparison state was not cleared: %#v", model)
 			}
 		})
+	}
+
+	for _, state := range []viewState{statusLoadingState, diffLoadingState, comparisonErrorState} {
+		model := comparisonKeyTestModel()
+		model.state = state
+		updatedModel, command := model.Update(runeKey('q'))
+		model = updatedModel.(Model)
+		if command == nil {
+			t.Fatalf("q command is nil for state %d, want quit command", state)
+		}
+		if model.state != state {
+			t.Fatalf("state = %d, want q to quit without changing state %d", model.state, state)
+		}
 	}
 
 	for _, state := range []viewState{statusLoadingState, statusReadyState, diffLoadingState, diffReadyState, comparisonErrorState} {
@@ -838,7 +898,7 @@ func TestUpdate_ComparisonFailureShowsRecoverableErrorWithoutWritingOrLeakingVal
 		t.Fatalf("state = %d, want comparisonErrorState", model.state)
 	}
 	view := model.View()
-	for _, expected := range []string{"Comparison error", "Could not compare current status.", "Action: Current status", "Target: database [json]", "Selector: database.url", "Reason:", "missing segment"} {
+	for _, expected := range []string{"* Error", "Could not compare current status.", "Action: Current status", "Managed value: database [json]", "Selector: database.url", "Reason:", "missing segment"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want comparison error detail %q", view, expected)
 		}
@@ -852,10 +912,10 @@ func TestUpdate_ComparisonFailureShowsRecoverableErrorWithoutWritingOrLeakingVal
 	assertNoTargetTempFile(t, targetPath)
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 
-	updatedModel, returnCommand := model.Update(runeKey('q'))
+	updatedModel, returnCommand := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	model = updatedModel.(Model)
 	if returnCommand != nil {
-		t.Fatal("returnCommand is not nil, want q to return from comparison error")
+		t.Fatal("returnCommand is not nil, want Esc to return from comparison error")
 	}
 	if model.state != listState {
 		t.Fatalf("state = %d, want listState after comparison error return", model.state)
@@ -896,7 +956,7 @@ func TestUpdate_ComparisonErrorRefreshRetriesStatusAndRejectsStaleFailure(t *tes
 	}
 	staleCause := model.comparisonError.Cause
 	view := model.View()
-	for _, expected := range []string{"Comparison error", "Could not compare current status.", "r Refresh", "Esc/q Return", "Ctrl+C Exit immediately"} {
+	for _, expected := range []string{"* Error", "Could not compare current status.", "r Refresh", "Esc Return", "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want comparison error detail %q", view, expected)
 		}
@@ -1022,7 +1082,7 @@ func TestView_ComparisonErrorContainsLongContentAtHostileDimensions(t *testing.T
 		Context: []string{
 			RenderKeyValue("Action", "Selected-profile diff"),
 			RenderKeyValue("Profile", "Production profile with a very long display name"),
-			RenderKeyValue("Target", "database-with-a-very-long-target-name [json]"),
+			RenderKeyValue("Managed value", "database-with-a-very-long-target-name [json]"),
 			RenderKeyValue("File", "/very/long/project/path/backend/appsettings.Development.json"),
 			RenderKeyValue("Selector", "services.database.primary.connectionStrings.defaultConnection.value"),
 		},
@@ -1053,7 +1113,7 @@ func TestView_ComparisonErrorContainsLongContentAtHostileDimensions(t *testing.T
 				return
 			}
 
-			assertMainCommandBarAtBottom(t, view, "Ctrl+C Exit immediately")
+			assertMainCommandBarAtBottom(t, view, "q Quit")
 			if strings.Contains(view, "super-secret") {
 				t.Fatalf("View() = %q, must not contain raw secret values", view)
 			}
@@ -1066,9 +1126,11 @@ func TestView_ListActionsExposeStatusAndDiff(t *testing.T) {
 		config.Target{},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
 	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	model = updatedModel.(Model)
 
 	view := model.View()
-	for _, expected := range []string{"Enter Apply", "i Inspect", "s Status", "d Diff", "q Quit"} {
+	for _, expected := range []string{"Enter Apply+Exit", "Space Apply", "i Inspect", "s Status", "d Diff", "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want command action %q", view, expected)
 		}

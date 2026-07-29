@@ -466,7 +466,7 @@ func TestUpdate_ShowsRecoverableApplicationError(t *testing.T) {
 	if !strings.Contains(model.recoverableError.Reason, "contains invalid JSON") {
 		t.Fatalf("recoverableError.Reason = %q, want editor error", model.recoverableError.Reason)
 	}
-	for _, expected := range []string{"Could not prepare target", "Context:", "Profile: Local", "Target: default [json]", "config.json", "Selector: service.baseUrl", "Reason:", "contains invalid JSON", "Recovery:", "Press any key"} {
+	for _, expected := range []string{"Could not prepare target", "Context:", "Profile: Local", "Managed value: default [json]", "config.json", "Selector: service.baseUrl", "Reason:", "contains invalid JSON", "Recovery:", "Press any key"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("View() = %q, want recoverable error detail %q", model.View(), expected)
 		}

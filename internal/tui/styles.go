@@ -10,6 +10,9 @@ type styleSet struct {
 	focusedPanel lipgloss.Style
 	panelTitle   lipgloss.Style
 	focusedTitle lipgloss.Style
+	sectionTitle lipgloss.Style
+	fieldLabel   lipgloss.Style
+	strongValue  lipgloss.Style
 	selectedRow  lipgloss.Style
 	inactiveRow  lipgloss.Style
 	disabledRow  lipgloss.Style
@@ -31,6 +34,9 @@ func defaultStyles() styleSet {
 		focusedPanel: lipgloss.NewStyle().Border(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("12")).Padding(0, 1),
 		panelTitle:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 		focusedTitle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
+		sectionTitle: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
+		fieldLabel:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
+		strongValue:  lipgloss.NewStyle().Bold(true),
 		selectedRow:  lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
 		inactiveRow:  lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 		disabledRow:  lipgloss.NewStyle().Foreground(lipgloss.Color("8")),

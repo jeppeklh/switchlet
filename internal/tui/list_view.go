@@ -8,17 +8,16 @@ import (
 
 const (
 	shellActionLineCount      = 2
-	shellHeaderLineCount      = 2
-	shellHeaderPanelGap       = 1
 	stackedPanelGapLineCount  = 1
 	minimumVisibleProfileRows = 3
 )
 
 func (model Model) profilePanel(selectedState RowState, focused bool) Panel {
 	return Panel{
-		Title:   model.profilePanelTitle(),
-		Lines:   RenderListRows(model.profileRows(selectedState)),
-		Focused: focused,
+		Title:      model.profilePanelTitle(),
+		Lines:      RenderListRows(model.profileRows(selectedState)),
+		Focused:    focused,
+		FillHeight: model.shouldFillWorkspacePanels(),
 	}
 }
 
@@ -91,7 +90,7 @@ func (model Model) maxVisibleProfileRows() int {
 		return len(model.profiles)
 	}
 
-	panelHeightBudget := model.height - shellActionLineCount - shellHeaderLineCount - shellHeaderPanelGap
+	panelHeightBudget := model.height - shellActionLineCount
 	if normalizedWidth(model.width) < splitShellWidth {
 		panelHeightBudget = (panelHeightBudget - stackedPanelGapLineCount) / 2
 	}
@@ -141,10 +140,10 @@ func profileBadges(profile app.ProfileItem) []Badge {
 }
 
 func (model Model) profileBadges(profile app.ProfileItem) []Badge {
-	badges := make([]Badge, 0, 5)
+	badges := make([]Badge, 0, 1)
 	if model.currentProfile != "" && profile.Name == model.currentProfile {
 		badges = append(badges, Badge{Label: "current"})
 	}
 
-	return append(badges, profileBadges(profile)...)
+	return badges
 }

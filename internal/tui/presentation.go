@@ -71,15 +71,22 @@ type Panel struct {
 	FillHeight bool
 }
 
+// DetailField describes one labelled value in a detail panel.
+type DetailField struct {
+	Label string
+	Value string
+}
+
 // Shell describes the common application surface used by Switchlet screens.
 type Shell struct {
-	Title    string
-	Subtitle string
-	Metadata []string
-	Panels   []Panel
-	Actions  []Action
-	Width    int
-	Height   int
+	Title      string
+	Subtitle   string
+	Metadata   []string
+	Panels     []Panel
+	Actions    []Action
+	Width      int
+	Height     int
+	Headerless bool
 }
 
 // RenderShell renders a compact application shell with titled content regions.
@@ -375,6 +382,21 @@ func RenderKeyValue(label string, value string) string {
 	return label + ": " + value
 }
 
+// RenderSectionHeading renders a shared detail-panel section heading.
+func RenderSectionHeading(heading string) string {
+	return defaultStyles().sectionTitle.Render(heading)
+}
+
+// RenderFieldRows renders aligned label/value rows for detail panels.
+func RenderFieldRows(fields []DetailField) []string {
+	return renderFieldRows("", fields)
+}
+
+// RenderIndentedFieldRows renders aligned detail-panel fields with a prefix.
+func RenderIndentedFieldRows(indent string, fields []DetailField) []string {
+	return renderFieldRows(indent, fields)
+}
+
 // Separator renders the shared command-bar separator.
 func Separator(width int) string {
 	border := lipgloss.NormalBorder()
@@ -382,18 +404,23 @@ func Separator(width int) string {
 }
 
 func shellContentLines(shell Shell, width int, styles styleSet, heightBudget int) []string {
-	lines := shellHeaderLines(shell, width, styles)
-	if heightBudget >= 0 && len(lines) >= heightBudget {
-		return lines[:heightBudget]
+	lines := make([]string, 0)
+	if !shell.Headerless {
+		lines = shellHeaderLines(shell, width, styles)
+		if heightBudget >= 0 && len(lines) >= heightBudget {
+			return lines[:heightBudget]
+		}
 	}
 
 	if len(shell.Panels) == 0 {
 		return lines
 	}
 
-	lines = append(lines, "")
-	if heightBudget >= 0 && len(lines) >= heightBudget {
-		return lines[:heightBudget]
+	if !shell.Headerless {
+		lines = append(lines, "")
+		if heightBudget >= 0 && len(lines) >= heightBudget {
+			return lines[:heightBudget]
+		}
 	}
 
 	panelHeightBudget := unboundedShellHeight
@@ -787,6 +814,37 @@ func joinHeaderLine(left string, right string, width int) string {
 	}
 
 	return left + strings.Repeat(" ", spaceCount) + right
+}
+
+func renderFieldRows(indent string, fields []DetailField) []string {
+	labelWidth := maxDetailFieldLabelWidth(fields)
+	styles := defaultStyles()
+	lines := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field.Label == "" && field.Value == "" {
+			continue
+		}
+		label := styles.fieldLabel.Render(padLine(field.Label, labelWidth))
+		if field.Value == "" {
+			lines = append(lines, indent+label)
+			continue
+		}
+
+		lines = append(lines, indent+label+"  "+styles.strongValue.Render(field.Value))
+	}
+
+	return lines
+}
+
+func maxDetailFieldLabelWidth(fields []DetailField) int {
+	maxWidth := 0
+	for _, field := range fields {
+		if width := lipgloss.Width(field.Label); width > maxWidth {
+			maxWidth = width
+		}
+	}
+
+	return maxWidth
 }
 
 func padLine(line string, width int) string {

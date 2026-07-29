@@ -147,7 +147,7 @@ func TestView_LongTOMLTargetPathAndSelectorStayContainedAcrossMainSurfaces(t *te
 
 	assertTargetFilenameVisible(t, "list", model.View(), "development.toml")
 	assertVisibleWidth(t, model.View(), 80)
-	if !strings.Contains(model.View(), "tomlPath:") {
+	if !strings.Contains(model.View(), "Selector") {
 		t.Fatalf("list View() = %q, want TOML selector label", model.View())
 	}
 
@@ -240,15 +240,17 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 		t.Fatalf("header line = %q, must not duplicate selected-profile target context", headerLine)
 	}
 	for _, expected := range []string{
-		"> Database Only [1 target] [partial]",
+		"> Database Only",
+		"Database Only [1 target] [partial]",
 		"Profile contents",
 		"Ready to apply | 1 of 2 targets",
-		"values hidden",
 		"1 target unchanged",
-		"backend/appsettings.Development.json",
-		"database",
-		"jsonPath: database.url",
-		"Profile value",
+		"appsettings.Development.json",
+		"Managed value",
+		"database [json]",
+		"Selector",
+		"database.url",
+		"Value",
 		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
@@ -257,6 +259,9 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	}
 	if strings.Contains(view, "postgres://local") {
 		t.Fatalf("View() = %q, must not contain raw profile value while values are hidden", view)
+	}
+	if strings.Contains(view, "> Database Only [1 target]") || strings.Contains(view, "values hidden") {
+		t.Fatalf("View() = %q, must not contain list metadata badges or hidden-value meta text", view)
 	}
 }
 
@@ -285,12 +290,13 @@ func TestView_ProfileContentsGroupsMultiTargetProfileByFile(t *testing.T) {
 		"Affected files",
 		"backend/appsettings.Development.json",
 		"database [json]",
-		"jsonPath: database.url",
+		"Selector",
+		"database.url",
 		"redis [json]",
-		"jsonPath: redis.url",
+		"redis.url",
 		"frontend/.env.local",
 		"frontendApi [dotenv]",
-		"key: VITE_API_URL",
+		"VITE_API_URL",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want grouped profile contents %q", view, expected)
@@ -321,11 +327,9 @@ func TestProfileContentsTargetLinesSeparateSelectorFromValue(t *testing.T) {
 	}, 80)
 
 	expectedLines := []string{
-		"  database [json]",
-		"  jsonPath: database.url",
-		"",
-		"  Profile value",
-		"    " + hiddenValuePlaceholder,
+		"  Managed value  database [json]",
+		"  Selector       database.url",
+		"  Value          " + hiddenValuePlaceholder,
 	}
 	if len(lines) != len(expectedLines) {
 		t.Fatalf("profileContentsTargetLines() = %#v, want %#v", lines, expectedLines)
@@ -359,11 +363,12 @@ func TestView_ProfileContentsUnavailableProfileShowsSafeReason(t *testing.T) {
 		"Profile contents",
 		"Unavailable",
 		"database [json]",
-		"unavailable",
-		"Environment variable: MISSING_DB_URL",
-		"Reason: profile \"Staging\" value for target \"database\"",
+		"Availability",
+		"Environment variable",
+		"MISSING_DB_URL",
+		"Reason",
 		"frontendApi [dotenv]",
-		"Profile value",
+		"Value",
 		hiddenValuePlaceholder,
 	} {
 		if !strings.Contains(view, expected) {
@@ -409,21 +414,29 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 
 	view := model.View()
 	for _, expected := range []string{
-		"Inspect Profile",
+		"Profile detail",
 		"Changes: 4 targets",
 		databasePath,
-		"database [json] -> database.url",
-		"Environment variable: STAGING_DATABASE_URL",
-		"Value: Server=staging;Database=App;Password=****;",
+		"Managed value",
+		"database [json]",
+		"Selector",
+		"database.url",
+		"Environment variable",
+		"STAGING_DATABASE_URL",
+		"Value",
+		"Server=staging;Database=App;Password=****;",
 		workerPath,
-		"workerQueue [yaml] -> yamlPath: queue.endpoint",
-		"Value: https://queue.staging.example.test",
+		"workerQueue [yaml]",
+		"queue.endpoint",
+		"https://queue.staging.example.test",
 		servicePath,
-		"serviceEndpoint [toml] -> tomlPath: services.api.endpoint",
-		"Value: https://service.staging.example.test",
+		"serviceEndpoint [toml]",
+		"services.api.endpoint",
+		"https://service.staging.example.test",
 		frontendPath,
-		"frontendApi [dotenv] -> VITE_API_URL",
-		"Value: https://api.staging.example.test",
+		"frontendApi [dotenv]",
+		"VITE_API_URL",
+		"https://api.staging.example.test",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want multi-target inspection detail %q", view, expected)
@@ -469,18 +482,24 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 
 	view := model.View()
 	for _, expected := range []string{
-		"Apply protected profile?",
+		"Confirmation",
 		"Changes: 4 targets",
 		"This will update configured targets only.",
 		"Resolved values are intentionally hidden.",
 		databasePath,
-		"database [json] -> database.url",
+		"Managed value",
+		"database [json]",
+		"Selector",
+		"database.url",
 		workerPath,
-		"workerQueue [yaml] -> yamlPath: queue.endpoint",
+		"workerQueue [yaml]",
+		"queue.endpoint",
 		servicePath,
-		"serviceEndpoint [toml] -> tomlPath: services.api.endpoint",
+		"serviceEndpoint [toml]",
+		"services.api.endpoint",
 		frontendPath,
-		"frontendApi [dotenv] -> VITE_API_URL",
+		"frontendApi [dotenv]",
+		"VITE_API_URL",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want confirmation detail %q", view, expected)
@@ -602,7 +621,7 @@ func TestUpdate_UnavailableMultiTargetProfileIdentifiesFailingTarget(t *testing.
 	}
 
 	view := model.View()
-	for _, expected := range []string{"Profile \"Staging\" is unavailable.", "Affected target: database [json] -> database.url", "Environment variable: STAGING_DATABASE_URL", "Reason:"} {
+	for _, expected := range []string{"Profile \"Staging\" is unavailable.", "Managed value: database [json]", "Selector: database.url", "Environment variable: STAGING_DATABASE_URL", "Reason:"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want unavailable target detail %q", view, expected)
 		}
@@ -647,7 +666,7 @@ func TestUpdate_MultiTargetPreparationErrorShowsTargetContextWithoutResolvedValu
 		"Could not prepare target \"frontendApi\".",
 		"Context:",
 		"Profile: Staging",
-		"Target: frontendApi [dotenv]",
+		"Managed value: frontendApi [dotenv]",
 		"Selector: VITE_API_URL",
 		"Reason:",
 		"replacement value must not contain newline",
@@ -693,10 +712,16 @@ func TestUpdate_StartsApplyThroughCommandAndShowsImmediateFeedback(t *testing.T)
 	}
 
 	view := model.View()
-	for _, expected := range []string{"Applying", "values hidden", "Ctrl+C Exit immediately"} {
+	for _, expected := range []string{"Applying", hiddenValuePlaceholder, "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want immediate apply feedback %q", view, expected)
 		}
+	}
+
+	updatedModel, quitCommand := model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want q to quit while apply is pending")
 	}
 }
 

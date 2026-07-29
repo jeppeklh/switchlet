@@ -29,7 +29,7 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	}
 
 	view := model.View()
-	if !strings.Contains(view, "Inspect Profile") {
+	if !strings.Contains(view, "Profile detail") {
 		t.Fatalf("View() = %q, want inspection title", view)
 	}
 	if !strings.Contains(view, "Profile: Test") {
@@ -57,17 +57,28 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 
-	updatedModel, command = model.Update(runeKey('q'))
+	updatedModel, command = model.Update(runeKey('i'))
 	model = updatedModel.(Model)
 
 	if command != nil {
-		t.Fatal("command is not nil, want no command when closing inspection")
+		t.Fatal("command is not nil, want no command when returning from inspection")
 	}
 	if model.state != listState {
 		t.Fatalf("state = %d, want listState", model.state)
 	}
 	if !strings.Contains(model.View(), "* Profiles") {
 		t.Fatalf("View() = %q, want profile list view", model.View())
+	}
+
+	updatedModel, command = model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when reopening inspection")
+	}
+	updatedModel, command = model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want q to quit from inspection")
 	}
 }
 
@@ -247,16 +258,16 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	}
 
 	view := model.View()
-	if !strings.Contains(view, "Apply protected profile?") {
+	if !strings.Contains(view, "Confirmation") {
 		t.Fatalf("View() = %q, want confirmation title", view)
 	}
 	if !strings.Contains(view, "Profile: Production") {
 		t.Fatalf("View() = %q, want protected profile name", view)
 	}
-	if !strings.Contains(view, "Target file: /tmp/config.json") {
+	if !strings.Contains(view, "File") || !strings.Contains(view, "/tmp/config.json") {
 		t.Fatalf("View() = %q, want target file", view)
 	}
-	if !strings.Contains(view, "Target JSON path: service.baseUrl") {
+	if !strings.Contains(view, "Selector") || !strings.Contains(view, "service.baseUrl") {
 		t.Fatalf("View() = %q, want target JSON path", view)
 	}
 	if !strings.Contains(view, "configured target value") {
@@ -265,7 +276,7 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	if !strings.Contains(view, "Press Enter or y to confirm.") {
 		t.Fatalf("View() = %q, want explicit Enter confirmation guidance", view)
 	}
-	if !strings.Contains(view, "Enter/y Confirm  n/Esc/q Cancel") {
+	if !strings.Contains(view, "Enter/y Confirm  n/Esc Cancel  q Quit") {
 		t.Fatalf("View() = %q, want confirmation help that documents Enter", view)
 	}
 	if strings.Contains(view, "configured connection string") {
@@ -277,7 +288,7 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	if strings.Contains(view, "Password=****") {
 		t.Fatalf("View() = %q, must not contain masked connection string in confirmation", view)
 	}
-	if !strings.Contains(view, "~ Production [protected]") {
+	if !strings.Contains(view, "~ Production") || strings.Contains(view, "~ Production [protected]") {
 		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 
@@ -312,7 +323,7 @@ func TestUpdate_ProtectedUnavailableProfileShowsRecoverableError(t *testing.T) {
 	}
 }
 
-func TestView_InspectionUsesContinueHelpForProtectedProfiles(t *testing.T) {
+func TestView_InspectionUsesApplyAndReturnHelpForProtectedProfiles(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
@@ -327,7 +338,7 @@ func TestView_InspectionUsesContinueHelpForProtectedProfiles(t *testing.T) {
 	if model.state != inspectState {
 		t.Fatalf("state = %d, want inspectState", model.state)
 	}
-	if !strings.Contains(model.View(), "Enter Continue") || !strings.Contains(model.View(), "Space Continue") || !strings.Contains(model.View(), "i/Esc/q Return") {
+	if !strings.Contains(model.View(), "Enter Apply+Exit") || !strings.Contains(model.View(), "Space Apply") || !strings.Contains(model.View(), "i Return") || !strings.Contains(model.View(), "Esc Return") || !strings.Contains(model.View(), "q Quit") {
 		t.Fatalf("View() = %q, want protected inspection help text that matches Enter behavior", model.View())
 	}
 }

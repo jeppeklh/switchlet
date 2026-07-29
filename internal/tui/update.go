@@ -63,6 +63,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model.handleTooSmallTerminalKey(message)
 		}
 		if model.isApplying() {
+			if matchesKey(message, keyQuit) {
+				return model, tea.Quit
+			}
 			return model, nil
 		}
 
@@ -274,7 +277,9 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyEscape, keyStatus):
+	case matchesKey(message, keyQuit):
+		return model, tea.Quit
+	case matchesKey(message, keyEscape, keyStatus):
 		return model.returnToListFromComparison(), nil
 	case matchesKey(message, keyRefresh):
 		return model.startStatusComparison()
@@ -285,7 +290,9 @@ func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea
 
 func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyEscape, keyDiff):
+	case matchesKey(message, keyQuit):
+		return model, tea.Quit
+	case matchesKey(message, keyEscape, keyDiff):
 		return model.returnToListFromComparison(), nil
 	case matchesKey(message, keyRefresh):
 		profileName := model.comparisonProfileName
@@ -307,7 +314,9 @@ func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.C
 
 func (model Model) handleComparisonErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyEscape):
+	case matchesKey(message, keyQuit):
+		return model, tea.Quit
+	case matchesKey(message, keyEscape):
 		return model.returnToListFromComparison(), nil
 	case matchesKey(message, keyRefresh):
 		switch model.comparisonRequestKind {
@@ -332,7 +341,9 @@ func (model Model) handleComparisonErrorKey(message tea.KeyMsg) (tea.Model, tea.
 
 func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyInspect, keyEscape):
+	case matchesKey(message, keyQuit):
+		return model, tea.Quit
+	case matchesKey(message, keyInspect, keyEscape):
 		model.state = listState
 		return model, nil
 	case matchesKey(message, keyReveal):
@@ -350,7 +361,10 @@ func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case matchesKey(message, keyQuit, keyCancel, keyEscape):
+	case matchesKey(message, keyQuit):
+		model.confirmExits = false
+		return model, tea.Quit
+	case matchesKey(message, keyCancel, keyEscape):
 		model.state = listState
 		model.confirmExits = false
 		return model, nil

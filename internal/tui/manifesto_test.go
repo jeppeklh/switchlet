@@ -54,11 +54,7 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 		t.Run(strings.Join([]string{"applying", sizeLabel(size.width, size.height)}, "_"), func(t *testing.T) {
 			model := resizedMainModel(t, baseModel, size.width, size.height)
 			model.applyingProfile = "Production profile with a very long display name"
-			expectedAction := "Ctrl+C Exit immediately"
-			if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
-				expectedAction = "q Quit"
-			}
-			assertManifestoMainView(t, model.View(), size.width, size.height, expectedAction)
+			assertManifestoMainView(t, model.View(), size.width, size.height, "q Quit")
 		})
 
 		if size.width < minimumTerminalWidth || size.height < minimumTerminalHeight {
@@ -136,7 +132,7 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 }
 
 func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
-	for _, key := range []tea.KeyMsg{runeKey('q'), tea.KeyMsg{Type: tea.KeyEsc}, runeKey('n')} {
+	for _, key := range []tea.KeyMsg{tea.KeyMsg{Type: tea.KeyEsc}, runeKey('n')} {
 		model := New(app.New(
 			config.Target{},
 			[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
@@ -146,7 +142,7 @@ func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
 		if command != nil {
 			t.Fatal("command is not nil, want confirmation before apply")
 		}
-		if !strings.Contains(model.View(), "n/Esc/q Cancel") {
+		if !strings.Contains(model.View(), "n/Esc Cancel") || !strings.Contains(model.View(), "q Quit") {
 			t.Fatalf("confirmation View() = %q, want advertised cancel keys", model.View())
 		}
 
@@ -162,9 +158,24 @@ func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
 
 	model := New(app.New(
 		config.Target{},
-		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MISSING_CONNECTION_STRING")}},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
 	))
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before apply")
+	}
+	updatedModel, command = model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want q to quit from advertised confirmation view")
+	}
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", ValueFromEnv: stringPointer("MISSING_CONNECTION_STRING")}},
+	))
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updatedModel.(Model)
 	if command != nil {
 		t.Fatal("command is not nil, want no apply command for unavailable profile")
@@ -188,6 +199,103 @@ func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
 	model = updatedModel.(Model)
 	if command == nil {
 		t.Fatal("command is nil, want q to quit from advertised error view")
+	}
+}
+
+func TestView_MainCommandBarsDoNotAdvertiseCtrlCAndSecondaryQQuits(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+
+	views := map[string]string{
+		"list": model.View(),
+	}
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	views["inspection"] = model.View()
+	updatedModel, command = model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want q to quit from inspection")
+	}
+	if model.state != inspectState {
+		t.Fatalf("state = %d, want inspection state unchanged while quitting", model.state)
+	}
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want confirmation before protected apply")
+	}
+	views["confirmation"] = model.View()
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Unavailable", ValueFromEnv: stringPointer("MISSING_CONNECTION_STRING")}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no apply command for unavailable profile")
+	}
+	views["recoverable error"] = model.View()
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+	updatedModel, command = model.Update(runeKey('s'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want status comparison command")
+	}
+	views["status loading"] = model.View()
+	model.state = statusReadyState
+	model.statusComparison = &app.StatusComparison{Status: app.StatusComparisonUnmatched, TargetCount: 1, Complete: true}
+	views["status ready"] = model.View()
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+	updatedModel, command = model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want diff comparison command")
+	}
+	views["diff loading"] = model.View()
+	model.state = diffReadyState
+	model.diffPreview = &app.ManagedPatchPreview{ProfileName: "Local", Complete: true}
+	views["diff ready"] = model.View()
+
+	model = New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+	model = resizedMainModel(t, model, 120, 32)
+	model.state = comparisonErrorState
+	model.comparisonRequestKind = comparisonRequestStatus
+	model.comparisonError = RecoverableError{Problem: "Could not compare current status."}
+	views["comparison error"] = model.View()
+
+	for name, view := range views {
+		if strings.Contains(view, "Ctrl+C") {
+			t.Fatalf("%s View() = %q, must not advertise Ctrl+C in main command bars", name, view)
+		}
 	}
 }
 
