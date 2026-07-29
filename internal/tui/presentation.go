@@ -105,6 +105,10 @@ func RenderShell(shell Shell) string {
 	contentLines := shellContentLines(shell, width, styles, contentHeight)
 
 	if len(actionLines) == 0 {
+		if shell.Height > 0 {
+			return renderLinesWithoutTrailingNewline(contentLines)
+		}
+
 		return renderLines(contentLines)
 	}
 
@@ -133,7 +137,7 @@ func joinShellContentAndActions(contentLines []string, actionLines []string, hei
 	}
 
 	if len(actionLines) >= height {
-		return renderLines(lastLines(actionLines, height))
+		return renderLinesWithoutTrailingNewline(lastLines(actionLines, height))
 	}
 
 	contentBudget := height - len(actionLines)
@@ -148,7 +152,7 @@ func joinShellContentAndActions(contentLines []string, actionLines []string, hei
 	}
 	lines = append(lines, actionLines...)
 
-	return renderLines(lines)
+	return renderLinesWithoutTrailingNewline(lines)
 }
 
 // RenderHeader renders only the title block used by partial wizard screens.
@@ -791,6 +795,14 @@ func renderLines(lines []string) string {
 	}
 
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func renderLinesWithoutTrailingNewline(lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func joinHeaderLine(left string, right string, width int) string {

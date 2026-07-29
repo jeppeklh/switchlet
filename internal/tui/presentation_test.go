@@ -224,6 +224,64 @@ func TestRenderShell_AnchorsCommandBarWhenHeightIsKnown(t *testing.T) {
 	}
 }
 
+func TestRenderShell_KnownHeightSplitPanelsKeepTopBorder(t *testing.T) {
+	got := RenderShell(Shell{
+		Headerless: true,
+		Panels: []Panel{
+			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true, FillHeight: true},
+			{Title: "Profile contents", Lines: []string{"Local"}, FillHeight: true},
+		},
+		Actions: []Action{{Key: "q", Label: "Quit"}},
+		Width:   120,
+		Height:  20,
+	})
+
+	if strings.HasSuffix(got, "\n") {
+		t.Fatalf("RenderShell() = %q, want no trailing newline for known-height shell", got)
+	}
+	lines := strings.Split(got, "\n")
+	if len(lines) != 20 {
+		t.Fatalf("RenderShell() rendered %d lines, want 20", len(lines))
+	}
+	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[0], "─") || strings.Contains(lines[0], "Profiles") {
+		t.Fatalf("first line = %q, want pane top border before title content", lines[0])
+	}
+	if !strings.Contains(lines[1], "* Profiles") || !strings.Contains(lines[1], "Profile contents") {
+		t.Fatalf("second line = %q, want panel titles below top border", lines[1])
+	}
+}
+
+func TestRenderShell_KnownHeightStackedPanelsKeepTopBorders(t *testing.T) {
+	got := RenderShell(Shell{
+		Headerless: true,
+		Panels: []Panel{
+			{Title: "Profiles", Lines: []string{"> Local"}, Focused: true},
+			{Title: "Profile contents", Lines: []string{"Local"}},
+		},
+		Actions: []Action{{Key: "q", Label: "Quit"}},
+		Width:   80,
+		Height:  20,
+	})
+
+	if strings.HasSuffix(got, "\n") {
+		t.Fatalf("RenderShell() = %q, want no trailing newline for known-height shell", got)
+	}
+	lines := strings.Split(got, "\n")
+	if len(lines) != 20 {
+		t.Fatalf("RenderShell() rendered %d lines, want 20", len(lines))
+	}
+	if !strings.Contains(lines[0], "┌") || !strings.Contains(lines[0], "─") || strings.Contains(lines[0], "Profiles") {
+		t.Fatalf("first line = %q, want first pane top border before title content", lines[0])
+	}
+	secondPanelTitleIndex := lineIndexContaining(got, "Profile contents")
+	if secondPanelTitleIndex <= 0 {
+		t.Fatalf("RenderShell() = %q, want second panel title after a top border", got)
+	}
+	if !strings.Contains(lines[secondPanelTitleIndex-1], "┌") || !strings.Contains(lines[secondPanelTitleIndex-1], "─") {
+		t.Fatalf("line before second panel title = %q, want second pane top border", lines[secondPanelTitleIndex-1])
+	}
+}
+
 func TestRenderShell_ClipsPanelOverflowWithinKnownHeight(t *testing.T) {
 	panelLines := make([]string, 0, 20)
 	for index := 1; index <= 20; index++ {
