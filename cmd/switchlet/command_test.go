@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
-	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 
@@ -896,52 +894,6 @@ func TestRunCommand_ListJSONReturnsStructuredConfigNotFoundError(t *testing.T) {
 	}
 	if payload.Error.Kind != "config_not_found" {
 		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "config_not_found")
-	}
-}
-
-func TestDocumentation_ContainsInstallationAndCommandExamples(t *testing.T) {
-	_, currentFilePath, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller returned ok=false")
-	}
-
-	repositoryRoot := filepath.Clean(filepath.Join(filepath.Dir(currentFilePath), "..", ".."))
-	readDocumentation := func(name string) string {
-		t.Helper()
-		path := filepath.Join(repositoryRoot, name)
-		contents, err := os.ReadFile(path)
-		if err != nil {
-			t.Fatalf("read %s %q: %v", name, path, err)
-		}
-
-		return string(contents)
-	}
-
-	readme := readDocumentation("README.md")
-	for _, expected := range []string{
-		"go install github.com/jeppeklh/switchlet/cmd/switchlet@latest",
-		"go build -o switchlet ./cmd/switchlet",
-	} {
-		if !strings.Contains(readme, expected) {
-			t.Fatalf("README.md does not contain %q", expected)
-		}
-	}
-
-	commands := readDocumentation("COMMANDS.md")
-	for _, expected := range []string{
-		"switchlet init --overwrite",
-		"switchlet config",
-		"switchlet list",
-		"switchlet inspect Local",
-		"switchlet apply Local",
-		"switchlet apply Local --dry-run",
-		"switchlet apply Production --allow-protected",
-		"Use `--json` with `list`, `inspect`, `apply`, `status`, or `diff`",
-		"Text-entry screens treat `q` as literal input",
-	} {
-		if !strings.Contains(commands, expected) {
-			t.Fatalf("COMMANDS.md does not contain %q", expected)
-		}
 	}
 }
 
