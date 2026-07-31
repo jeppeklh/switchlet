@@ -11,6 +11,12 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case saveCompletedMsg:
 		return model.handleSaveCompleted(message)
+	case managedValueFilesDiscoveredMsg:
+		return model.handleManagedValueFilesDiscovered(message)
+	case managedValueFileInspectedMsg:
+		return model.handleManagedValueFileInspected(message)
+	case managedValueSelectorValidatedMsg:
+		return model.handleManagedValueSelectorValidated(message)
 	case tea.WindowSizeMsg:
 		model.width = message.Width
 		model.height = message.Height
@@ -48,6 +54,32 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model.handleProfileReviewKey(message)
 		case editorStateProfileRemoveConfirm:
 			return model.handleProfileRemoveConfirmKey(message)
+		case editorStateManagedValueFileLoading:
+			return model.handleManagedValueFileLoadingKey(message)
+		case editorStateManagedValueFileSelect:
+			return model.handleManagedValueFileSelectKey(message)
+		case editorStateManagedValueFileFilter:
+			return model.handleManagedValueFileFilterKey(message)
+		case editorStateManagedValueManualFileInput:
+			return model.handleManagedValueManualFileKey(message)
+		case editorStateManagedValueTypeSelect:
+			return model.handleManagedValueTypeSelectKey(message)
+		case editorStateManagedValueSelectorLoading:
+			return model.handleManagedValueSelectorLoadingKey(message)
+		case editorStateManagedValueSelectorSelect:
+			return model.handleManagedValueSelectorSelectKey(message)
+		case editorStateManagedValueSelectorFilter:
+			return model.handleManagedValueSelectorFilterKey(message)
+		case editorStateManagedValueManualSelectorInput:
+			return model.handleManagedValueManualSelectorKey(message)
+		case editorStateManagedValueSelectorValidating:
+			return model.handleManagedValueSelectorValidatingKey(message)
+		case editorStateManagedValueNameInput:
+			return model.handleManagedValueNameInputKey(message)
+		case editorStateManagedValueReview:
+			return model.handleManagedValueReviewKey(message)
+		case editorStateManagedValueRemoveConfirm:
+			return model.handleManagedValueRemoveConfirmKey(message)
 		case editorStateDirtyQuitConfirm:
 			return model.handleDirtyQuitKey(message)
 		case editorStateSaving:
@@ -96,20 +128,32 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case model.filter != "" && isRuneKey(message, 'N'):
 		model.moveToPreviousFilteredRow(rows)
 	case isRuneKey(message, 'a'):
-		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfilesSection || selectedRow.Kind == navigationRowProfile {
+		selectedRow := model.selectedRow(rows)
+		if selectedRow.Kind == navigationRowProfilesSection || selectedRow.Kind == navigationRowProfile {
 			model.beginAddProfile()
+		} else if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
+			return model, model.beginAddManagedValue()
 		}
 	case isRuneKey(message, 'e'):
-		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+		selectedRow := model.selectedRow(rows)
+		if selectedRow.Kind == navigationRowProfile {
 			model.beginEditProfile(selectedRow.Label)
+		} else if selectedRow.Kind == navigationRowManagedValue {
+			return model, model.beginEditManagedValueLocation(selectedRow.Label)
 		}
 	case isRuneKey(message, 'r'):
-		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+		selectedRow := model.selectedRow(rows)
+		if selectedRow.Kind == navigationRowProfile {
 			model.beginRenameProfile(selectedRow.Label)
+		} else if selectedRow.Kind == navigationRowManagedValue {
+			model.beginRenameManagedValue(selectedRow.Label)
 		}
 	case isRuneKey(message, 'd'):
-		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+		selectedRow := model.selectedRow(rows)
+		if selectedRow.Kind == navigationRowProfile {
 			model.beginRemoveProfile(selectedRow.Label)
+		} else if selectedRow.Kind == navigationRowManagedValue {
+			model.beginRemoveManagedValue(selectedRow.Label)
 		}
 	case message.Type == tea.KeySpace:
 		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {

@@ -24,6 +24,19 @@ const (
 	editorStateProfileValueInput
 	editorStateProfileReview
 	editorStateProfileRemoveConfirm
+	editorStateManagedValueFileLoading
+	editorStateManagedValueFileSelect
+	editorStateManagedValueFileFilter
+	editorStateManagedValueManualFileInput
+	editorStateManagedValueTypeSelect
+	editorStateManagedValueSelectorLoading
+	editorStateManagedValueSelectorSelect
+	editorStateManagedValueSelectorFilter
+	editorStateManagedValueManualSelectorInput
+	editorStateManagedValueSelectorValidating
+	editorStateManagedValueNameInput
+	editorStateManagedValueReview
+	editorStateManagedValueRemoveConfirm
 	editorStateDirtyQuitConfirm
 	editorStateSaving
 	editorStateSaveSuccess
@@ -59,8 +72,9 @@ type Result struct {
 
 // Model is the Bubble Tea model for the interactive config editor.
 type Model struct {
-	workflow app.ConfigEditWorkflow
-	document app.ConfigEditDocument
+	workflow       app.ConfigEditWorkflow
+	targetWorkflow app.InitWorkflow
+	document       app.ConfigEditDocument
 
 	state       editorState
 	width       int
@@ -71,6 +85,8 @@ type Model struct {
 	inputCursor int
 	saveError   string
 	profileForm profileDraftState
+	managedForm managedValueDraftState
+	requestID   int
 
 	savedConfigPath string
 	savedChanges    []app.ConfigEditChange
@@ -86,9 +102,10 @@ func NewModel(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow) 
 func NewModelWithOptions(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow, options Options) Model {
 	_ = options
 	return Model{
-		workflow: workflow,
-		document: document,
-		state:    editorStateOverview,
+		workflow:       workflow,
+		targetWorkflow: app.DefaultInitWorkflow(),
+		document:       document,
+		state:          editorStateOverview,
 	}
 }
 
@@ -173,6 +190,11 @@ func (model Model) activeFilter() string {
 	}
 
 	return model.filter
+}
+
+func (model *Model) nextRequestID() int {
+	model.requestID++
+	return model.requestID
 }
 
 func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationRow {

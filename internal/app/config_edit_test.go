@@ -243,6 +243,22 @@ func TestConfigEditWorkflow_RemoveManagedValueRemovesProfileValuesAndBlocksInval
 	}
 }
 
+func TestConfigEditWorkflow_AddManagedValueRejectsDuplicateLocation(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	_, err := workflow.AddManagedValue(document, config.Target{
+		Name:     "serviceCopy",
+		File:     filepath.Join(projectRoot, "config.json"),
+		Type:     config.TargetTypeJSON,
+		JSONPath: "service.baseUrl",
+	})
+	if err == nil || !strings.Contains(err.Error(), "duplicates target location") {
+		t.Fatalf("AddManagedValue returned %v, want duplicate target location error", err)
+	}
+}
+
 func TestConfigEditWorkflow_PrepareSaveValidatesTargetsAndCommitsConfigReplacement(t *testing.T) {
 	workflow := app.DefaultConfigEditWorkflow()
 	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")

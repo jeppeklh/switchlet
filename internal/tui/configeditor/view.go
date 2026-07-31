@@ -37,6 +37,32 @@ func (model Model) View() string {
 		return model.profileReviewView()
 	case editorStateProfileRemoveConfirm:
 		return model.profileRemoveConfirmView()
+	case editorStateManagedValueFileLoading:
+		return model.managedValueLoadingView("Finding manageable configuration files", "Scanning the project for JSON, YAML, TOML, and dotenv values.")
+	case editorStateManagedValueFileSelect:
+		return model.managedValueFileSelectView()
+	case editorStateManagedValueFileFilter:
+		return model.managedValueFileSelectView()
+	case editorStateManagedValueManualFileInput:
+		return model.managedValueManualFileView()
+	case editorStateManagedValueTypeSelect:
+		return model.managedValueTypeSelectView()
+	case editorStateManagedValueSelectorLoading:
+		return model.managedValueLoadingView("Inspecting selected file", "Reading existing manageable values without modifying the file.")
+	case editorStateManagedValueSelectorSelect:
+		return model.managedValueSelectorSelectView()
+	case editorStateManagedValueSelectorFilter:
+		return model.managedValueSelectorSelectView()
+	case editorStateManagedValueManualSelectorInput:
+		return model.managedValueManualSelectorView()
+	case editorStateManagedValueSelectorValidating:
+		return model.managedValueLoadingView("Validating selector", "Checking that the selected value exists and is manageable.")
+	case editorStateManagedValueNameInput:
+		return model.managedValueNameInputView()
+	case editorStateManagedValueReview:
+		return model.managedValueReviewView()
+	case editorStateManagedValueRemoveConfirm:
+		return model.managedValueRemoveConfirmView()
 	case editorStateDirtyQuitConfirm:
 		return model.dirtyQuitView()
 	case editorStateSaving:
@@ -263,7 +289,7 @@ func managedValueSectionLines(overview app.ConfigEditOverview) []string {
 		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
 		"Select a managed value to inspect its file, type, selector, and profile usage.",
-		"Managed-value add, edit, rename, and delete flows arrive in later phases.",
+		"Press a to add one through files-first selection.",
 	}
 }
 
@@ -343,6 +369,16 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 	if selectedRow.Kind == navigationRowProfile {
 		actions = append(actions,
 			ui.Action{Key: "e", Label: "Edit"},
+			ui.Action{Key: "r", Label: "Rename"},
+			ui.Action{Key: "d", Label: "Delete"},
+		)
+	}
+	if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
+		actions = append(actions, ui.Action{Key: "a", Label: "Add value"})
+	}
+	if selectedRow.Kind == navigationRowManagedValue {
+		actions = append(actions,
+			ui.Action{Key: "e", Label: "Edit location"},
 			ui.Action{Key: "r", Label: "Rename"},
 			ui.Action{Key: "d", Label: "Delete"},
 		)
