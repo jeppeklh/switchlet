@@ -535,6 +535,12 @@ func (model initWizardModel) profileValueInputView(title string, details []strin
 }
 
 func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, panels []ui.Panel, actions []ui.Action) string {
+	if model.height > 0 {
+		for index := range panels {
+			panels[index].FillHeight = true
+		}
+	}
+
 	return ui.RenderShell(ui.Shell{
 		Title:    "Switchlet init",
 		Subtitle: subtitle,

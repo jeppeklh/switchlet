@@ -1740,6 +1740,11 @@ func TestInitWizardModel_UsesSharedShellAndResponsivePanels(t *testing.T) {
 	if !wizardLineContains(widView, "* Configuration files", "Guidance") {
 		t.Fatalf("wide View() = %q, want split file and guidance panels", widView)
 	}
+	wideLines := strings.Split(strings.TrimSuffix(widView, "\n"), "\n")
+	lineBeforeCommandSeparator := wideLines[len(wideLines)-3]
+	if !strings.Contains(lineBeforeCommandSeparator, "┘") {
+		t.Fatalf("line before command separator = %q, want wide init wizard panels to fill available body height", lineBeforeCommandSeparator)
+	}
 
 	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(initWizardModel)
