@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -661,6 +662,38 @@ profiles:
 	}
 	if loadedConfig.Targets[4].TOMLPath != "services.api.endpoint" {
 		t.Fatalf("Targets[4].TOMLPath = %q, want %q", loadedConfig.Targets[4].TOMLPath, "services.api.endpoint")
+	}
+}
+
+func TestValidateVersionThreeDraft_ValidatesAndNormalizesDraftData(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	loadedConfig, err := config.ValidateVersionThreeDraft(
+		projectRoot,
+		[]config.Target{{Name: "database", File: "config.json", Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://localhost:5432/myapp")}}}},
+	)
+	if err != nil {
+		t.Fatalf("ValidateVersionThreeDraft returned error: %v", err)
+	}
+
+	if loadedConfig.Version != 3 {
+		t.Fatalf("Version = %d, want 3", loadedConfig.Version)
+	}
+	if loadedConfig.Targets[0].File != filepath.Join(projectRoot, "config.json") {
+		t.Fatalf("target file = %q, want project-relative path resolved", loadedConfig.Targets[0].File)
+	}
+
+	_, err = config.ValidateVersionThreeDraft(
+		projectRoot,
+		[]config.Target{{Name: "database", File: "config.json", Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Broken", Values: []config.ProfileValue{{Target: "missing", Value: stringPointer("postgres://localhost:5432/myapp")}}}},
+	)
+	if err == nil {
+		t.Fatal("ValidateVersionThreeDraft returned nil error, want invalid draft error")
+	}
+	if !strings.Contains(err.Error(), `profile "Broken" values[0].target "missing" is not configured`) {
+		t.Fatalf("ValidateVersionThreeDraft returned error %q, want target reference error", err)
 	}
 }
 

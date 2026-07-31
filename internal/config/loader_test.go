@@ -1,6 +1,7 @@
 package config_test
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -241,6 +242,58 @@ profiles:
 	}
 	if len(loadedConfig.Profiles[2].Values) != 1 {
 		t.Fatalf("len(Profiles[2].Values) = %d, want partial profile with one value", len(loadedConfig.Profiles[2].Values))
+	}
+}
+
+func TestLoadSnapshot_ReturnsConfigFileIdentityAndFingerprint(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+`)+"\n")
+
+	snapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("LoadSnapshot returned error: %v", err)
+	}
+
+	if snapshot.ConfigPath != configPath {
+		t.Fatalf("ConfigPath = %q, want %q", snapshot.ConfigPath, configPath)
+	}
+	if snapshot.ProjectRoot != projectRoot {
+		t.Fatalf("ProjectRoot = %q, want %q", snapshot.ProjectRoot, projectRoot)
+	}
+	if snapshot.OriginalVersion != 3 {
+		t.Fatalf("OriginalVersion = %d, want 3", snapshot.OriginalVersion)
+	}
+	if snapshot.Config.Targets[0].File != filepath.Join(projectRoot, "config.json") {
+		t.Fatalf("snapshot target file = %q, want resolved project path", snapshot.Config.Targets[0].File)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read configuration before rewrite: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(strings.ReplaceAll(string(contents), "Local", "Renamed")), 0o644); err != nil {
+		t.Fatalf("rewrite configuration: %v", err)
+	}
+	changedSnapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("second LoadSnapshot returned error: %v", err)
+	}
+	if snapshot.Fingerprint().Equal(changedSnapshot.Fingerprint()) {
+		t.Fatal("fingerprint did not change after configuration contents changed")
 	}
 }
 

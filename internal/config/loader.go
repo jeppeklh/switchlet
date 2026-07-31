@@ -1,6 +1,7 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,21 +44,43 @@ type fileProfileValue struct {
 
 // Load reads, validates, and resolves a Switchlet configuration file.
 func Load(configPath string) (Config, error) {
+	snapshot, err := LoadSnapshot(configPath)
+	if err != nil {
+		return Config{}, err
+	}
+
+	return snapshot.Config, nil
+}
+
+// LoadSnapshot reads and validates a Switchlet configuration file while
+// preserving the file identity needed for conflict-aware editing.
+func LoadSnapshot(configPath string) (ConfigSnapshot, error) {
 	if strings.TrimSpace(configPath) == "" {
-		return Config{}, fmt.Errorf("configuration path must be set")
+		return ConfigSnapshot{}, fmt.Errorf("configuration path must be set")
 	}
 
 	resolvedConfigPath, err := filepath.Abs(configPath)
 	if err != nil {
-		return Config{}, fmt.Errorf("resolve configuration path %q: %w", configPath, err)
+		return ConfigSnapshot{}, fmt.Errorf("resolve configuration path %q: %w", configPath, err)
 	}
 
 	contents, err := os.ReadFile(resolvedConfigPath)
 	if err != nil {
-		return Config{}, fmt.Errorf("read configuration file %q: %w", resolvedConfigPath, err)
+		return ConfigSnapshot{}, fmt.Errorf("read configuration file %q: %w", resolvedConfigPath, err)
 	}
 
-	return loadConfigContents(resolvedConfigPath, contents)
+	loadedConfig, err := loadConfigContents(resolvedConfigPath, contents)
+	if err != nil {
+		return ConfigSnapshot{}, err
+	}
+
+	return ConfigSnapshot{
+		Config:          loadedConfig,
+		ConfigPath:      resolvedConfigPath,
+		ProjectRoot:     filepath.Dir(resolvedConfigPath),
+		OriginalVersion: loadedConfig.Version,
+		fingerprint:     fingerprintConfigContents(contents),
+	}, nil
 }
 
 func loadConfigContents(resolvedConfigPath string, contents []byte) (Config, error) {
@@ -72,4 +95,8 @@ func loadConfigContents(resolvedConfigPath string, contents []byte) (Config, err
 	}
 
 	return loadedConfig, nil
+}
+
+func fingerprintConfigContents(contents []byte) ConfigFingerprint {
+	return ConfigFingerprint{hash: sha256.Sum256(contents)}
 }

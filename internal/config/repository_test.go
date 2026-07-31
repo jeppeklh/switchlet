@@ -96,6 +96,148 @@ profiles:
 	}
 }
 
+func TestPrepareReplacementFromSnapshot_DetectsChangedConfigurationContents(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test
+`)+"\n")
+	snapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("LoadSnapshot returned error: %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte(strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Changed
+    values:
+      - target: service
+        value: https://changed.example.test
+`)+"\n"), 0o644); err != nil {
+		t.Fatalf("modify configuration after snapshot: %v", err)
+	}
+
+	_, err = config.PrepareReplacementFromSnapshot(snapshot, snapshot.Config.Targets, snapshot.Config.Profiles)
+	if err == nil {
+		t.Fatal("PrepareReplacementFromSnapshot returned nil error, want stale configuration error")
+	}
+	if !errors.Is(err, config.ErrConfigChanged) {
+		t.Fatalf("PrepareReplacementFromSnapshot returned error %v, want ErrConfigChanged", err)
+	}
+}
+
+func TestPrepareReplacementFromSnapshot_CommitsReplacementWithCurrentPermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test
+`)+"\n")
+	if err := os.Chmod(configPath, 0o640); err != nil {
+		t.Fatalf("chmod configuration file: %v", err)
+	}
+	snapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("LoadSnapshot returned error: %v", err)
+	}
+
+	replacement, err := config.PrepareReplacementFromSnapshot(
+		snapshot,
+		snapshot.Config.Targets,
+		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://staging.example.test")}}}},
+	)
+	if err != nil {
+		t.Fatalf("PrepareReplacementFromSnapshot returned error: %v", err)
+	}
+	if err := replacement.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat replacement configuration: %v", err)
+	}
+	if configInfo.Mode().Perm() != 0o640 {
+		t.Fatalf("configuration permissions = %o, want 640", configInfo.Mode().Perm())
+	}
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read replacement configuration: %v", err)
+	}
+	if !strings.Contains(string(contents), "name: Staging") || strings.Contains(string(contents), "name: Local") {
+		t.Fatalf("configuration contents = %q, want committed snapshot replacement", string(contents))
+	}
+}
+
+func TestPrepareReplacementFromSnapshot_NormalizesCompatibilityConfigurationToVersionThree(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config.json
+  jsonPath: service.baseUrl
+
+profiles:
+  - name: Local
+    value: https://local.example.test
+`)+"\n")
+	snapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("LoadSnapshot returned error: %v", err)
+	}
+	if snapshot.OriginalVersion != 2 {
+		t.Fatalf("OriginalVersion = %d, want 2", snapshot.OriginalVersion)
+	}
+
+	replacement, err := config.PrepareReplacementFromSnapshot(snapshot, snapshot.Config.Targets, snapshot.Config.Profiles)
+	if err != nil {
+		t.Fatalf("PrepareReplacementFromSnapshot returned error: %v", err)
+	}
+	if replacement.Config().Version != 3 {
+		t.Fatalf("replacement version = %d, want 3", replacement.Config().Version)
+	}
+	if err := replacement.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read replacement configuration: %v", err)
+	}
+	if !strings.Contains(string(contents), "version: 3") || !strings.Contains(string(contents), "targets:") || !strings.Contains(string(contents), "name: default") {
+		t.Fatalf("configuration contents = %q, want normalized Version 3 configuration", string(contents))
+	}
+}
+
 func TestPrepareReplacement_CommitsReplacementWithExistingPermissions(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)

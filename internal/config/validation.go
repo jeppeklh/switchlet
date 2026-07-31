@@ -70,6 +70,21 @@ func validateVersionThreeConfig(version int, projectRoot string, parsed fileConf
 	}, nil
 }
 
+// ValidateVersionThreeDraft validates target and profile data as a Version 3
+// configuration draft and returns the normalized configuration. It performs
+// schema validation only; target-file startup validation remains editor-owned.
+func ValidateVersionThreeDraft(projectRoot string, targets []Target, profiles []Profile) (Config, error) {
+	resolvedProjectRoot, err := resolveProjectRoot(projectRoot)
+	if err != nil {
+		return Config{}, err
+	}
+
+	return validateVersionThreeConfig(namedTargetVersion, resolvedProjectRoot, fileConfig{
+		Targets:  fileTargetsFromTargets(resolvedProjectRoot, targets),
+		Profiles: fileProfilesFromProfiles(profiles),
+	})
+}
+
 func validateCompatibilityTarget(parsedTarget fileTarget, projectRoot string, version int) (Target, error) {
 	targetFile, err := resolveTargetFile(parsedTarget.File, projectRoot, "target.file")
 	if err != nil {

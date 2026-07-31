@@ -17,6 +17,9 @@ const gitignoreFileName = ".gitignore"
 // ErrConfigAlreadyExists indicates that init found an existing Switchlet configuration.
 var ErrConfigAlreadyExists = errors.New("configuration already exists")
 
+// ErrConfigChanged indicates that a configuration file changed after it was loaded for editing.
+var ErrConfigChanged = errors.New("configuration changed since it was loaded")
+
 // ExistingConfigError identifies the discovered configuration that prevents creating a new one.
 type ExistingConfigError struct {
 	ProjectRoot string
@@ -29,6 +32,19 @@ func (err ExistingConfigError) Error() string {
 
 func (err ExistingConfigError) Unwrap() error {
 	return ErrConfigAlreadyExists
+}
+
+// ConfigChangedError identifies a stale configuration edit attempt.
+type ConfigChangedError struct {
+	ConfigPath string
+}
+
+func (err ConfigChangedError) Error() string {
+	return fmt.Sprintf("configuration file %q changed since it was loaded", err.ConfigPath)
+}
+
+func (err ConfigChangedError) Unwrap() error {
+	return ErrConfigChanged
 }
 
 // PreparedReplacement is a validated configuration replacement that has not yet been committed.
@@ -106,7 +122,44 @@ func PrepareReplacement(projectRoot string, targets []Target, profiles []Profile
 		return PreparedReplacement{}, err
 	}
 
-	contents, err := marshalCreatedConfig(resolvedProjectRoot, targets, profiles)
+	return prepareReplacementContents(resolvedProjectRoot, configPath, permissions, targets, profiles)
+}
+
+// PrepareReplacementFromSnapshot prepares and validates a replacement for the
+// exact configuration file captured by a prior LoadSnapshot call. It rejects the
+// replacement when the on-disk configuration contents have changed since load.
+func PrepareReplacementFromSnapshot(snapshot ConfigSnapshot, targets []Target, profiles []Profile) (PreparedReplacement, error) {
+	if strings.TrimSpace(snapshot.ConfigPath) == "" {
+		return PreparedReplacement{}, fmt.Errorf("configuration path must be set")
+	}
+
+	configPath, err := filepath.Abs(snapshot.ConfigPath)
+	if err != nil {
+		return PreparedReplacement{}, fmt.Errorf("resolve configuration path %q: %w", snapshot.ConfigPath, err)
+	}
+
+	projectRoot := snapshot.ProjectRoot
+	if strings.TrimSpace(projectRoot) == "" {
+		projectRoot = filepath.Dir(configPath)
+	}
+	resolvedProjectRoot, err := resolveProjectRoot(projectRoot)
+	if err != nil {
+		return PreparedReplacement{}, err
+	}
+
+	currentContents, permissions, err := readSnapshotConfig(configPath)
+	if err != nil {
+		return PreparedReplacement{}, err
+	}
+	if !fingerprintConfigContents(currentContents).Equal(snapshot.fingerprint) {
+		return PreparedReplacement{}, ConfigChangedError{ConfigPath: configPath}
+	}
+
+	return prepareReplacementContents(resolvedProjectRoot, configPath, permissions, targets, profiles)
+}
+
+func prepareReplacementContents(projectRoot string, configPath string, permissions fs.FileMode, targets []Target, profiles []Profile) (PreparedReplacement, error) {
+	contents, err := marshalCreatedConfig(projectRoot, targets, profiles)
 	if err != nil {
 		return PreparedReplacement{}, err
 	}
@@ -122,6 +175,23 @@ func PrepareReplacement(projectRoot string, targets []Target, profiles []Profile
 		permissions:  permissions,
 		loadedConfig: loadedConfig,
 	}, nil
+}
+
+func readSnapshotConfig(configPath string) ([]byte, fs.FileMode, error) {
+	configInfo, err := os.Stat(configPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("stat configuration file %q: %w", configPath, err)
+	}
+	if configInfo.IsDir() {
+		return nil, 0, fmt.Errorf("configuration path %q is a directory", configPath)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read configuration file %q: %w", configPath, err)
+	}
+
+	return contents, configInfo.Mode().Perm(), nil
 }
 
 // EnsureConfigIgnored creates or updates the project-root .gitignore so it
@@ -265,6 +335,31 @@ func detectLineEnding(contents []byte) string {
 }
 
 func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profile) ([]byte, error) {
+	configuredTargets := fileTargetsFromTargets(projectRoot, targets)
+	configuredProfiles := fileProfilesFromProfiles(profiles)
+
+	configFile := struct {
+		Version  int           `yaml:"version"`
+		Targets  []fileTarget  `yaml:"targets"`
+		Profiles []fileProfile `yaml:"profiles"`
+	}{
+		Version:  namedTargetVersion,
+		Targets:  configuredTargets,
+		Profiles: configuredProfiles,
+	}
+
+	contents, err := yaml.Marshal(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("serialize configuration file: %w", err)
+	}
+	if len(contents) == 0 || contents[len(contents)-1] != '\n' {
+		contents = append(contents, '\n')
+	}
+
+	return contents, nil
+}
+
+func fileTargetsFromTargets(projectRoot string, targets []Target) []fileTarget {
 	configuredTargets := make([]fileTarget, 0, len(targets))
 	for _, target := range targets {
 		targetType := target.Type
@@ -287,6 +382,10 @@ func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profi
 		configuredTargets = append(configuredTargets, configuredTarget)
 	}
 
+	return configuredTargets
+}
+
+func fileProfilesFromProfiles(profiles []Profile) []fileProfile {
 	configuredProfiles := make([]fileProfile, 0, len(profiles))
 	for _, profile := range profiles {
 		configuredProfile := fileProfile{
@@ -312,25 +411,7 @@ func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profi
 		configuredProfiles = append(configuredProfiles, configuredProfile)
 	}
 
-	configFile := struct {
-		Version  int           `yaml:"version"`
-		Targets  []fileTarget  `yaml:"targets"`
-		Profiles []fileProfile `yaml:"profiles"`
-	}{
-		Version:  namedTargetVersion,
-		Targets:  configuredTargets,
-		Profiles: configuredProfiles,
-	}
-
-	contents, err := yaml.Marshal(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("serialize configuration file: %w", err)
-	}
-	if len(contents) == 0 || contents[len(contents)-1] != '\n' {
-		contents = append(contents, '\n')
-	}
-
-	return contents, nil
+	return configuredProfiles
 }
 
 func configTargetPath(projectRoot string, targetPath string) string {

@@ -10,6 +10,32 @@ type Config struct {
 	Profiles []Profile
 }
 
+// ConfigSnapshot describes a loaded configuration file and the file identity
+// needed for conflict-aware editing.
+type ConfigSnapshot struct {
+	Config          Config
+	ConfigPath      string
+	ProjectRoot     string
+	OriginalVersion int
+	fingerprint     ConfigFingerprint
+}
+
+// Fingerprint returns the content fingerprint captured when the configuration
+// file was loaded.
+func (snapshot ConfigSnapshot) Fingerprint() ConfigFingerprint {
+	return snapshot.fingerprint
+}
+
+// ConfigFingerprint identifies a specific set of configuration file contents.
+type ConfigFingerprint struct {
+	hash [32]byte
+}
+
+// Equal reports whether two fingerprints describe the same contents.
+func (fingerprint ConfigFingerprint) Equal(other ConfigFingerprint) bool {
+	return fingerprint.hash == other.hash
+}
+
 // TargetType identifies the concrete target implementation used for a target.
 type TargetType string
 
