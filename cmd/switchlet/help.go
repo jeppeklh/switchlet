@@ -4,6 +4,7 @@ func usageText() string {
 	return `Usage:
 	  switchlet                                      Launch the profile switcher
 	  switchlet init [--overwrite]                   Guided setup for a .switchlet.yaml in the current directory
+	  switchlet config                               Edit .switchlet.yaml in a full-screen configuration editor
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
@@ -25,6 +26,7 @@ func usageText() string {
 	  switchlet
 	  switchlet init
 	  switchlet init --overwrite
+	  switchlet config
 	  switchlet list
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
@@ -37,6 +39,23 @@ func usageText() string {
 	  0 success
 	  1 runtime or validation failure
 	  2 command-usage failure
+`
+}
+
+func configHelpText() string {
+	return `Usage:
+	  switchlet config
+
+	Open the interactive configuration editor for the discovered .switchlet.yaml.
+	The editor is a full-screen terminal workflow for reviewing and editing project
+	setup. Version 0.19 requires stdin and stdout to be interactive terminals.
+
+	Phase 2 exposes the read-only editor shell, review surface, dirty-state handling,
+	and save pipeline scaffolding. Profile and managed-value mutation workflows are
+	extended in later phases.
+
+	Examples:
+	  switchlet config
 `
 }
 

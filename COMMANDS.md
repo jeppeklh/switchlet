@@ -33,6 +33,19 @@ replaced from a nested directory.
 The init flow supports JSON, YAML, TOML, and dotenv managed values. YAML and TOML
 files are listed only when they contain manageable existing string values.
 
+Edit an existing project configuration:
+
+```bash
+switchlet config
+```
+
+`switchlet config` opens the interactive configuration editor for the discovered
+`.switchlet.yaml`. Version `0.19` requires stdin and stdout to be interactive
+terminals. The Phase 2 editor shell can review the current profiles, managed
+values, pending conversion or normalization warnings, and save only through the
+explicit review surface; profile and managed-value mutation workflows are added
+in later phases.
+
 ## Profile Commands
 
 List profiles:

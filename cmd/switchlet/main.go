@@ -20,8 +20,8 @@ const (
 )
 
 var (
-	commandNames   = []string{"help", "init", "list", "inspect", "apply", "status", "diff"}
-	helpTopicNames = []string{"init", "list", "inspect", "apply", "status", "diff"}
+	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff"}
+	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff"}
 )
 
 func main() {
@@ -65,6 +65,21 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 		}
 
 		return runInitWithOptions(workingDirectory, input, output, defaultInitDependencies(), initOptions{OverwriteExistingConfig: overwriteExistingConfig})
+	case "config":
+		if wantsHelpFlag(args[1:]) {
+			_, err := io.WriteString(output, configHelpText())
+			return err
+		}
+
+		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		if err != nil {
+			return usageCommandError(false, "config: %v\n\n%s", err, configHelpText())
+		}
+		if len(positionals) != 0 {
+			return usageCommandError(false, "config does not accept a positional argument\n\n%s", configHelpText())
+		}
+
+		return runConfigCommand(workingDirectory, input, output)
 	case "list":
 		return runListCommand(workingDirectory, args[1:], output)
 	case "inspect":
@@ -102,6 +117,8 @@ func helpTextForTopic(topic string) (string, error) {
 	switch topic {
 	case "init":
 		return initHelpText(), nil
+	case "config":
+		return configHelpText(), nil
 	case "list":
 		return listHelpText(), nil
 	case "inspect":
