@@ -67,7 +67,7 @@ func (model Model) listActions() []Action {
 
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
-		return []Action{{Key: "q", Label: "Quit"}}
+		return []Action{{Key: "c", Label: "Config", Priority: ActionPrioritySecondary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}
 	}
 
 	actions := []Action{
@@ -83,6 +83,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "Enter", Label: enterActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
 		Action{Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
 		Action{Key: "i", Label: "Inspect", Priority: ActionPriorityNormal},
+		Action{Key: "c", Label: "Config", Priority: ActionPrioritySecondary},
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		model.valueRevealAction(),

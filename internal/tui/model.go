@@ -46,6 +46,7 @@ type Model struct {
 	confirmExits     bool
 	currentProfile   string
 	currentRequestID int
+	configRequested  bool
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -63,8 +64,30 @@ func New(application app.Application) Model {
 	return model
 }
 
+// NewReloadError creates a focused error model for a failed post-save reload.
+func NewReloadError(err error) Model {
+	return Model{
+		state: errorState,
+		recoverableError: RecoverableError{
+			Problem:  "Configuration was saved, but Switchlet could not reload it.",
+			Reason:   err.Error(),
+			Recovery: "Fix .switchlet.yaml, then run Switchlet again.",
+			Cause:    err,
+		},
+	}
+}
+
+// ConfigRequested reports whether the main picker exited to open the config editor.
+func (model Model) ConfigRequested() bool {
+	return model.configRequested
+}
+
 // Init starts the Bubble Tea model.
 func (model Model) Init() tea.Cmd {
+	if model.state == errorState {
+		return nil
+	}
+
 	return detectCurrentProfile(model.application, model.currentRequestID)
 }
 

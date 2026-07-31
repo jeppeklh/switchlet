@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/config"
+	"github.com/jeppeklh/switchlet/internal/tui"
+	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
 )
 
 func TestRun_StartsProgramForValidProject(t *testing.T) {
@@ -238,6 +241,141 @@ profiles:
 	}
 	if !strings.Contains(err.Error(), "program failed") {
 		t.Fatalf("run returned error %q, want original program error", err)
+	}
+}
+
+func TestRun_ConfigHandoffReloadsSavedConfigurationBeforeReturningToPicker(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+`)+"\n")
+	writeFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://old"}}`)
+
+	runCount := 0
+	editorStarted := false
+	err := runInteractiveCommandWithConfigEditor(projectRoot, func(model tea.Model) (tea.Model, error) {
+		runCount++
+		mainModel, ok := model.(tui.Model)
+		if !ok {
+			t.Fatalf("runProgram received %T, want tui.Model", model)
+		}
+
+		if runCount == 1 {
+			updatedModel, command := mainModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+			if command == nil {
+				t.Fatal("config handoff command is nil")
+			}
+
+			return updatedModel, nil
+		}
+
+		view := mainModel.View()
+		if !strings.Contains(view, "Staging") {
+			t.Fatalf("reloaded picker view = %q, want saved Staging profile", view)
+		}
+
+		return model, nil
+	}, strings.NewReader(""), &strings.Builder{}, func(workingDirectory string, input io.Reader, output io.Writer) (configeditor.Result, error) {
+		editorStarted = true
+		writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+`)+"\n")
+
+		return configeditor.Result{Saved: true, ConfigPath: filepath.Join(projectRoot, ".switchlet.yaml")}, nil
+	})
+	if err != nil {
+		t.Fatalf("runInteractiveCommandWithConfigEditor returned error: %v", err)
+	}
+	if !editorStarted {
+		t.Fatal("config editor was not started")
+	}
+	if runCount != 2 {
+		t.Fatalf("runProgram call count = %d, want picker before and after editor", runCount)
+	}
+}
+
+func TestRun_ConfigHandoffShowsReloadErrorWithoutStaleProfiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+`)+"\n")
+	writeFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://old"}}`)
+
+	runCount := 0
+	err := runInteractiveCommandWithConfigEditor(projectRoot, func(model tea.Model) (tea.Model, error) {
+		runCount++
+		mainModel, ok := model.(tui.Model)
+		if !ok {
+			t.Fatalf("runProgram received %T, want tui.Model", model)
+		}
+
+		if runCount == 1 {
+			updatedModel, command := mainModel.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+			if command == nil {
+				t.Fatal("config handoff command is nil")
+			}
+
+			return updatedModel, nil
+		}
+
+		view := mainModel.View()
+		if !strings.Contains(view, "Configuration was saved, but Switchlet could not reload it.") {
+			t.Fatalf("reload failure view = %q, want focused reload error", view)
+		}
+		if strings.Contains(view, "Local") {
+			t.Fatalf("reload failure view = %q, must not show stale Local profile", view)
+		}
+
+		return model, nil
+	}, strings.NewReader(""), &strings.Builder{}, func(workingDirectory string, input io.Reader, output io.Writer) (configeditor.Result, error) {
+		writeFile(t, projectRoot, ".switchlet.yaml", "version: 3\nprofiles: [\n")
+		return configeditor.Result{Saved: true, ConfigPath: filepath.Join(projectRoot, ".switchlet.yaml")}, nil
+	})
+	if err != nil {
+		t.Fatalf("runInteractiveCommandWithConfigEditor returned error: %v", err)
+	}
+	if runCount != 2 {
+		t.Fatalf("runProgram call count = %d, want picker and reload error model", runCount)
 	}
 }
 

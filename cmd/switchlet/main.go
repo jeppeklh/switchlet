@@ -12,12 +12,17 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/tui"
+	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
 )
 
 const (
 	runtimeExitCode = 1
 	usageExitCode   = 2
 )
+
+type terminalProgramRunner func(tea.Model) (tea.Model, error)
+
+type configEditorRunner func(string, io.Reader, io.Writer) (configeditor.Result, error)
 
 var (
 	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff"}
@@ -31,7 +36,7 @@ func main() {
 		os.Exit(runtimeExitCode)
 	}
 
-	if err := runCommand(os.Args[1:], workingDirectory, startFullScreenProgram(os.Stdout), os.Stdin, os.Stdout); err != nil {
+	if err := runCommandWithTerminalRunner(os.Args[1:], workingDirectory, startFullScreenProgram(os.Stdout), os.Stdin, os.Stdout); err != nil {
 		if writeErr := writeCommandError(err, os.Stdout, os.Stderr); writeErr != nil {
 			fmt.Fprintln(os.Stderr, writeErr)
 			os.Exit(runtimeExitCode)
@@ -42,8 +47,12 @@ func main() {
 }
 
 func runCommand(args []string, workingDirectory string, runProgram func(tea.Model) error, input io.Reader, output io.Writer) error {
+	return runCommandWithTerminalRunner(args, workingDirectory, adaptTerminalProgramRunner(runProgram), input, output)
+}
+
+func runCommandWithTerminalRunner(args []string, workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
 	if len(args) == 0 {
-		return runInteractiveCommand(workingDirectory, runProgram)
+		return runInteractiveCommandWithTerminalRunner(workingDirectory, runProgram, input, output)
 	}
 
 	switch args[0] {
@@ -95,6 +104,12 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 	}
 }
 
+func adaptTerminalProgramRunner(runProgram func(tea.Model) error) terminalProgramRunner {
+	return func(model tea.Model) (tea.Model, error) {
+		return model, runProgram(model)
+	}
+}
+
 func writeHelp(output io.Writer, args []string) error {
 	if len(args) == 0 {
 		_, err := io.WriteString(output, usageText())
@@ -135,16 +150,47 @@ func helpTextForTopic(topic string) (string, error) {
 }
 
 func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) error) error {
+	return runInteractiveCommandWithTerminalRunner(workingDirectory, adaptTerminalProgramRunner(runProgram), nil, nil)
+}
+
+func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
+	return runInteractiveCommandWithConfigEditor(workingDirectory, runProgram, input, output, runConfigEditorForWorkingDirectory)
+}
+
+func runInteractiveCommandWithConfigEditor(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer, runEditor configEditorRunner) error {
 	application, err := loadApplication(workingDirectory)
 	if err != nil {
 		return err
 	}
 
-	if err := runProgram(tui.New(application)); err != nil {
-		return fmt.Errorf("run terminal UI: %w", err)
-	}
+	for {
+		finalModel, err := runProgram(tui.New(application))
+		if err != nil {
+			return fmt.Errorf("run terminal UI: %w", err)
+		}
 
-	return nil
+		configRequest, ok := finalModel.(interface{ ConfigRequested() bool })
+		if !ok || !configRequest.ConfigRequested() {
+			return nil
+		}
+
+		result, err := runEditor(workingDirectory, input, output)
+		if err != nil {
+			return err
+		}
+		if !result.Saved {
+			continue
+		}
+
+		application, err = loadApplication(workingDirectory)
+		if err != nil {
+			if _, runErr := runProgram(tui.NewReloadError(err)); runErr != nil {
+				return fmt.Errorf("run terminal UI: %w", runErr)
+			}
+
+			return nil
+		}
+	}
 }
 
 func loadApplication(workingDirectory string) (app.Application, error) {
@@ -166,22 +212,22 @@ func loadApplication(workingDirectory string) (app.Application, error) {
 	return application, nil
 }
 
-func startFullScreenProgram(output io.Writer) func(tea.Model) error {
-	return func(model tea.Model) error {
+func startFullScreenProgram(output io.Writer) terminalProgramRunner {
+	return func(model tea.Model) (tea.Model, error) {
 		finalModel, err := runFullScreenTerminalProgram(model)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if model, ok := finalModel.(tui.Model); ok {
 			if finalMessage := model.FinalMessage(); finalMessage != "" {
 				if _, err := fmt.Fprint(output, finalMessage); err != nil {
-					return fmt.Errorf("write final terminal message: %w", err)
+					return finalModel, fmt.Errorf("write final terminal message: %w", err)
 				}
 			}
 		}
 
-		return nil
+		return finalModel, nil
 	}
 }
 

@@ -206,6 +206,10 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if matchesKey(message, keyQuit) {
 		return model, tea.Quit
 	}
+	if matchesKey(message, keyConfig) {
+		model.configRequested = true
+		return model, tea.Quit
+	}
 
 	if len(model.profiles) == 0 {
 		return model, nil

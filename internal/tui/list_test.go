@@ -166,6 +166,40 @@ func TestUpdate_ValueRevealTogglesInProfileList(t *testing.T) {
 	}
 }
 
+func TestUpdate_ConfigKeyRequestsEditorHandoffFromProfileList(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+
+	updatedModel, command := model.Update(runeKey('c'))
+	model = updatedModel.(Model)
+
+	if command == nil {
+		t.Fatal("command is nil, want quit command for config handoff")
+	}
+	if !model.ConfigRequested() {
+		t.Fatal("ConfigRequested() = false, want config handoff request")
+	}
+	if model.state != listState {
+		t.Fatalf("state = %d, want listState", model.state)
+	}
+}
+
+func TestView_ListActionsExposeConfigWithoutReplacingApplyOrQuit(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+
+	view := model.View()
+	for _, expected := range []string{"Enter Apply+Exit", "Space Apply", "c Config", "q Quit"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want command bar entry %q", view, expected)
+		}
+	}
+}
+
 func TestView_ListViewUsesNeutralProtectedStatusAndApplyHelp(t *testing.T) {
 	model := New(app.New(
 		config.Target{},

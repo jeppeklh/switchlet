@@ -16,18 +16,7 @@ func runConfigCommand(workingDirectory string, input io.Reader, output io.Writer
 		return fmt.Errorf("switchlet config is interactive-only in Version 0.19 and requires stdin and stdout to be terminals")
 	}
 
-	configPath, err := config.Discover(workingDirectory)
-	if err != nil {
-		return err
-	}
-
-	workflow := app.DefaultConfigEditWorkflow()
-	document, err := workflow.LoadDocument(configPath)
-	if err != nil {
-		return err
-	}
-
-	result, err := runConfigEditor(document, workflow, input, output)
+	result, err := runConfigEditorForWorkingDirectory(workingDirectory, input, output)
 	if err != nil {
 		return err
 	}
@@ -42,6 +31,21 @@ func runConfigCommand(workingDirectory string, input io.Reader, output io.Writer
 	}
 
 	return err
+}
+
+func runConfigEditorForWorkingDirectory(workingDirectory string, input io.Reader, output io.Writer) (configeditor.Result, error) {
+	configPath, err := config.Discover(workingDirectory)
+	if err != nil {
+		return configeditor.Result{}, err
+	}
+
+	workflow := app.DefaultConfigEditWorkflow()
+	document, err := workflow.LoadDocument(configPath)
+	if err != nil {
+		return configeditor.Result{}, err
+	}
+
+	return runConfigEditor(document, workflow, input, output)
 }
 
 func runConfigEditor(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow, input io.Reader, output io.Writer) (configeditor.Result, error) {

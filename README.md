@@ -15,6 +15,8 @@ Run it directly in your terminal
 
 - Opens an interactive profile picker with `switchlet`.
 - Creates project configuration with `switchlet init`.
+- Edits existing project configuration with `switchlet config` or `c Config`
+  from the main picker.
 - Lists, inspects, applies, checks status, and compares profiles from the CLI.
 - Supports JSON, YAML, TOML, and dotenv managed values.
 - Provides dry-run mode and JSON output for automation.
@@ -49,6 +51,16 @@ switchlet init
 The wizard creates `.switchlet.yaml` after you select existing target files,
 selectors, and profiles. Target files and selected values must already exist
 before Switchlet writes to them.
+
+Edit profiles and managed values later without rerunning setup:
+
+```bash
+switchlet config
+```
+
+The main picker also exposes `c Config` as a handoff into the same editor. After
+a saved config edit, Switchlet reloads `.switchlet.yaml` before showing profiles
+again.
 
 List and inspect profiles:
 
@@ -118,6 +130,8 @@ profiles:
 - Only explicitly configured values are changed.
 - Target files are validated before writes.
 - Writes use safe replacement and preserve file permissions.
+- Configuration edits are reviewed before save and may normalize
+  `.switchlet.yaml` formatting.
 - Protected profiles require explicit approval before apply.
 - Normal command output avoids raw replacement values.
 

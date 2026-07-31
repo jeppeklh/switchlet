@@ -41,10 +41,13 @@ switchlet config
 
 `switchlet config` opens the interactive configuration editor for the discovered
 `.switchlet.yaml`. Version `0.19` requires stdin and stdout to be interactive
-terminals. The Phase 2 editor shell can review the current profiles, managed
-values, pending conversion or normalization warnings, and save only through the
-explicit review surface; profile and managed-value mutation workflows are added
-in later phases.
+terminals. The editor can add, edit, rename, and remove profiles and managed
+values, then saves only from the explicit review surface.
+
+The normal profile picker also exposes `c Config` as a handoff into the same
+editor. After a saved edit, Switchlet reloads `.switchlet.yaml` and validates the
+configured targets before showing profiles again. Version `0.19` saves may
+normalize `.switchlet.yaml` formatting and do not claim to preserve comments.
 
 ## Profile Commands
 

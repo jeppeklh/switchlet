@@ -14,6 +14,7 @@ const (
 	keyEnter   = "enter"
 	keySpace   = " "
 	keyInspect = "i"
+	keyConfig  = "c"
 	keyStatus  = "s"
 	keyDiff    = "d"
 	keyReveal  = "v"
