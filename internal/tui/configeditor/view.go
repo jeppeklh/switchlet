@@ -25,6 +25,18 @@ func (model Model) View() string {
 	}
 
 	switch model.state {
+	case editorStateProfileNameInput:
+		return model.profileNameInputView()
+	case editorStateProfileIncludeValues:
+		return model.profileIncludeValuesView()
+	case editorStateProfileValueSource:
+		return model.profileValueSourceView()
+	case editorStateProfileValueInput:
+		return model.profileValueInputView()
+	case editorStateProfileReview:
+		return model.profileReviewView()
+	case editorStateProfileRemoveConfirm:
+		return model.profileRemoveConfirmView()
 	case editorStateDirtyQuitConfirm:
 		return model.dirtyQuitView()
 	case editorStateSaving:
@@ -213,7 +225,7 @@ func profileSectionLines(overview app.ConfigEditOverview) []string {
 		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
 		"Select a profile to inspect its included managed values.",
-		"Profile add, edit, rename, and delete flows arrive in later phases.",
+		"Press a to add a profile from existing managed values.",
 	}
 }
 
@@ -323,6 +335,16 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 		actions = append(actions,
 			ui.Action{Key: "n/N", Label: "Matches"},
 			ui.Action{Key: "Esc/h", Label: "Clear filter"},
+		)
+	}
+	if selectedRow.Kind == navigationRowProfilesSection || selectedRow.Kind == navigationRowProfile {
+		actions = append(actions, ui.Action{Key: "a", Label: "Add profile"})
+	}
+	if selectedRow.Kind == navigationRowProfile {
+		actions = append(actions,
+			ui.Action{Key: "e", Label: "Edit"},
+			ui.Action{Key: "r", Label: "Rename"},
+			ui.Action{Key: "d", Label: "Delete"},
 		)
 	}
 	if selectedRow.Kind == navigationRowReview && overview.Saveable {

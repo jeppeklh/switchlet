@@ -107,6 +107,78 @@ func TestConfigEditWorkflow_AddAndRemoveProfiles(t *testing.T) {
 	}
 }
 
+func TestConfigEditWorkflow_AddProfileDraftSupportsPartialProtectedEnvironmentProfile(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := multiTargetConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+	draft := workflow.NewProfileDraft(document)
+	draft.Name = "Staging API"
+	draft.Protected = true
+	draft.Values[1].Included = true
+	draft.Values[1].Source = app.ProfileSourceEnvironment
+	draft.Values[1].EnvironmentVariableName = "STAGING_API_URL"
+
+	updatedDocument, err := workflow.AddProfileDraft(document, draft)
+	if err != nil {
+		t.Fatalf("AddProfileDraft returned error: %v", err)
+	}
+
+	addedProfile := updatedDocument.Profiles[len(updatedDocument.Profiles)-1]
+	if !addedProfile.Protected {
+		t.Fatal("added profile Protected = false, want true")
+	}
+	if len(addedProfile.Values) != 1 || addedProfile.Values[0].Target != "frontendApi" || addedProfile.Values[0].ValueFromEnv == nil || *addedProfile.Values[0].ValueFromEnv != "STAGING_API_URL" {
+		t.Fatalf("added profile values = %#v, want one environment-backed frontendApi value", addedProfile.Values)
+	}
+}
+
+func TestConfigEditWorkflow_ProfileDraftRejectsDuplicateEmptyAndMissingValues(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := twoProfileConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	draft := workflow.NewProfileDraft(document)
+	draft.Name = "Local"
+	draft.Values[0].Included = true
+	draft.Values[0].LiteralValue = "https://duplicate.example.test"
+	if _, err := workflow.AddProfileDraft(document, draft); err == nil || !strings.Contains(err.Error(), "duplicate profile name") {
+		t.Fatalf("AddProfileDraft duplicate returned %v, want duplicate profile error", err)
+	}
+
+	draft = workflow.NewProfileDraft(document)
+	draft.Name = "  "
+	draft.Values[0].Included = true
+	draft.Values[0].LiteralValue = "https://empty-name.example.test"
+	if _, err := workflow.AddProfileDraft(document, draft); err == nil || !strings.Contains(err.Error(), "profile name must be set") {
+		t.Fatalf("AddProfileDraft empty name returned %v, want profile name error", err)
+	}
+
+	draft = workflow.NewProfileDraft(document)
+	draft.Name = "No Values"
+	draft.Values[0].Included = false
+	if _, err := workflow.AddProfileDraft(document, draft); err == nil || !strings.Contains(err.Error(), "must include at least one managed value") {
+		t.Fatalf("AddProfileDraft no values returned %v, want managed value error", err)
+	}
+}
+
+func TestConfigEditWorkflow_RemoveLastProfileBlocksSave(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	updatedDocument, err := workflow.RemoveProfile(document, "Local")
+	if err != nil {
+		t.Fatalf("RemoveProfile returned error: %v", err)
+	}
+	if workflow.IsSaveable(updatedDocument) {
+		t.Fatal("IsSaveable = true, want false after removing the last profile")
+	}
+	_, err = workflow.PrepareSave(updatedDocument)
+	if err == nil || !strings.Contains(err.Error(), "at least one profile must be configured") {
+		t.Fatalf("PrepareSave returned %v, want missing profile validation error", err)
+	}
+}
+
 func TestConfigEditWorkflow_RenameManagedValueUpdatesProfileReferencesAndSummary(t *testing.T) {
 	workflow := app.DefaultConfigEditWorkflow()
 	projectRoot, configPath := twoProfileConfig(t)

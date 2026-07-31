@@ -36,6 +36,18 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch model.state {
 		case editorStateFilter:
 			return model.handleFilterKey(message)
+		case editorStateProfileNameInput:
+			return model.handleProfileNameInputKey(message)
+		case editorStateProfileIncludeValues:
+			return model.handleProfileIncludeValuesKey(message)
+		case editorStateProfileValueSource:
+			return model.handleProfileValueSourceKey(message)
+		case editorStateProfileValueInput:
+			return model.handleProfileValueInputKey(message)
+		case editorStateProfileReview:
+			return model.handleProfileReviewKey(message)
+		case editorStateProfileRemoveConfirm:
+			return model.handleProfileRemoveConfirmKey(message)
 		case editorStateDirtyQuitConfirm:
 			return model.handleDirtyQuitKey(message)
 		case editorStateSaving:
@@ -83,6 +95,26 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		model.moveToNextFilteredRow(rows)
 	case model.filter != "" && isRuneKey(message, 'N'):
 		model.moveToPreviousFilteredRow(rows)
+	case isRuneKey(message, 'a'):
+		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfilesSection || selectedRow.Kind == navigationRowProfile {
+			model.beginAddProfile()
+		}
+	case isRuneKey(message, 'e'):
+		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+			model.beginEditProfile(selectedRow.Label)
+		}
+	case isRuneKey(message, 'r'):
+		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+			model.beginRenameProfile(selectedRow.Label)
+		}
+	case isRuneKey(message, 'd'):
+		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+			model.beginRemoveProfile(selectedRow.Label)
+		}
+	case message.Type == tea.KeySpace:
+		if selectedRow := model.selectedRow(rows); selectedRow.Kind == navigationRowProfile {
+			model.beginToggleProfileProtected(selectedRow.Label)
+		}
 	case isRuneKey(message, 's'):
 		if model.selectedRow(rows).Kind == navigationRowReview && overview.Saveable {
 			model.state = editorStateSaving

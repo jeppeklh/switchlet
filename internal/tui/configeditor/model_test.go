@@ -150,6 +150,155 @@ func TestModel_SavePipelineConvertsCompatibilityConfigAfterExplicitReview(t *tes
 	}
 }
 
+func TestModel_AddProfileFromExistingManagedValuesAndSave(t *testing.T) {
+	model, configPath := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+
+	model, _ = pressRune(t, model, 'a')
+	if model.state != editorStateProfileNameInput {
+		t.Fatalf("state = %v, want profile name input", model.state)
+	}
+	model = enterText(t, model, "QA")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileIncludeValues {
+		t.Fatalf("state = %v, want include-values state", model.state)
+	}
+
+	model, _ = pressKey(t, model, tea.KeySpace)
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileValueSource {
+		t.Fatalf("state = %v, want value-source state", model.state)
+	}
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileValueInput {
+		t.Fatalf("state = %v, want value-input state", model.state)
+	}
+	model = enterText(t, model, "postgres://qa-secret")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileReview {
+		t.Fatalf("state = %v, want profile review", model.state)
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "QA") || strings.Contains(view, "postgres://qa-secret") {
+		t.Fatalf("profile review should show profile name but hide literal value\n%s", view)
+	}
+
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateOverview {
+		t.Fatalf("state = %v, want overview after profile draft save", model.state)
+	}
+	if !strings.Contains(model.View(), "QA") {
+		t.Fatalf("overview does not contain added profile\n%s", model.View())
+	}
+
+	model, _ = pressRune(t, model, 'G')
+	var cmd tea.Cmd
+	model, cmd = pressRune(t, model, 's')
+	if model.state != editorStateSaving || cmd == nil {
+		t.Fatalf("state = %v cmd nil=%t, want saving command", model.state, cmd == nil)
+	}
+	updatedModel, _ := model.Update(cmd())
+	model = updatedModel.(Model)
+	if model.state != editorStateSaveSuccess {
+		t.Fatalf("state = %v, want save success", model.state)
+	}
+	if !strings.Contains(string(readTestFile(t, configPath)), "name: QA") {
+		t.Fatalf("saved configuration does not contain added profile\n%s", string(readTestFile(t, configPath)))
+	}
+}
+
+func TestModel_EditProfileRenameProtectedAndEnvironmentValue(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+	model = selectNavigationLabel(t, model, "Local")
+
+	model, _ = pressRune(t, model, 'r')
+	if model.state != editorStateProfileNameInput {
+		t.Fatalf("state = %v, want name input", model.state)
+	}
+	model, _ = pressKey(t, model, tea.KeyCtrlU)
+	model = enterText(t, model, "Development")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileReview {
+		t.Fatalf("state = %v, want profile review after rename", model.state)
+	}
+	model, _ = pressKey(t, model, tea.KeySpace)
+	model, _ = pressKey(t, model, tea.KeyEnter)
+
+	model = selectNavigationLabel(t, model, "Development")
+	model, _ = pressRune(t, model, 'e')
+	if model.state != editorStateProfileIncludeValues {
+		t.Fatalf("state = %v, want include-values state", model.state)
+	}
+	model, _ = pressRune(t, model, 'j')
+	model, _ = pressKey(t, model, tea.KeySpace)
+	model, _ = pressRune(t, model, 'k')
+	model, _ = pressRune(t, model, 'e')
+	model, _ = pressRune(t, model, 'j')
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	model = enterText(t, model, "DEV_DATABASE_URL")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileReview {
+		t.Fatalf("state = %v, want profile review", model.state)
+	}
+	model, _ = pressKey(t, model, tea.KeyEnter)
+
+	overview := model.overview()
+	var edited app.ConfigEditProfileItem
+	for _, profile := range overview.Profiles {
+		if profile.Name == "Development" {
+			edited = profile
+		}
+	}
+	if edited.Name == "" {
+		t.Fatalf("overview profiles = %#v, want Development", overview.Profiles)
+	}
+	if !edited.Protected || edited.ValueCount != 1 || !edited.Partial {
+		t.Fatalf("edited profile = %#v, want protected partial one-value profile", edited)
+	}
+	if edited.Values[0].Source != app.ProfileSourceEnvironment || edited.Values[0].EnvironmentVariableName != "DEV_DATABASE_URL" {
+		t.Fatalf("edited values = %#v, want environment-backed database value", edited.Values)
+	}
+}
+
+func TestModel_RemoveProfileUpdatesReviewSummary(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+	model = selectNavigationLabel(t, model, "Frontend Only")
+
+	model, _ = pressRune(t, model, 'd')
+	if model.state != editorStateProfileRemoveConfirm {
+		t.Fatalf("state = %v, want remove confirm", model.state)
+	}
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateOverview {
+		t.Fatalf("state = %v, want overview after removal", model.state)
+	}
+
+	view := model.View()
+	if !strings.Contains(view, "Removed profile \"Frontend Only\"") {
+		t.Fatalf("review summary does not contain removed profile\n%s", view)
+	}
+}
+
+func TestModel_ProfileTextEntryTreatsQAsLiteralInput(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+
+	model, _ = pressRune(t, model, 'a')
+	model, _ = pressRune(t, model, 'q')
+	if model.state != editorStateProfileNameInput {
+		t.Fatalf("state = %v, want profile name input", model.state)
+	}
+	if model.inputValue != "q" {
+		t.Fatalf("inputValue = %q, want q", model.inputValue)
+	}
+	if _, ok := model.Result(); ok {
+		t.Fatal("Result returned ok=true, want editor to keep running")
+	}
+}
+
 func TestModel_TooSmallTerminalRendersResizeState(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 40, 10)
@@ -239,6 +388,34 @@ func pressKey(t *testing.T, model Model, keyType tea.KeyType) (Model, tea.Cmd) {
 
 	updatedModel, cmd := model.Update(tea.KeyMsg{Type: keyType})
 	return updatedModel.(Model), cmd
+}
+
+func enterText(t *testing.T, model Model, text string) Model {
+	t.Helper()
+
+	for _, key := range text {
+		var cmd tea.Cmd
+		model, cmd = pressRune(t, model, key)
+		if cmd != nil {
+			t.Fatalf("unexpected command while entering %q", text)
+		}
+	}
+
+	return model
+}
+
+func selectNavigationLabel(t *testing.T, model Model, label string) Model {
+	t.Helper()
+
+	rows := model.navigationRows(model.overview())
+	for index, row := range rows {
+		if row.Label == label {
+			model.cursor = index
+			return model
+		}
+	}
+	t.Fatalf("navigation label %q not found in %#v", label, rows)
+	return model
 }
 
 func selectedLabel(model Model) string {

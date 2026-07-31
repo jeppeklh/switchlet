@@ -18,6 +18,12 @@ type editorState int
 const (
 	editorStateOverview editorState = iota
 	editorStateFilter
+	editorStateProfileNameInput
+	editorStateProfileIncludeValues
+	editorStateProfileValueSource
+	editorStateProfileValueInput
+	editorStateProfileReview
+	editorStateProfileRemoveConfirm
 	editorStateDirtyQuitConfirm
 	editorStateSaving
 	editorStateSaveSuccess
@@ -64,6 +70,7 @@ type Model struct {
 	inputValue  string
 	inputCursor int
 	saveError   string
+	profileForm profileDraftState
 
 	savedConfigPath string
 	savedChanges    []app.ConfigEditChange

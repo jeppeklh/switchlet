@@ -84,6 +84,25 @@ type ConfigEditRemoveManagedValueResult struct {
 	InvalidProfiles  []string
 }
 
+// ConfigEditProfileDraft is the app-owned editable form of one profile.
+// It can include literal values because active profile value entry is an
+// explicit config-editing surface; overview and review summaries still hide
+// literal values by default.
+type ConfigEditProfileDraft struct {
+	Name      string
+	Protected bool
+	Values    []ConfigEditProfileValueDraft
+}
+
+// ConfigEditProfileValueDraft is one editable managed-value entry for a profile.
+type ConfigEditProfileValueDraft struct {
+	TargetDescriptor
+	Included                bool
+	Source                  ProfileSource
+	LiteralValue            string
+	EnvironmentVariableName string
+}
+
 // ConfigEditPreparedSave is a validated config replacement that has not yet been committed.
 type ConfigEditPreparedSave struct {
 	ConfigPath string
@@ -132,6 +151,41 @@ func (workflow ConfigEditWorkflow) LoadDocument(configPath string) (ConfigEditDo
 	document.originalProfiles = copyConfigEditProfiles(document.Profiles)
 
 	return document, nil
+}
+
+// NewProfileDraft creates a profile draft for the document's configured managed values.
+func (workflow ConfigEditWorkflow) NewProfileDraft(document ConfigEditDocument) ConfigEditProfileDraft {
+	return newProfileDraft(document.Targets)
+}
+
+// ProfileDraft returns an editable profile draft for an existing profile.
+func (workflow ConfigEditWorkflow) ProfileDraft(document ConfigEditDocument, profileName string) (ConfigEditProfileDraft, error) {
+	profileIndex := profileIndexByName(document.Profiles, profileName)
+	if profileIndex < 0 {
+		return ConfigEditProfileDraft{}, fmt.Errorf("profile %q was not found: %w", profileName, ErrProfileNotFound)
+	}
+
+	return profileDraftFromProfile(document.Targets, document.Profiles[profileIndex]), nil
+}
+
+// AddProfileDraft appends an app-owned profile draft after schema validation.
+func (workflow ConfigEditWorkflow) AddProfileDraft(document ConfigEditDocument, draft ConfigEditProfileDraft) (ConfigEditDocument, error) {
+	profile, err := profileFromDraft(draft)
+	if err != nil {
+		return ConfigEditDocument{}, err
+	}
+
+	return workflow.AddProfile(document, profile)
+}
+
+// UpdateProfileDraft replaces an existing profile with an app-owned draft after schema validation.
+func (workflow ConfigEditWorkflow) UpdateProfileDraft(document ConfigEditDocument, existingName string, draft ConfigEditProfileDraft) (ConfigEditDocument, error) {
+	profile, err := profileFromDraft(draft)
+	if err != nil {
+		return ConfigEditDocument{}, err
+	}
+
+	return workflow.UpdateProfile(document, existingName, profile)
 }
 
 // AddProfile appends a profile to the draft after schema validation.
@@ -323,6 +377,94 @@ func (workflow ConfigEditWorkflow) SummarizeChanges(document ConfigEditDocument)
 	changes = append(changes, modelChanges...)
 
 	return changes
+}
+
+func newProfileDraft(targets []config.Target) ConfigEditProfileDraft {
+	draft := ConfigEditProfileDraft{
+		Values: make([]ConfigEditProfileValueDraft, 0, len(targets)),
+	}
+	includeOnlyManagedValue := len(targets) == 1
+	for _, target := range targets {
+		draft.Values = append(draft.Values, ConfigEditProfileValueDraft{
+			TargetDescriptor: targetDescriptor(target),
+			Included:         includeOnlyManagedValue,
+			Source:           ProfileSourceLiteral,
+		})
+	}
+
+	return draft
+}
+
+func profileDraftFromProfile(targets []config.Target, profile config.Profile) ConfigEditProfileDraft {
+	draft := newProfileDraft(targets)
+	draft.Name = profile.Name
+	draft.Protected = profile.Protected
+	valuesByTarget := make(map[string]config.ProfileValue, len(profile.Values))
+	for _, value := range profile.Values {
+		valuesByTarget[value.Target] = value
+	}
+
+	for index := range draft.Values {
+		profileValue, exists := valuesByTarget[draft.Values[index].TargetName]
+		if !exists {
+			continue
+		}
+
+		draft.Values[index].Included = true
+		if profileValue.ValueFromEnv != nil {
+			draft.Values[index].Source = ProfileSourceEnvironment
+			draft.Values[index].EnvironmentVariableName = *profileValue.ValueFromEnv
+			continue
+		}
+
+		draft.Values[index].Source = ProfileSourceLiteral
+		if profileValue.Value != nil {
+			draft.Values[index].LiteralValue = *profileValue.Value
+		}
+	}
+
+	return draft
+}
+
+func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
+	profileName := strings.TrimSpace(draft.Name)
+	if profileName == "" {
+		return config.Profile{}, fmt.Errorf("profile name must be set")
+	}
+
+	profile := config.Profile{
+		Name:      profileName,
+		Protected: draft.Protected,
+		Values:    make([]config.ProfileValue, 0, len(draft.Values)),
+	}
+	for _, draftValue := range draft.Values {
+		if !draftValue.Included {
+			continue
+		}
+
+		profileValue := config.ProfileValue{Target: draftValue.TargetName}
+		switch draftValue.Source {
+		case ProfileSourceEnvironment:
+			environmentVariableName := strings.TrimSpace(draftValue.EnvironmentVariableName)
+			if environmentVariableName == "" {
+				return config.Profile{}, fmt.Errorf("profile %q value for managed value %q environment variable must be set", profileName, draftValue.TargetName)
+			}
+			profileValue.ValueFromEnv = &environmentVariableName
+		default:
+			if strings.TrimSpace(draftValue.LiteralValue) == "" {
+				return config.Profile{}, fmt.Errorf("profile %q value for managed value %q literal value must be set", profileName, draftValue.TargetName)
+			}
+			literalValue := draftValue.LiteralValue
+			profileValue.Value = &literalValue
+		}
+
+		profile.Values = append(profile.Values, profileValue)
+	}
+	if len(profile.Values) == 0 {
+		return config.Profile{}, fmt.Errorf("profile %q must include at least one managed value", profileName)
+	}
+
+	return profile, nil
 }
 
 func (workflow ConfigEditWorkflow) normalizeDraft(document ConfigEditDocument, action string) (ConfigEditDocument, error) {
