@@ -48,7 +48,7 @@ func (model *Model) beginEditProfile(profileName string) {
 	draft, err := model.workflow.ProfileDraft(model.document, profileName)
 	if err != nil {
 		model.saveError = err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
 
@@ -67,7 +67,7 @@ func (model *Model) beginRenameProfile(profileName string) {
 	draft, err := model.workflow.ProfileDraft(model.document, profileName)
 	if err != nil {
 		model.saveError = err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
 
@@ -87,7 +87,7 @@ func (model *Model) beginToggleProfileProtected(profileName string) {
 	draft, err := model.workflow.ProfileDraft(model.document, profileName)
 	if err != nil {
 		model.saveError = err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
 
@@ -105,7 +105,7 @@ func (model *Model) beginRemoveProfile(profileName string) {
 	draft, err := model.workflow.ProfileDraft(model.document, profileName)
 	if err != nil {
 		model.saveError = err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
 
@@ -281,7 +281,12 @@ func (model *Model) completeProfileDraft() {
 	model.inputCursor = 0
 	model.state = editorStateOverview
 	model.saveError = ""
-	model.cursor = model.profileRowIndex(profileName)
+	model.selectOverviewTab(overviewTabProfiles)
+	if rowIndex := model.profileRowIndex(profileName); rowIndex >= 0 {
+		model.cursor = rowIndex
+		return
+	}
+	model.selectReviewOverview()
 }
 
 func (model *Model) removeProfileDraft() {
@@ -297,7 +302,7 @@ func (model *Model) removeProfileDraft() {
 	model.inputCursor = 0
 	model.state = editorStateOverview
 	model.saveError = ""
-	model.cursor = model.reviewRowIndex()
+	model.selectReviewOverview()
 }
 
 func (model Model) profileRowIndex(profileName string) int {
@@ -308,5 +313,5 @@ func (model Model) profileRowIndex(profileName string) int {
 		}
 	}
 
-	return model.reviewRowIndex()
+	return -1
 }

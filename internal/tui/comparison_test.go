@@ -108,7 +108,7 @@ func TestUpdate_StatusActionIgnoresStaleStartupCurrentProfileDetection(t *testin
 	if staleCommand != nil {
 		t.Fatal("staleCommand is not nil, want stale startup detection ignored")
 	}
-	if model.state != statusLoadingState || model.currentProfile != "" {
+	if model.state != statusLoadingState || model.profileIsCurrent("Local") {
 		t.Fatalf("model after stale startup detection = %#v, want status loading with no current badge", model)
 	}
 
@@ -117,7 +117,7 @@ func TestUpdate_StatusActionIgnoresStaleStartupCurrentProfileDetection(t *testin
 	if readyCommand != nil {
 		t.Fatal("readyCommand is not nil after status result")
 	}
-	if model.state != statusReadyState || model.currentProfile != "Local" {
+	if model.state != statusReadyState || !model.profileIsCurrent("Local") {
 		t.Fatalf("model after status result = %#v, want explicit status result to set current profile", model)
 	}
 }

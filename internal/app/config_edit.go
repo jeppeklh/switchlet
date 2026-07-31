@@ -12,8 +12,8 @@ import (
 )
 
 var (
-	// ErrManagedValueNotFound indicates that a requested managed value does not exist.
-	ErrManagedValueNotFound = errors.New("managed value not found")
+	// ErrManagedValueNotFound indicates that a requested editable target does not exist.
+	ErrManagedValueNotFound = errors.New("target not found")
 	// ErrConfigEditNoChanges indicates that a save was requested for an unchanged draft.
 	ErrConfigEditNoChanges = errors.New("no pending configuration changes")
 )
@@ -228,7 +228,7 @@ func (workflow ConfigEditWorkflow) AddManagedValue(document ConfigEditDocument, 
 	draft := document.clone()
 	draft.Targets = append(draft.Targets, target)
 
-	return workflow.normalizeDraft(draft, fmt.Sprintf("add managed value %q", target.Name))
+	return workflow.normalizeDraft(draft, fmt.Sprintf("add target %q", target.Name))
 }
 
 // RenameManagedValue renames a managed value and updates every profile reference in the draft.
@@ -236,7 +236,7 @@ func (workflow ConfigEditWorkflow) RenameManagedValue(document ConfigEditDocumen
 	draft := document.clone()
 	targetIndex := targetIndexByName(draft.Targets, existingName)
 	if targetIndex < 0 {
-		return ConfigEditDocument{}, ConfigEditRenameManagedValueResult{}, fmt.Errorf("managed value %q was not found: %w", existingName, ErrManagedValueNotFound)
+		return ConfigEditDocument{}, ConfigEditRenameManagedValueResult{}, fmt.Errorf("target %q was not found: %w", existingName, ErrManagedValueNotFound)
 	}
 
 	draft.Targets[targetIndex].Name = newName
@@ -256,7 +256,7 @@ func (workflow ConfigEditWorkflow) RenameManagedValue(document ConfigEditDocumen
 		}
 	}
 
-	normalizedDraft, err := workflow.normalizeDraft(draft, fmt.Sprintf("rename managed value %q", existingName))
+	normalizedDraft, err := workflow.normalizeDraft(draft, fmt.Sprintf("rename target %q", existingName))
 	if err != nil {
 		return ConfigEditDocument{}, ConfigEditRenameManagedValueResult{}, err
 	}
@@ -269,13 +269,13 @@ func (workflow ConfigEditWorkflow) UpdateManagedValueLocation(document ConfigEdi
 	draft := document.clone()
 	targetIndex := targetIndexByName(draft.Targets, targetName)
 	if targetIndex < 0 {
-		return ConfigEditDocument{}, fmt.Errorf("managed value %q was not found: %w", targetName, ErrManagedValueNotFound)
+		return ConfigEditDocument{}, fmt.Errorf("target %q was not found: %w", targetName, ErrManagedValueNotFound)
 	}
 
 	updatedTarget.Name = targetName
 	draft.Targets[targetIndex] = updatedTarget
 
-	return workflow.normalizeDraft(draft, fmt.Sprintf("update managed value %q", targetName))
+	return workflow.normalizeDraft(draft, fmt.Sprintf("update target %q", targetName))
 }
 
 // RemoveManagedValue removes one managed value and every corresponding profile value from the draft.
@@ -283,7 +283,7 @@ func (workflow ConfigEditWorkflow) RemoveManagedValue(document ConfigEditDocumen
 	draft := document.clone()
 	targetIndex := targetIndexByName(draft.Targets, targetName)
 	if targetIndex < 0 {
-		return ConfigEditDocument{}, ConfigEditRemoveManagedValueResult{}, fmt.Errorf("managed value %q was not found: %w", targetName, ErrManagedValueNotFound)
+		return ConfigEditDocument{}, ConfigEditRemoveManagedValueResult{}, fmt.Errorf("target %q was not found: %w", targetName, ErrManagedValueNotFound)
 	}
 
 	draft.Targets = append(draft.Targets[:targetIndex], draft.Targets[targetIndex+1:]...)
@@ -447,12 +447,12 @@ func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
 		case ProfileSourceEnvironment:
 			environmentVariableName := strings.TrimSpace(draftValue.EnvironmentVariableName)
 			if environmentVariableName == "" {
-				return config.Profile{}, fmt.Errorf("profile %q value for managed value %q environment variable must be set", profileName, draftValue.TargetName)
+				return config.Profile{}, fmt.Errorf("profile %q value for target %q environment variable must be set", profileName, draftValue.TargetName)
 			}
 			profileValue.ValueFromEnv = &environmentVariableName
 		default:
 			if strings.TrimSpace(draftValue.LiteralValue) == "" {
-				return config.Profile{}, fmt.Errorf("profile %q value for managed value %q literal value must be set", profileName, draftValue.TargetName)
+				return config.Profile{}, fmt.Errorf("profile %q value for target %q literal value must be set", profileName, draftValue.TargetName)
 			}
 			literalValue := draftValue.LiteralValue
 			profileValue.Value = &literalValue
@@ -461,7 +461,7 @@ func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
 		profile.Values = append(profile.Values, profileValue)
 	}
 	if len(profile.Values) == 0 {
-		return config.Profile{}, fmt.Errorf("profile %q must include at least one managed value", profileName)
+		return config.Profile{}, fmt.Errorf("profile %q must include at least one target", profileName)
 	}
 
 	return profile, nil
@@ -525,7 +525,7 @@ func (workflow ConfigEditWorkflow) summarizeManagedValueChanges(document ConfigE
 		if exists && !configEditTargetsEqual(originalTarget, draftTarget) {
 			changes = append(changes, ConfigEditChange{
 				Kind:    ConfigEditChangeManagedValueUpdated,
-				Summary: fmt.Sprintf("Edited managed value %q.", originalTarget.Name),
+				Summary: fmt.Sprintf("Edited target %q.", originalTarget.Name),
 				Detail:  targetChangeDetail(originalTarget, draftTarget),
 			})
 		}
@@ -545,7 +545,7 @@ func (workflow ConfigEditWorkflow) summarizeManagedValueChanges(document ConfigE
 		if matchedAddedIndex < 0 {
 			changes = append(changes, ConfigEditChange{
 				Kind:    ConfigEditChangeManagedValueRemoved,
-				Summary: fmt.Sprintf("Removed managed value %q.", removedTarget.Name),
+				Summary: fmt.Sprintf("Removed target %q.", removedTarget.Name),
 				Detail:  removedManagedValueDetail(document.originalProfiles, removedTarget.Name),
 			})
 			continue
@@ -555,7 +555,7 @@ func (workflow ConfigEditWorkflow) summarizeManagedValueChanges(document ConfigE
 		usedAddedTargets[matchedAddedIndex] = struct{}{}
 		changes = append(changes, ConfigEditChange{
 			Kind:    ConfigEditChangeManagedValueRenamed,
-			Summary: fmt.Sprintf("Renamed managed value %q to %q.", removedTarget.Name, addedTarget.Name),
+			Summary: fmt.Sprintf("Renamed target %q to %q.", removedTarget.Name, addedTarget.Name),
 			Detail:  renamedManagedValueDetail(document.Profiles, addedTarget.Name),
 		})
 	}
@@ -567,7 +567,7 @@ func (workflow ConfigEditWorkflow) summarizeManagedValueChanges(document ConfigE
 
 		changes = append(changes, ConfigEditChange{
 			Kind:    ConfigEditChangeManagedValueAdded,
-			Summary: fmt.Sprintf("Added managed value %q.", addedTarget.Name),
+			Summary: fmt.Sprintf("Added target %q.", addedTarget.Name),
 			Detail:  targetDetail(addedTarget),
 		})
 	}
@@ -629,7 +629,7 @@ func (workflow ConfigEditWorkflow) summarizeProfileChanges(document ConfigEditDo
 		changes = append(changes, ConfigEditChange{
 			Kind:    ConfigEditChangeProfileAdded,
 			Summary: fmt.Sprintf("Added profile %q.", addedProfile.Name),
-			Detail:  []string{fmt.Sprintf("Managed values: %d", len(addedProfile.Values))},
+			Detail:  []string{fmt.Sprintf("Targets: %d", len(addedProfile.Values))},
 		})
 	}
 
@@ -833,7 +833,7 @@ func profileChangeDetail(originalProfile config.Profile, draftProfile config.Pro
 		detail = append(detail, fmt.Sprintf("Protected: %t -> %t", originalProfile.Protected, draftProfile.Protected))
 	}
 	if !profileValuesSameTargetsAndSources(originalProfile.Values, draftProfile.Values) {
-		detail = append(detail, "Managed values or value sources changed.")
+		detail = append(detail, "Targets or value sources changed.")
 	}
 
 	return detail

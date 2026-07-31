@@ -65,8 +65,8 @@ func (model *Model) beginAddManagedValue() tea.Cmd {
 func (model *Model) beginRenameManagedValue(targetName string) {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
-		model.cursor = model.reviewRowIndex()
+		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.selectReviewOverview()
 		return
 	}
 
@@ -84,8 +84,8 @@ func (model *Model) beginRenameManagedValue(targetName string) {
 func (model *Model) beginEditManagedValueLocation(targetName string) tea.Cmd {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
-		model.cursor = model.reviewRowIndex()
+		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.selectReviewOverview()
 		return nil
 	}
 
@@ -105,15 +105,15 @@ func (model *Model) beginEditManagedValueLocation(targetName string) tea.Cmd {
 func (model *Model) beginRemoveManagedValue(targetName string) {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
-		model.cursor = model.reviewRowIndex()
+		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.selectReviewOverview()
 		return
 	}
 
 	updatedDocument, result, err := model.workflow.RemoveManagedValue(model.document, targetName)
 	if err != nil {
 		model.saveError = err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
 
@@ -286,7 +286,7 @@ func (model *Model) applyManagedValueManualSelector() tea.Cmd {
 func (model *Model) applyManagedValueNameInput() {
 	managedValueName := strings.TrimSpace(model.inputValue)
 	if managedValueName == "" {
-		model.managedForm.errorMessage = "Managed value name must be set."
+		model.managedForm.errorMessage = "Target name must be set."
 		return
 	}
 
@@ -344,14 +344,15 @@ func (model *Model) completeManagedValueDraft() {
 	model.state = editorStateOverview
 	model.saveError = ""
 	if targetName == "" || removedManagedValue {
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return
 	}
+	model.selectOverviewTab(overviewTabTargets)
 	if rowIndex := model.managedValueRowIndex(targetName); rowIndex >= 0 {
 		model.cursor = rowIndex
 		return
 	}
-	model.cursor = model.reviewRowIndex()
+	model.selectReviewOverview()
 }
 
 func (model Model) managedValueRowIndex(targetName string) int {

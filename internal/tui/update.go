@@ -151,7 +151,7 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 
 	model.statusComparison = nil
 	model.diffPreview = nil
-	model.currentProfile = ""
+	model.currentProfiles = nil
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
 	return model, nil
@@ -162,7 +162,7 @@ func (model Model) handleCurrentProfileDetected(message currentProfileDetectedMs
 		return model, nil
 	}
 	if message.err != nil {
-		model.currentProfile = ""
+		model.currentProfiles = nil
 		return model, nil
 	}
 
@@ -183,7 +183,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.state = errorState
 		model.recoverableError = model.applyFailureError(profileName, message.err)
 		model.successResult = nil
-		model.currentProfile = ""
+		model.currentProfiles = nil
 		return model, nil
 	}
 
@@ -192,7 +192,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 	if !applyExits {
 		model.state = listState
 		model.successResult = nil
-		model.currentProfile = ""
+		model.currentProfiles = nil
 		model.currentRequestID++
 		return model, detectCurrentProfile(model.application, model.currentRequestID)
 	}
@@ -475,12 +475,18 @@ func (model Model) toggleValueVisibility() Model {
 }
 
 func (model *Model) updateCurrentProfile(status app.StatusComparison) {
-	if status.Status == app.StatusComparisonMatched && status.CurrentProfile != "" {
-		model.currentProfile = status.CurrentProfile
+	names := status.CurrentProfileNames()
+	if len(names) == 0 {
+		model.currentProfiles = nil
 		return
 	}
 
-	model.currentProfile = ""
+	currentProfiles := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		currentProfiles[name] = struct{}{}
+	}
+
+	model.currentProfiles = currentProfiles
 }
 
 func (model *Model) clearComparisonState() {

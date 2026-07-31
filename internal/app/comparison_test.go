@@ -186,7 +186,7 @@ func TestApplication_CompareStatus_ReportsAmbiguousCompleteMatches(t *testing.T)
 	}
 }
 
-func TestApplication_CompareStatus_ReportsPartialMatchesWithoutCurrentProfile(t *testing.T) {
+func TestApplication_CompareStatus_ReportsScopedCurrentProfileNames(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://local"}}`)
 	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://current\n")
@@ -219,7 +219,11 @@ func TestApplication_CompareStatus_ReportsPartialMatchesWithoutCurrentProfile(t 
 	}
 
 	if status.Status != app.StatusComparisonUnmatched || status.CurrentProfile != "" {
-		t.Fatalf("status = %#v, want unmatched because partial profiles are advisory", status)
+		t.Fatalf("status = %#v, want unmatched whole-project status with no single exact current profile", status)
+	}
+	currentNames := status.CurrentProfileNames()
+	if len(currentNames) != 1 || currentNames[0] != "Database Only" {
+		t.Fatalf("CurrentProfileNames() = %#v, want Database Only", currentNames)
 	}
 	if len(status.PartialMatches) != 1 {
 		t.Fatalf("len(PartialMatches) = %d, want 1", len(status.PartialMatches))

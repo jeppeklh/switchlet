@@ -241,13 +241,10 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"> Database Only",
-		"Database Only [1 target] [partial]",
 		"Profile contents",
-		"Ready to apply | 1 of 2 targets",
-		"1 target unchanged",
 		"appsettings.Development.json",
-		"Managed value",
-		"database [json]",
+		"Target",
+		"database",
 		"Selector",
 		"database.url",
 		"Value",
@@ -260,8 +257,10 @@ func TestView_MultiTargetListShowsTargetAwareSummary(t *testing.T) {
 	if strings.Contains(view, "postgres://local") {
 		t.Fatalf("View() = %q, must not contain raw profile value while values are hidden", view)
 	}
-	if strings.Contains(view, "> Database Only [1 target]") || strings.Contains(view, "values hidden") {
-		t.Fatalf("View() = %q, must not contain list metadata badges or hidden-value meta text", view)
+	for _, forbidden := range []string{"> Database Only [1 target]", "Ready to apply", "[partial]", "[json]", "values hidden", "1 of 2 targets", "1 target unchanged", "partial"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain scope-as-incomplete wording %q", view, forbidden)
+		}
 	}
 }
 
@@ -287,15 +286,15 @@ func TestView_ProfileContentsGroupsMultiTargetProfileByFile(t *testing.T) {
 	view := model.View()
 	for _, expected := range []string{
 		"Profile contents",
-		"Affected files",
+		"Targets",
 		"backend/appsettings.Development.json",
-		"database [json]",
+		"database",
 		"Selector",
 		"database.url",
-		"redis [json]",
+		"redis",
 		"redis.url",
 		"frontend/.env.local",
-		"frontendApi [dotenv]",
+		"frontendApi",
 		"VITE_API_URL",
 	} {
 		if !strings.Contains(view, expected) {
@@ -327,9 +326,9 @@ func TestProfileContentsTargetLinesSeparateSelectorFromValue(t *testing.T) {
 	}, 80)
 
 	expectedLines := []string{
-		"  Managed value  database [json]",
-		"  Selector       database.url",
-		"  Value          " + hiddenValuePlaceholder,
+		"  Target    database",
+		"  Selector  database.url",
+		"  Value     " + hiddenValuePlaceholder,
 	}
 	if len(lines) != len(expectedLines) {
 		t.Fatalf("profileContentsTargetLines() = %#v, want %#v", lines, expectedLines)
@@ -362,12 +361,13 @@ func TestView_ProfileContentsUnavailableProfileShowsSafeReason(t *testing.T) {
 	for _, expected := range []string{
 		"Profile contents",
 		"Unavailable",
-		"database [json]",
+		"Set MISSING_DB_URL to apply target database.",
+		"database",
 		"Availability",
 		"Environment variable",
 		"MISSING_DB_URL",
 		"Reason",
-		"frontendApi [dotenv]",
+		"frontendApi",
 		"Value",
 		hiddenValuePlaceholder,
 	} {

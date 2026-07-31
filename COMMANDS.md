@@ -41,8 +41,8 @@ switchlet config
 
 `switchlet config` opens the interactive configuration editor for the discovered
 `.switchlet.yaml`. Version `0.19` requires stdin and stdout to be interactive
-terminals. The editor can add, edit, rename, and remove profiles and managed
-values, then saves only from the explicit review surface.
+terminals. The editor can add, edit, rename, and remove profiles and targets,
+then saves only from the explicit review surface.
 
 The normal profile picker also exposes `c Config` as a handoff into the same
 editor. After a saved edit, Switchlet reloads `.switchlet.yaml` and validates the

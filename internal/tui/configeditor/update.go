@@ -100,29 +100,47 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	model.clampCursor(len(rows))
 
 	switch {
+	case isPreviousTabKey(message):
+		model.selectPreviousOverviewTab()
+		model.filter = ""
+		rows = model.navigationRows(overview)
+		model.clampCursor(len(rows))
+	case isNextTabKey(message):
+		model.selectNextOverviewTab()
+		model.filter = ""
+		rows = model.navigationRows(overview)
+		model.clampCursor(len(rows))
 	case isMoveUpKey(message):
-		model.cursor--
-		if model.cursor < 0 {
-			model.cursor = len(rows) - 1
+		if len(rows) > 0 {
+			model.cursor--
+			if model.cursor < 0 {
+				model.cursor = len(rows) - 1
+			}
 		}
 	case isMoveDownKey(message):
-		model.cursor++
-		if model.cursor >= len(rows) {
-			model.cursor = 0
+		if len(rows) > 0 {
+			model.cursor++
+			if model.cursor >= len(rows) {
+				model.cursor = 0
+			}
 		}
 	case isFirstKey(message):
 		model.cursor = 0
 	case isLastKey(message):
-		model.cursor = len(rows) - 1
-	case isOpenKey(message):
-		model.openSelectedRow(rows)
-	case isBackKey(message):
+		if len(rows) > 0 {
+			model.cursor = len(rows) - 1
+		}
+	case message.Type == tea.KeyEsc:
 		if model.filter != "" {
 			model.filter = ""
 			model.cursor = 0
 		}
+	case model.embedded && isRuneKey(message, 'c'):
+		return model.beginReturnToPicker()
 	case isRuneKey(message, '/'):
-		model.beginFilter()
+		if model.activeTab != overviewTabReview {
+			model.beginFilter()
+		}
 	case model.filter != "" && isRuneKey(message, 'n'):
 		model.moveToNextFilteredRow(rows)
 	case model.filter != "" && isRuneKey(message, 'N'):
@@ -174,12 +192,24 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (model Model) beginQuit() (tea.Model, tea.Cmd) {
 	if model.overview().Dirty {
+		model.returnToPicker = false
+		model.state = editorStateDirtyQuitConfirm
+		return model, nil
+	}
+
+	model.quitWithoutSaving()
+	return model, tea.Quit
+}
+
+func (model Model) beginReturnToPicker() (tea.Model, tea.Cmd) {
+	if model.overview().Dirty {
+		model.returnToPicker = true
 		model.state = editorStateDirtyQuitConfirm
 		return model, nil
 	}
 
 	model.closeWithoutSaving()
-	return model, tea.Quit
+	return model, nil
 }
 
 func (model *Model) openSelectedRow(rows []navigationRow) {
@@ -204,7 +234,14 @@ func (model *Model) openSelectedRow(rows []navigationRow) {
 
 func (model Model) selectedRow(rows []navigationRow) navigationRow {
 	if len(rows) == 0 {
-		return navigationRow{Kind: navigationRowReview, Label: "Review changes"}
+		switch model.activeTab {
+		case overviewTabTargets:
+			return navigationRow{Kind: navigationRowManagedValuesSection, Label: "Targets"}
+		case overviewTabReview:
+			return navigationRow{Kind: navigationRowReview, Label: "Review changes"}
+		default:
+			return navigationRow{Kind: navigationRowProfilesSection, Label: "Profiles"}
+		}
 	}
 	if model.cursor < 0 {
 		return rows[0]
@@ -263,9 +300,16 @@ func (model Model) handleFilterKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (model Model) handleDirtyQuitKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case message.Type == tea.KeyEnter || isRuneKey(message, 'y'):
+		if model.returnToPicker {
+			model.returnToPicker = false
+			model.closeWithoutSaving()
+			return model, nil
+		}
+
 		model.cancel()
 		return model, tea.Quit
 	case message.Type == tea.KeyEsc || isRuneKey(message, 'n') || isRuneKey(message, 'h'):
+		model.returnToPicker = false
 		model.state = editorStateOverview
 	}
 
@@ -285,7 +329,7 @@ func (model Model) handleSaveCompleted(message saveCompletedMsg) (tea.Model, tea
 	if message.err != nil {
 		model.state = editorStateOverview
 		model.saveError = message.err.Error()
-		model.cursor = model.reviewRowIndex()
+		model.selectReviewOverview()
 		return model, nil
 	}
 
@@ -295,15 +339,8 @@ func (model Model) handleSaveCompleted(message saveCompletedMsg) (tea.Model, tea
 	return model, nil
 }
 
-func (model Model) reviewRowIndex() int {
-	rows := model.navigationRows(model.overview())
-	for index, row := range rows {
-		if row.Kind == navigationRowReview {
-			return index
-		}
-	}
-
-	return 0
+func (model *Model) selectReviewOverview() {
+	model.selectOverviewTab(overviewTabReview)
 }
 
 func (model *Model) handleInputEditKey(message tea.KeyMsg) bool {

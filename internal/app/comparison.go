@@ -71,6 +71,33 @@ func (application Application) CompareStatus() (StatusComparison, error) {
 	return comparison, nil
 }
 
+// CurrentProfileNames returns profiles whose included targets match current target values.
+func (comparison StatusComparison) CurrentProfileNames() []string {
+	names := make([]string, 0, len(comparison.Matches)+len(comparison.PartialMatches))
+	seen := make(map[string]struct{}, cap(names))
+
+	appendName := func(name string) {
+		if name == "" {
+			return
+		}
+		if _, exists := seen[name]; exists {
+			return
+		}
+
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+
+	for _, match := range comparison.Matches {
+		appendName(match.ProfileName)
+	}
+	for _, match := range comparison.PartialMatches {
+		appendName(match.ProfileName)
+	}
+
+	return names
+}
+
 // DiffProfileByName compares one selected profile against current managed target values.
 func (application Application) DiffProfileByName(profileName string) (ProfileDiff, error) {
 	configuredProfile, err := application.profileByName(profileName)

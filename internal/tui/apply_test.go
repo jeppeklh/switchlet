@@ -194,12 +194,12 @@ func TestUpdate_SpaceAppliesSelectedProfileAndReturnsToList(t *testing.T) {
 	if nextCommand != nil {
 		t.Fatal("nextCommand is not nil after current-profile refresh")
 	}
-	if model.currentProfile != "Local" || !strings.Contains(model.View(), "> Local [current]") {
+	if !model.profileIsCurrent("Local") || !strings.Contains(model.View(), "> Local [current]") {
 		t.Fatalf("model/view after current refresh = %#v\n%s", model, model.View())
 	}
 }
 
-func TestUpdate_SpaceApplyDoesNotMarkPartialProfileCurrent(t *testing.T) {
+func TestUpdate_SpaceApplyMarksScopedProfileCurrent(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend.json", `{"database":{"url":"old"}}`)
 	apiPath := writeTargetFile(t, projectRoot, "frontend.json", `{"api":{"url":"current-api"}}`)
@@ -223,8 +223,8 @@ func TestUpdate_SpaceApplyDoesNotMarkPartialProfileCurrent(t *testing.T) {
 	}
 	updatedModel, _ = model.Update(currentCommand())
 	model = updatedModel.(Model)
-	if model.currentProfile != "" || strings.Contains(model.View(), "[current]") {
-		t.Fatalf("model/view after partial apply = %#v\n%s", model, model.View())
+	if !model.profileIsCurrent("Database Only") || !strings.Contains(model.View(), "> Database Only [current]") {
+		t.Fatalf("model/view after scoped apply = %#v\n%s", model, model.View())
 	}
 }
 

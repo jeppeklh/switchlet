@@ -52,7 +52,7 @@ The wizard creates `.switchlet.yaml` after you select existing target files,
 selectors, and profiles. Target files and selected values must already exist
 before Switchlet writes to them.
 
-Edit profiles and managed values later without rerunning setup:
+Edit profiles and targets later without rerunning setup:
 
 ```bash
 switchlet config

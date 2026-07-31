@@ -34,22 +34,40 @@ func runConfigCommand(workingDirectory string, input io.Reader, output io.Writer
 }
 
 func runConfigEditorForWorkingDirectory(workingDirectory string, input io.Reader, output io.Writer) (configeditor.Result, error) {
-	configPath, err := config.Discover(workingDirectory)
+	model, err := configEditorModelForWorkingDirectory(workingDirectory, configeditor.Options{})
 	if err != nil {
 		return configeditor.Result{}, err
+	}
+
+	return runConfigEditorModel(model, input, output)
+}
+
+func configEditorModelForWorkingDirectory(workingDirectory string, options configeditor.Options) (configeditor.Model, error) {
+	model, _, err := configEditorModelAndWorkflowForWorkingDirectory(workingDirectory, options)
+	return model, err
+}
+
+func configEditorModelAndWorkflowForWorkingDirectory(workingDirectory string, options configeditor.Options) (configeditor.Model, app.ConfigEditWorkflow, error) {
+	configPath, err := config.Discover(workingDirectory)
+	if err != nil {
+		return configeditor.Model{}, app.ConfigEditWorkflow{}, err
 	}
 
 	workflow := app.DefaultConfigEditWorkflow()
 	document, err := workflow.LoadDocument(configPath)
 	if err != nil {
-		return configeditor.Result{}, err
+		return configeditor.Model{}, app.ConfigEditWorkflow{}, err
 	}
 
-	return runConfigEditor(document, workflow, input, output)
+	return configeditor.NewModelWithOptions(document, workflow, options), workflow, nil
 }
 
 func runConfigEditor(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow, input io.Reader, output io.Writer) (configeditor.Result, error) {
 	model := configeditor.NewModel(document, workflow)
+	return runConfigEditorModel(model, input, output)
+}
+
+func runConfigEditorModel(model configeditor.Model, input io.Reader, output io.Writer) (configeditor.Result, error) {
 	finalModel, err := runFullScreenTerminalProgram(model, tea.WithInput(input), tea.WithOutput(output))
 	if err != nil {
 		return configeditor.Result{}, fmt.Errorf("run config editor: %w", err)

@@ -74,7 +74,7 @@ func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 	if nextCommand != nil {
 		t.Fatal("nextCommand is not nil after current-profile detection")
 	}
-	if model.state != listState || model.currentProfile != "Local" {
+	if model.state != listState || !model.profileIsCurrent("Local") {
 		t.Fatalf("model after current-profile detection = %#v, want Local current badge state", model)
 	}
 	view := model.View()
@@ -89,7 +89,7 @@ func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
-func TestInit_DoesNotShowCurrentBadgeForAmbiguousMatches(t *testing.T) {
+func TestInit_ShowsCurrentBadgeForEveryMatchingProfile(t *testing.T) {
 	projectRoot := t.TempDir()
 	currentValue := "postgres://shared-current"
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
@@ -106,11 +106,14 @@ func TestInit_DoesNotShowCurrentBadgeForAmbiguousMatches(t *testing.T) {
 	if nextCommand != nil {
 		t.Fatal("nextCommand is not nil after ambiguous current-profile detection")
 	}
-	if model.currentProfile != "" {
-		t.Fatalf("currentProfile = %q, want no current profile for ambiguous matches", model.currentProfile)
+	if !model.profileIsCurrent("Local") || !model.profileIsCurrent("Local Copy") {
+		t.Fatalf("model after current-profile detection = %#v, want both matching profiles current", model)
 	}
-	if strings.Contains(model.View(), "[current]") {
-		t.Fatalf("View() = %q, must not show current badge for ambiguous matches", model.View())
+	view := model.View()
+	for _, expected := range []string{"Local [current]", "Local Copy [current]"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want current badge %q", view, expected)
+		}
 	}
 }
 
@@ -207,20 +210,20 @@ func TestView_ListViewUsesNeutralProtectedStatusAndApplyHelp(t *testing.T) {
 	))
 
 	view := model.View()
-	if !strings.Contains(view, `> Production`) || !strings.Contains(view, `Production [protected]`) {
+	if !strings.Contains(view, `> Production`) || !strings.Contains(view, `Production`) {
 		t.Fatalf("View() = %q, want selected profile context", view)
 	}
-	if strings.Contains(view, `> Production [protected]`) {
-		t.Fatalf("View() = %q, main profile list must not show protected badge", view)
+	if strings.Contains(view, `[protected]`) {
+		t.Fatalf("View() = %q, main picker must not show protected badges", view)
 	}
 	if strings.Contains(view, `[literal]`) {
 		t.Fatalf("View() = %q, main picker must not show source badges", view)
 	}
-	if !strings.Contains(view, `Ready to apply`) {
-		t.Fatalf("View() = %q, want actionable selected profile state", view)
-	}
 	if strings.Contains(view, `requires confirmation`) {
 		t.Fatalf("View() = %q, must not show premature confirmation status copy", view)
+	}
+	if strings.Contains(view, `Ready to apply`) {
+		t.Fatalf("View() = %q, profile contents must not show redundant readiness meta text", view)
 	}
 	if !strings.Contains(view, "Enter Apply+Exit") {
 		t.Fatalf("View() = %q, want Enter help text that matches the protected flow", view)
@@ -245,11 +248,10 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 	}
 	for _, expected := range []string{
 		"Profile contents",
-		"Production [protected]",
-		"Ready to apply",
+		"Production",
 		"config/development.json",
-		"default [json]",
-		"Managed value",
+		"default",
+		"Target",
 		"Selector",
 		"database.primary.url",
 		"Value",
@@ -259,7 +261,7 @@ func TestView_SelectedProfilePanelStaysActionFocused(t *testing.T) {
 			t.Fatalf("View() = %q, want profile-contents context %q", view, expected)
 		}
 	}
-	for _, forbidden := range []string{"Profile:", "State:", "Source:", "Changes:", "Values:", "Enter:", "Protection:", "[env]", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
+	for _, forbidden := range []string{"Profile:", "State:", "Source:", "Changes:", "Values:", "Enter:", "Protection:", "Ready to apply", "[protected]", "[json]", "[env]", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret", "Password=****"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, profile contents must not duplicate inspection detail %q", view, forbidden)
 		}
@@ -297,7 +299,8 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 			view := model.View()
 			for _, expected := range []string{
 				"Profile contents",
-				testCase.target.Name + " [" + string(testCase.target.Type) + "]",
+				"Target",
+				testCase.target.Name,
 				testCase.target.File,
 				"Selector",
 				testCase.selector,
@@ -308,7 +311,7 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 					t.Fatalf("View() = %q, want %s profile contents %q", view, testCase.name, expected)
 				}
 			}
-			for _, forbidden := range []string{"Target JSON path", "Target selector", "super-secret", "Password=****"} {
+			for _, forbidden := range []string{testCase.target.Name + " [" + string(testCase.target.Type) + "]", "Target JSON path", "Target selector", "super-secret", "Password=****"} {
 				if strings.Contains(view, forbidden) {
 					t.Fatalf("View() = %q, must not contain %q", view, forbidden)
 				}

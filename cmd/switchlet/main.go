@@ -11,8 +11,6 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
-	"github.com/jeppeklh/switchlet/internal/tui"
-	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
 )
 
 const (
@@ -21,8 +19,6 @@ const (
 )
 
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
-
-type configEditorRunner func(string, io.Reader, io.Writer) (configeditor.Result, error)
 
 var (
 	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff"}
@@ -154,43 +150,16 @@ func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) e
 }
 
 func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
-	return runInteractiveCommandWithConfigEditor(workingDirectory, runProgram, input, output, runConfigEditorForWorkingDirectory)
-}
-
-func runInteractiveCommandWithConfigEditor(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer, runEditor configEditorRunner) error {
 	application, err := loadApplication(workingDirectory)
 	if err != nil {
 		return err
 	}
 
-	for {
-		finalModel, err := runProgram(tui.New(application))
-		if err != nil {
-			return fmt.Errorf("run terminal UI: %w", err)
-		}
-
-		configRequest, ok := finalModel.(interface{ ConfigRequested() bool })
-		if !ok || !configRequest.ConfigRequested() {
-			return nil
-		}
-
-		result, err := runEditor(workingDirectory, input, output)
-		if err != nil {
-			return err
-		}
-		if !result.Saved {
-			continue
-		}
-
-		application, err = loadApplication(workingDirectory)
-		if err != nil {
-			if _, runErr := runProgram(tui.NewReloadError(err)); runErr != nil {
-				return fmt.Errorf("run terminal UI: %w", runErr)
-			}
-
-			return nil
-		}
+	if _, err := runProgram(newInteractiveSessionModel(workingDirectory, application)); err != nil {
+		return fmt.Errorf("run terminal UI: %w", err)
 	}
+
+	return nil
 }
 
 func loadApplication(workingDirectory string) (app.Application, error) {
@@ -219,7 +188,7 @@ func startFullScreenProgram(output io.Writer) terminalProgramRunner {
 			return nil, err
 		}
 
-		if model, ok := finalModel.(tui.Model); ok {
+		if model, ok := finalModel.(interface{ FinalMessage() string }); ok {
 			if finalMessage := model.FinalMessage(); finalMessage != "" {
 				if _, err := fmt.Fprint(output, finalMessage); err != nil {
 					return finalModel, fmt.Errorf("write final terminal message: %w", err)

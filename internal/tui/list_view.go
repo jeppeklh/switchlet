@@ -113,37 +113,23 @@ func (model Model) profilePageStep() int {
 }
 
 func selectedProfileTitle(profile app.ProfileItem) string {
-	badges := RenderBadges(profileBadges(profile))
-	if badges == "" {
-		return profile.Name
-	}
-
-	return profile.Name + " " + badges
-}
-
-func profileBadges(profile app.ProfileItem) []Badge {
-	badges := make([]Badge, 0, 4)
-	if shouldShowTargetCount(profile) {
-		badges = append(badges, Badge{Label: targetCountLabel(profile.TargetCount)})
-	}
-	if profile.Partial {
-		badges = append(badges, Badge{Label: "partial"})
-	}
-	if profile.Protected {
-		badges = append(badges, Badge{Label: "protected"})
-	}
-	if !profile.Available {
-		badges = append(badges, Badge{Label: "unavailable"})
-	}
-
-	return badges
+	return profile.Name
 }
 
 func (model Model) profileBadges(profile app.ProfileItem) []Badge {
 	badges := make([]Badge, 0, 1)
-	if model.currentProfile != "" && profile.Name == model.currentProfile {
+	if model.profileIsCurrent(profile.Name) {
 		badges = append(badges, Badge{Label: "current"})
 	}
 
 	return badges
+}
+
+func (model Model) profileIsCurrent(profileName string) bool {
+	if model.currentProfiles == nil {
+		return false
+	}
+
+	_, current := model.currentProfiles[profileName]
+	return current
 }

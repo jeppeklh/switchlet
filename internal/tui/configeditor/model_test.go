@@ -16,9 +16,14 @@ func TestModel_RendersOverviewProfilesManagedValuesAndReview(t *testing.T) {
 	model = resizeModel(t, model, 120, 32)
 
 	view := model.View()
-	for _, expected := range []string{"Switchlet config", "Profiles", "Local", "Managed values", "database", "frontendApi", "Review changes"} {
+	for _, expected := range []string{"Profiles", "Local", "Frontend Only", "Targets", "Review", "database", "frontendApi"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("view does not contain %q\n%s", expected, view)
+		}
+	}
+	for _, forbidden := range []string{"Switchlet config", "Managed values", "Review changes", "[1/2]", "[2/2]", "[protected]", "[partial]", "[saveable]"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("overview view contains noisy label %q\n%s", forbidden, view)
 		}
 	}
 	if strings.Contains(view, "postgres://local-secret") {
@@ -31,18 +36,28 @@ func TestModel_VimNavigationMovesAndJumps(t *testing.T) {
 	model = resizeModel(t, model, 120, 32)
 
 	model, _ = pressRune(t, model, 'j')
+	if selected := selectedLabel(model); selected != "Frontend Only" {
+		t.Fatalf("selected row = %q, want Frontend Only", selected)
+	}
+
+	model, _ = pressRune(t, model, 'G')
+	if selected := selectedLabel(model); selected != "Frontend Only" {
+		t.Fatalf("selected row = %q, want Frontend Only", selected)
+	}
+
+	model, _ = pressRune(t, model, 'g')
 	if selected := selectedLabel(model); selected != "Local" {
 		t.Fatalf("selected row = %q, want Local", selected)
 	}
 
-	model, _ = pressRune(t, model, 'G')
-	if selected := selectedLabel(model); selected != "Review changes" {
-		t.Fatalf("selected row = %q, want Review changes", selected)
+	model = selectTargetsTab(t, model)
+	if selected := selectedLabel(model); selected != "database" {
+		t.Fatalf("selected row = %q, want database", selected)
 	}
 
-	model, _ = pressRune(t, model, 'g')
-	if selected := selectedLabel(model); selected != "Profiles" {
-		t.Fatalf("selected row = %q, want Profiles", selected)
+	model = selectReviewTab(t, model)
+	if selected := selectedLabel(model); selected != "Review changes" {
+		t.Fatalf("selected row = %q, want Review changes", selected)
 	}
 }
 
@@ -98,7 +113,7 @@ func TestModel_DirtyQuitConfirmationProtectsPendingChanges(t *testing.T) {
 func TestModel_ReviewSaveUnavailableForUnchangedVersionThreeDraft(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)
-	model, _ = pressRune(t, model, 'G')
+	model = selectReviewTab(t, model)
 
 	view := model.View()
 	if !strings.Contains(view, "No pending changes.") {
@@ -112,7 +127,7 @@ func TestModel_ReviewSaveUnavailableForUnchangedVersionThreeDraft(t *testing.T) 
 func TestModel_SavePipelineConvertsCompatibilityConfigAfterExplicitReview(t *testing.T) {
 	model, configPath := newTestModel(t, versionTwoConfig())
 	model = resizeModel(t, model, 120, 32)
-	model, _ = pressRune(t, model, 'G')
+	model = selectReviewTab(t, model)
 
 	view := model.View()
 	if !strings.Contains(view, "version 3") || !strings.Contains(view, "s Save") {
@@ -192,7 +207,7 @@ func TestModel_AddProfileFromExistingManagedValuesAndSave(t *testing.T) {
 		t.Fatalf("overview does not contain added profile\n%s", model.View())
 	}
 
-	model, _ = pressRune(t, model, 'G')
+	model = selectReviewTab(t, model)
 	var cmd tea.Cmd
 	model, cmd = pressRune(t, model, 's')
 	if model.state != editorStateSaving || cmd == nil {
@@ -288,10 +303,10 @@ func TestModel_AddManagedValueFromFilesFirstSelectionAndSave(t *testing.T) {
 
 	model = addManagedValueFromFile(t, model, "config.json", "service.baseUrl", "service")
 	if selected := selectedLabel(model); selected != "service" {
-		t.Fatalf("selected row = %q, want added managed value", selected)
+		t.Fatalf("selected row = %q, want added target", selected)
 	}
 
-	model, _ = pressRune(t, model, 'G')
+	model = selectReviewTab(t, model)
 	var cmd tea.Cmd
 	model, cmd = pressRune(t, model, 's')
 	if model.state != editorStateSaving || cmd == nil {
@@ -313,17 +328,18 @@ func TestModel_AddManagedValueFromFilesFirstSelectionAndSave(t *testing.T) {
 func TestModel_RenameManagedValueUpdatesProfileReferences(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)
+	model = selectTargetsTab(t, model)
 	model = selectNavigationLabel(t, model, "database")
 
 	model, _ = pressRune(t, model, 'r')
 	if model.state != editorStateManagedValueNameInput {
-		t.Fatalf("state = %v, want managed-value name input", model.state)
+		t.Fatalf("state = %v, want target name input", model.state)
 	}
 	model, _ = pressKey(t, model, tea.KeyCtrlU)
 	model = enterText(t, model, "primaryDatabase")
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateManagedValueReview {
-		t.Fatalf("state = %v, want managed-value review", model.state)
+		t.Fatalf("state = %v, want target review", model.state)
 	}
 	view := model.View()
 	if !strings.Contains(view, "Profile references updated") || !strings.Contains(view, "Local") {
@@ -332,12 +348,12 @@ func TestModel_RenameManagedValueUpdatesProfileReferences(t *testing.T) {
 
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if selected := selectedLabel(model); selected != "primaryDatabase" {
-		t.Fatalf("selected row = %q, want renamed managed value", selected)
+		t.Fatalf("selected row = %q, want renamed target", selected)
 	}
 	for _, profile := range model.document.Profiles {
 		for _, value := range profile.Values {
 			if value.Target == "database" {
-				t.Fatalf("profile %q still references old managed value", profile.Name)
+				t.Fatalf("profile %q still references old target", profile.Name)
 			}
 		}
 	}
@@ -346,13 +362,14 @@ func TestModel_RenameManagedValueUpdatesProfileReferences(t *testing.T) {
 func TestModel_EditManagedValueLocationAndRejectsDuplicateLocation(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)
+	model = selectTargetsTab(t, model)
 	model = selectNavigationLabel(t, model, "database")
 
 	model = beginManagedValueLocationEdit(t, model)
 	model = chooseManagedValueFileByFilter(t, model, "config.json")
 	model = chooseManagedValueSelectorByFilter(t, model, "service.baseUrl")
 	if model.state != editorStateManagedValueReview {
-		t.Fatalf("state = %v, want managed-value review", model.state)
+		t.Fatalf("state = %v, want target review", model.state)
 	}
 	model, _ = pressKey(t, model, tea.KeyEnter)
 
@@ -364,7 +381,7 @@ func TestModel_EditManagedValueLocationAndRejectsDuplicateLocation(t *testing.T)
 		}
 	}
 	if !strings.HasSuffix(database.TargetFile, filepath.Join("config.json")) || database.Selector != "service.baseUrl" {
-		t.Fatalf("database managed value = %#v, want config.json service.baseUrl", database)
+		t.Fatalf("database target = %#v, want config.json service.baseUrl", database)
 	}
 
 	model = selectNavigationLabel(t, model, "frontendApi")
@@ -383,11 +400,12 @@ func TestModel_EditManagedValueLocationAndRejectsDuplicateLocation(t *testing.T)
 func TestModel_RemoveManagedValueShowsAffectedProfilesAndBlocksInvalidSave(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)
+	model = selectTargetsTab(t, model)
 	model = selectNavigationLabel(t, model, "frontendApi")
 
 	model, _ = pressRune(t, model, 'd')
 	if model.state != editorStateManagedValueRemoveConfirm {
-		t.Fatalf("state = %v, want managed-value remove confirmation", model.state)
+		t.Fatalf("state = %v, want target remove confirmation", model.state)
 	}
 	view := model.View()
 	for _, expected := range []string{"Affected profiles", "Local", "Frontend Only"} {
@@ -398,10 +416,10 @@ func TestModel_RemoveManagedValueShowsAffectedProfilesAndBlocksInvalidSave(t *te
 
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateOverview {
-		t.Fatalf("state = %v, want overview after managed-value removal", model.state)
+		t.Fatalf("state = %v, want overview after target removal", model.state)
 	}
 	view = model.View()
-	if !strings.Contains(view, "Removed managed value \"frontendApi\"") || !strings.Contains(view, "Save unavailable") {
+	if !strings.Contains(view, "Removed target \"frontendApi\"") || !strings.Contains(view, "Save unavailable") {
 		t.Fatalf("review does not show removal and invalid draft\n%s", view)
 	}
 }
@@ -409,7 +427,7 @@ func TestModel_RemoveManagedValueShowsAffectedProfilesAndBlocksInvalidSave(t *te
 func TestModel_StaleManagedValueDiscoveryResultIsIgnoredAfterBacktracking(t *testing.T) {
 	model, _ := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)
-	model = selectNavigationLabel(t, model, "Managed values")
+	model = selectTargetsTab(t, model)
 
 	var cmd tea.Cmd
 	model, cmd = pressRune(t, model, 'a')
@@ -561,7 +579,7 @@ profiles:
 func addManagedValueFromFile(t *testing.T, model Model, fileFilter string, selectorFilter string, managedValueName string) Model {
 	t.Helper()
 
-	model = selectNavigationLabel(t, model, "Managed values")
+	model = selectTargetsTab(t, model)
 	var cmd tea.Cmd
 	model, cmd = pressRune(t, model, 'a')
 	if model.state != editorStateManagedValueFileLoading || cmd == nil {
@@ -575,16 +593,16 @@ func addManagedValueFromFile(t *testing.T, model Model, fileFilter string, selec
 	model = chooseManagedValueFileByFilter(t, model, fileFilter)
 	model = chooseManagedValueSelectorByFilter(t, model, selectorFilter)
 	if model.state != editorStateManagedValueNameInput {
-		t.Fatalf("state = %v, want managed-value name input", model.state)
+		t.Fatalf("state = %v, want target name input", model.state)
 	}
 	model = enterText(t, model, managedValueName)
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateManagedValueReview {
-		t.Fatalf("state = %v, want managed-value review", model.state)
+		t.Fatalf("state = %v, want target review", model.state)
 	}
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateOverview {
-		t.Fatalf("state = %v, want overview after managed-value draft save", model.state)
+		t.Fatalf("state = %v, want overview after target draft save", model.state)
 	}
 
 	return model
@@ -595,12 +613,12 @@ func beginManagedValueLocationEdit(t *testing.T, model Model) Model {
 
 	updatedModel, cmd := pressRune(t, model, 'e')
 	if updatedModel.state != editorStateManagedValueFileLoading || cmd == nil {
-		t.Fatalf("state = %v cmd nil=%t, want managed-value file loading", updatedModel.state, cmd == nil)
+		t.Fatalf("state = %v cmd nil=%t, want target file loading", updatedModel.state, cmd == nil)
 	}
 
 	updatedModel = runCommand(t, updatedModel, cmd)
 	if updatedModel.state != editorStateManagedValueFileSelect {
-		t.Fatalf("state = %v, want managed-value file select", updatedModel.state)
+		t.Fatalf("state = %v, want target file select", updatedModel.state)
 	}
 
 	return updatedModel
@@ -711,6 +729,18 @@ func selectNavigationLabel(t *testing.T, model Model, label string) Model {
 		}
 	}
 	t.Fatalf("navigation label %q not found in %#v", label, rows)
+	return model
+}
+
+func selectTargetsTab(t *testing.T, model Model) Model {
+	t.Helper()
+	model.selectOverviewTab(overviewTabTargets)
+	return model
+}
+
+func selectReviewTab(t *testing.T, model Model) Model {
+	t.Helper()
+	model.selectOverviewTab(overviewTabReview)
 	return model
 }
 

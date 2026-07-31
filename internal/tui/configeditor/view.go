@@ -2,6 +2,7 @@ package configeditor
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	ui "github.com/jeppeklh/switchlet/internal/tui"
@@ -18,7 +19,7 @@ func (model Model) View() string {
 				fmt.Sprintf("Current size: %dx%d", model.width, model.height),
 				"Resize the terminal to continue.",
 			}}},
-			Actions: []ui.Action{{Key: "q", Label: "Quit"}, {Key: "Ctrl+C", Label: "Cancel immediately"}},
+			Actions: []ui.Action{{Key: "q", Label: "Quit"}},
 			Width:   model.width,
 			Height:  model.height,
 		})
@@ -98,7 +99,6 @@ func (model Model) dirtyQuitView() string {
 	}, []ui.Action{
 		{Key: "Enter/y", Label: "Discard and quit"},
 		{Key: "Esc/n", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel immediately"},
 	})
 }
 
@@ -125,7 +125,6 @@ func (model Model) saveSuccessView() string {
 		{Title: "Save complete", Lines: lines, Focused: true},
 	}, []ui.Action{
 		{Key: "Enter/q", Label: "Exit"},
-		{Key: "Ctrl+C", Label: "Exit"},
 	})
 }
 
@@ -136,27 +135,27 @@ func (model Model) configEditorShell(subtitle string, panels []ui.Panel, actions
 		}
 	}
 
-	overview := model.overview()
 	return ui.RenderShell(ui.Shell{
-		Title:    "Switchlet config",
-		Subtitle: subtitle,
-		Metadata: []string{
-			fmt.Sprintf("%d profiles", len(overview.Profiles)),
-			fmt.Sprintf("%d managed values", len(overview.ManagedValues)),
-		},
-		Panels:  panels,
-		Actions: actions,
-		Width:   model.width,
-		Height:  model.height,
+		Title:      "Switchlet config",
+		Subtitle:   subtitle,
+		Panels:     panels,
+		Actions:    actions,
+		Width:      model.width,
+		Height:     model.height,
+		Headerless: true,
 	})
 }
 
 func (model Model) navigationLines(overview app.ConfigEditOverview, rows []navigationRow) []string {
-	lines := make([]string, 0)
+	lines := []string{model.overviewTabsLine(), ""}
 	if model.state == editorStateFilter {
 		lines = append(lines, ui.RenderInput("Filter", model.inputValue, model.inputCursor), "")
 	} else if model.filter != "" {
 		lines = append(lines, ui.RenderKeyValue("Active filter", model.filter), "")
+	}
+
+	if model.activeTab == overviewTabReview {
+		return append(lines, "Review pending changes and save when ready.")
 	}
 
 	listRows := make([]ui.ListRow, 0, len(rows))
@@ -166,15 +165,45 @@ func (model Model) navigationLines(overview app.ConfigEditOverview, rows []navig
 			state = ui.RowSelected
 		}
 
-		listRows = append(listRows, ui.ListRow{Label: model.navigationLabel(overview, row), State: state, Badges: navigationBadges(overview, row)})
+		listRows = append(listRows, ui.ListRow{Label: model.navigationLabel(overview, row), State: state})
+	}
+	if len(listRows) == 0 {
+		lines = append(lines, model.emptyTabLine())
+	} else {
+		lines = append(lines, ui.RenderListRows(listRows)...)
 	}
 
-	lines = append(lines, ui.RenderListRows(listRows)...)
 	if model.filter != "" || model.state == editorStateFilter {
 		lines = append(lines, "", fmt.Sprintf("Showing %d navigable row(s).", len(rows)))
 	}
 
 	return lines
+}
+
+func (model Model) overviewTabsLine() string {
+	tabs := []string{
+		model.overviewTabLabel(overviewTabProfiles, "Profiles"),
+		model.overviewTabLabel(overviewTabTargets, "Targets"),
+		model.overviewTabLabel(overviewTabReview, "Review"),
+	}
+
+	return strings.Join(tabs, "   ")
+}
+
+func (model Model) overviewTabLabel(tab overviewTab, label string) string {
+	if model.activeTab == tab {
+		return ui.RenderSectionHeading(label)
+	}
+
+	return label
+}
+
+func (model Model) emptyTabLine() string {
+	if model.activeTab == overviewTabTargets {
+		return "No targets configured."
+	}
+
+	return "No profiles configured."
 }
 
 func (model Model) navigationLabel(overview app.ConfigEditOverview, row navigationRow) string {
@@ -188,40 +217,10 @@ func (model Model) navigationLabel(overview app.ConfigEditOverview, row navigati
 	}
 }
 
-func navigationBadges(overview app.ConfigEditOverview, row navigationRow) []ui.Badge {
-	switch row.Kind {
-	case navigationRowProfilesSection:
-		return []ui.Badge{{Label: fmt.Sprintf("%d", len(overview.Profiles))}}
-	case navigationRowProfile:
-		profile := overview.Profiles[row.ProfileIndex]
-		badges := []ui.Badge{{Label: fmt.Sprintf("%d/%d", profile.ValueCount, profile.TotalManagedValues)}}
-		if profile.Protected {
-			badges = append(badges, ui.Badge{Label: "protected"})
-		}
-		if profile.Partial {
-			badges = append(badges, ui.Badge{Label: "partial"})
-		}
-		return badges
-	case navigationRowManagedValuesSection:
-		return []ui.Badge{{Label: fmt.Sprintf("%d", len(overview.ManagedValues))}}
-	case navigationRowManagedValue:
-		return []ui.Badge{{Label: string(overview.ManagedValues[row.ManagedValueIndex].TargetType)}}
-	case navigationRowReview:
-		if overview.Saveable {
-			return []ui.Badge{{Label: "saveable"}}
-		}
-		if overview.Dirty {
-			return []ui.Badge{{Label: "pending"}}
-		}
-	}
-
-	return nil
-}
-
 func (model Model) detailLines(overview app.ConfigEditOverview, row navigationRow) []string {
 	if model.state == editorStateFilter {
 		return []string{
-			"Filter profiles and managed values by name, file, type, or selector.",
+			"Filter profiles and targets by name, file, type, or selector.",
 			"",
 			"Enter applies the filter.",
 			"Esc returns without changing the active filter.",
@@ -237,7 +236,7 @@ func (model Model) detailLines(overview app.ConfigEditOverview, row navigationRo
 	case navigationRowManagedValuesSection:
 		return managedValueSectionLines(overview)
 	case navigationRowManagedValue:
-		return managedValueDetailLines(overview.ManagedValues[row.ManagedValueIndex])
+		return model.managedValueDetailLines(overview.ManagedValues[row.ManagedValueIndex])
 	case navigationRowReview:
 		return model.reviewLines(overview)
 	default:
@@ -248,37 +247,32 @@ func (model Model) detailLines(overview app.ConfigEditOverview, row navigationRo
 func profileSectionLines(overview app.ConfigEditOverview) []string {
 	return []string{
 		ui.RenderKeyValue("Profiles", fmt.Sprintf("%d", len(overview.Profiles))),
-		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
+		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
-		"Select a profile to inspect its included managed values.",
-		"Press a to add a profile from existing managed values.",
+		"Select a profile to inspect its included targets.",
+		"Press a to add a profile from existing targets.",
 	}
 }
 
 func profileDetailLines(profile app.ConfigEditProfileItem) []string {
 	lines := []string{
-		ui.RenderKeyValue("Profile", profile.Name),
-		ui.RenderKeyValue("Protected", yesNo(profile.Protected)),
-		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d of %d", profile.ValueCount, profile.TotalManagedValues)),
-		ui.RenderKeyValue("Partial", yesNo(profile.Partial)),
+		ui.RenderSectionHeading(profile.Name),
 		"",
-		"Included managed values",
+		ui.RenderSectionHeading("Targets"),
 	}
 	if len(profile.Values) == 0 {
-		return append(lines, "No managed values are included.")
+		return append(lines, "No targets are included.")
 	}
 
 	for _, value := range profile.Values {
-		label := value.TargetName
-		if value.TargetType != "" {
-			label += " [" + string(value.TargetType) + "]"
-		}
-		lines = append(lines, "- "+label)
+		lines = append(lines, "", ui.RenderSectionHeading(profileValueHeader(value.TargetName, string(value.TargetType))))
+		fields := []ui.DetailField{{Label: "Source", Value: sourceLabel(value.Source)}}
 		if value.Source == app.ProfileSourceEnvironment {
-			lines = append(lines, "  environment: "+value.EnvironmentVariableName)
+			fields = append(fields, ui.DetailField{Label: "Env", Value: value.EnvironmentVariableName})
 		} else {
-			lines = append(lines, "  literal value: ****")
+			fields = append(fields, ui.DetailField{Label: "Value", Value: "****"})
 		}
+		lines = append(lines, ui.RenderFieldRows(fields)...)
 	}
 
 	return lines
@@ -286,21 +280,22 @@ func profileDetailLines(profile app.ConfigEditProfileItem) []string {
 
 func managedValueSectionLines(overview app.ConfigEditOverview) []string {
 	return []string{
-		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
+		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
-		"Select a managed value to inspect its file, type, selector, and profile usage.",
+		"Select a target to inspect its file, type, selector, and profile usage.",
 		"Press a to add one through files-first selection.",
 	}
 }
 
-func managedValueDetailLines(managedValue app.ConfigEditManagedValueItem) []string {
-	return []string{
-		ui.RenderKeyValue("Managed value", managedValue.TargetName),
-		ui.RenderKeyValue("File", managedValue.TargetFile),
-		ui.RenderKeyValue("Type", string(managedValue.TargetType)),
-		ui.RenderKeyValue(managedValue.SelectorName, managedValue.Selector),
-		ui.RenderKeyValue("Profiles", fmt.Sprintf("%d include this", managedValue.IncludedProfileCount)),
+func (model Model) managedValueDetailLines(managedValue app.ConfigEditManagedValueItem) []string {
+	fields := []ui.DetailField{
+		{Label: "File", Value: app.DisplayInitTargetPath(model.document.ProjectRoot, managedValue.TargetFile)},
+		{Label: "Type", Value: string(managedValue.TargetType)},
+		{Label: selectorDetailLabel(managedValue.SelectorName), Value: managedValue.Selector},
+		{Label: "Profiles", Value: fmt.Sprintf("%d", managedValue.IncludedProfileCount)},
 	}
+
+	return append([]string{ui.RenderSectionHeading(managedValue.TargetName), ""}, ui.RenderFieldRows(fields)...)
 }
 
 func (model Model) reviewLines(overview app.ConfigEditOverview) []string {
@@ -347,15 +342,16 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 			{Key: "Home/End", Label: "Jump"},
 			{Key: "Bksp/Del", Label: "Edit"},
 			{Key: "Esc", Label: "Back"},
-			{Key: "Ctrl+C", Label: "Cancel"},
 		}
 	}
 
 	actions := []ui.Action{
-		{Key: "Enter/l", Label: "Open"},
+		{Key: "h/l", Label: "Tabs"},
 		{Key: "j/k", Label: "Move"},
 		{Key: "g/G", Label: "First/Last"},
-		{Key: "/", Label: "Filter"},
+	}
+	if model.activeTab != overviewTabReview {
+		actions = append(actions, ui.Action{Key: "/", Label: "Filter"})
 	}
 	if model.filter != "" {
 		actions = append(actions,
@@ -374,7 +370,7 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 		)
 	}
 	if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
-		actions = append(actions, ui.Action{Key: "a", Label: "Add value"})
+		actions = append(actions, ui.Action{Key: "a", Label: "Add target"})
 	}
 	if selectedRow.Kind == navigationRowManagedValue {
 		actions = append(actions,
@@ -386,12 +382,45 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 	if selectedRow.Kind == navigationRowReview && overview.Saveable {
 		actions = append(actions, ui.Action{Key: "s", Label: "Save"})
 	}
+	if model.embedded {
+		actions = append(actions, ui.Action{Key: "c", Label: "Picker"})
+	}
 	actions = append(actions,
 		ui.Action{Key: "q", Label: "Quit"},
-		ui.Action{Key: "Ctrl+C", Label: "Cancel"},
 	)
 
 	return actions
+}
+
+func profileValueHeader(targetName string, targetType string) string {
+	if targetType == "" {
+		return targetName
+	}
+
+	return targetName + " [" + targetType + "]"
+}
+
+func sourceLabel(source app.ProfileSource) string {
+	if source == app.ProfileSourceEnvironment {
+		return "environment"
+	}
+
+	return "literal"
+}
+
+func selectorDetailLabel(selectorName string) string {
+	switch selectorName {
+	case "jsonPath":
+		return "JSON path"
+	case "yamlPath":
+		return "YAML path"
+	case "tomlPath":
+		return "TOML path"
+	case "key":
+		return "Key"
+	default:
+		return selectorName
+	}
 }
 
 func yesNo(value bool) string {

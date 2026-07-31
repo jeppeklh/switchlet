@@ -27,13 +27,12 @@ func (model Model) profileNameInputView() string {
 		{Key: "Left/Right", Label: "Move"},
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
 func (model Model) profileIncludeValuesView() string {
 	return model.configEditorShell(model.profileFormTitle(), []ui.Panel{
-		{Title: model.profileFormPanelTitle("Included managed values"), Lines: model.profileIncludeValueLines(), Focused: true},
+		{Title: model.profileFormPanelTitle("Included targets"), Lines: model.profileIncludeValueLines(), Focused: true},
 		{Title: "Profile", Lines: model.profileDraftSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter/l", Label: "Continue"},
@@ -43,7 +42,6 @@ func (model Model) profileIncludeValuesView() string {
 		{Key: "p", Label: "Toggle protected"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -60,7 +58,7 @@ func (model Model) profileValueSourceView() string {
 	}
 
 	lines := []string{
-		ui.RenderKeyValue("Managed value", profileDraftValueLabel(value)),
+		ui.RenderKeyValue("Target", profileDraftValueLabel(value)),
 		"",
 	}
 	lines = append(lines, ui.RenderListRows(rows)...)
@@ -81,7 +79,6 @@ func (model Model) profileValueSourceView() string {
 		{Key: "Space", Label: "Toggle"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -92,7 +89,7 @@ func (model Model) profileValueInputView() string {
 		label = "Environment variable"
 	}
 	lines := []string{
-		ui.RenderKeyValue("Managed value", profileDraftValueLabel(value)),
+		ui.RenderKeyValue("Target", profileDraftValueLabel(value)),
 		ui.RenderInput(label, model.inputValue, model.inputCursor),
 	}
 	if model.profileForm.errorMessage != "" {
@@ -115,7 +112,6 @@ func (model Model) profileValueInputView() string {
 		{Key: "Left/Right", Label: "Move"},
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -134,7 +130,6 @@ func (model Model) profileReviewView() string {
 		{Key: "Space/p", Label: "Toggle protected"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -143,7 +138,7 @@ func (model Model) profileRemoveConfirmView() string {
 		fmt.Sprintf("Remove profile %q?", model.profileForm.originalName),
 		"",
 		"This removes only the profile from the draft.",
-		"Managed values are not deleted.",
+		"Targets are not deleted.",
 	}
 	if model.profileForm.errorMessage != "" {
 		lines = append(lines, "", model.profileForm.errorMessage)
@@ -156,7 +151,6 @@ func (model Model) profileRemoveConfirmView() string {
 		{Key: "Enter/y", Label: "Remove"},
 		{Key: "Esc/n", Label: "Cancel"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -211,7 +205,7 @@ func (model Model) profileDraftSummaryLines() []string {
 	return []string{
 		ui.RenderKeyValue("Profile", profileName),
 		ui.RenderKeyValue("Protected", yesNo(model.profileForm.draft.Protected)),
-		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d of %d", model.includedProfileValueCount(), len(model.profileForm.draft.Values))),
+		ui.RenderKeyValue("Targets", fmt.Sprintf("%d of %d", model.includedProfileValueCount(), len(model.profileForm.draft.Values))),
 	}
 }
 
@@ -233,7 +227,7 @@ func (model Model) profileDraftValueSummaryLines() []string {
 		}
 	}
 	if len(lines) == 0 {
-		return []string{"No managed values are included."}
+		return []string{"No targets are included."}
 	}
 
 	return lines

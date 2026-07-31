@@ -156,8 +156,8 @@ func TestConfigEditWorkflow_ProfileDraftRejectsDuplicateEmptyAndMissingValues(t 
 	draft = workflow.NewProfileDraft(document)
 	draft.Name = "No Values"
 	draft.Values[0].Included = false
-	if _, err := workflow.AddProfileDraft(document, draft); err == nil || !strings.Contains(err.Error(), "must include at least one managed value") {
-		t.Fatalf("AddProfileDraft no values returned %v, want managed value error", err)
+	if _, err := workflow.AddProfileDraft(document, draft); err == nil || !strings.Contains(err.Error(), "must include at least one target") {
+		t.Fatalf("AddProfileDraft no values returned %v, want target error", err)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestConfigEditWorkflow_RenameManagedValueUpdatesProfileReferencesAndSummary
 	}
 
 	if updatedDocument.Targets[0].Name != "backendService" {
-		t.Fatalf("managed value name = %q, want backendService", updatedDocument.Targets[0].Name)
+		t.Fatalf("target name = %q, want backendService", updatedDocument.Targets[0].Name)
 	}
 	for _, profile := range updatedDocument.Profiles {
 		if profile.Values[0].Target != "backendService" {
@@ -203,7 +203,7 @@ func TestConfigEditWorkflow_RenameManagedValueUpdatesProfileReferencesAndSummary
 
 	changes := workflow.SummarizeChanges(updatedDocument)
 	if !containsConfigEditChange(changes, app.ConfigEditChangeManagedValueRenamed) {
-		t.Fatalf("changes = %#v, want managed-value rename change", changes)
+		t.Fatalf("changes = %#v, want target rename change", changes)
 	}
 	if !strings.Contains(configEditChangesString(changes), "Updated profile references in: Local, Test") {
 		t.Fatalf("changes = %#v, want affected profile references", changes)
@@ -239,7 +239,7 @@ func TestConfigEditWorkflow_RemoveManagedValueRemovesProfileValuesAndBlocksInval
 	}
 	changes := workflow.SummarizeChanges(updatedDocument)
 	if !containsConfigEditChange(changes, app.ConfigEditChangeManagedValueRemoved) {
-		t.Fatalf("changes = %#v, want managed-value removal change", changes)
+		t.Fatalf("changes = %#v, want target removal change", changes)
 	}
 }
 

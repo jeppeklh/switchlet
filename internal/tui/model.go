@@ -44,7 +44,7 @@ type Model struct {
 	applyExits       bool
 	applyRequestID   int
 	confirmExits     bool
-	currentProfile   string
+	currentProfiles  map[string]struct{}
 	currentRequestID int
 	configRequested  bool
 
@@ -72,6 +72,19 @@ func NewReloadError(err error) Model {
 			Problem:  "Configuration was saved, but Switchlet could not reload it.",
 			Reason:   err.Error(),
 			Recovery: "Fix .switchlet.yaml, then run Switchlet again.",
+			Cause:    err,
+		},
+	}
+}
+
+// NewConfigOpenError creates a focused error model for a failed config-editor open.
+func NewConfigOpenError(err error) Model {
+	return Model{
+		state: errorState,
+		recoverableError: RecoverableError{
+			Problem:  "Switchlet could not open the configuration editor.",
+			Reason:   err.Error(),
+			Recovery: "Fix .switchlet.yaml, then try again.",
 			Cause:    err,
 		},
 	}

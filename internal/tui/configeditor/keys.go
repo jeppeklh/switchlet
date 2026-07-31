@@ -10,6 +10,14 @@ func isMoveDownKey(message tea.KeyMsg) bool {
 	return message.Type == tea.KeyDown || isRuneKey(message, 'j')
 }
 
+func isPreviousTabKey(message tea.KeyMsg) bool {
+	return message.Type == tea.KeyLeft || isRuneKey(message, 'h')
+}
+
+func isNextTabKey(message tea.KeyMsg) bool {
+	return message.Type == tea.KeyRight || isRuneKey(message, 'l')
+}
+
 func isFirstKey(message tea.KeyMsg) bool {
 	return message.Type == tea.KeyHome || isRuneKey(message, 'g')
 }

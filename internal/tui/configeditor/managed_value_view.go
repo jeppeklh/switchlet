@@ -11,11 +11,10 @@ import (
 func (model Model) managedValueLoadingView(title string, message string) string {
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
 		{Title: title, Lines: append([]string{message}, model.managedValueErrorLines()...), Focused: true},
-		{Title: "Managed value", Lines: model.managedValueTargetSummaryLines()},
+		{Title: "Target", Lines: model.managedValueTargetSummaryLines()},
 	}, []ui.Action{
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -51,7 +50,7 @@ func (model Model) managedValueFileSelectView() string {
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
 		{Title: "Choose file", Lines: lines, Focused: true},
 		{Title: "Selected value", Lines: []string{
-			"Choose a file before choosing the managed value inside it.",
+			"Choose a file before choosing the target value inside it.",
 			"Only files with existing manageable values are listed.",
 			"Switchlet does not create missing target-file values.",
 		}},
@@ -76,7 +75,6 @@ func (model Model) managedValueManualFileView() string {
 		{Key: "Left/Right", Label: "Move"},
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -100,7 +98,6 @@ func (model Model) managedValueTypeSelectView() string {
 		{Key: "j/k", Label: "Move"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -148,23 +145,21 @@ func (model Model) managedValueManualSelectorView() string {
 		{Key: "Left/Right", Label: "Move"},
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
 func (model Model) managedValueNameInputView() string {
-	lines := []string{ui.RenderInput("Managed value name", model.inputValue, model.inputCursor)}
+	lines := []string{ui.RenderInput("Target name", model.inputValue, model.inputCursor)}
 	lines = append(lines, model.managedValueErrorLines()...)
 
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
-		{Title: "Name managed value", Lines: lines, Focused: true},
+		{Title: "Name target", Lines: lines, Focused: true},
 		{Title: "Selected value", Lines: model.managedValueTargetSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Review"},
 		{Key: "Left/Right", Label: "Move"},
 		{Key: "Bksp/Del", Label: "Edit"},
 		{Key: "Esc", Label: "Back"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -173,20 +168,19 @@ func (model Model) managedValueReviewView() string {
 	lines = append(lines, model.managedValueErrorLines()...)
 
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
-		{Title: "Review managed value", Lines: lines, Focused: true},
+		{Title: "Review target", Lines: lines, Focused: true},
 		{Title: "Pending config", Lines: reviewChangeLines(model.overview())},
 	}, []ui.Action{
 		{Key: "Enter/l", Label: "Save draft"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
 func (model Model) managedValueRemoveConfirmView() string {
 	lines := []string{
-		fmt.Sprintf("Remove managed value %q?", model.managedForm.originalName),
-		"Profile values for this managed value will be removed from the draft.",
+		fmt.Sprintf("Remove target %q?", model.managedForm.originalName),
+		"Profile values for this target will be removed from the draft.",
 	}
 	if len(model.managedForm.removeResult.AffectedProfiles) > 0 {
 		lines = append(lines, "", "Affected profiles")
@@ -202,14 +196,13 @@ func (model Model) managedValueRemoveConfirmView() string {
 	}
 	lines = append(lines, model.managedValueErrorLines()...)
 
-	return model.configEditorShell("Remove managed value", []ui.Panel{
+	return model.configEditorShell("Remove target", []ui.Panel{
 		{Title: "Confirm removal", Lines: lines, Focused: true},
-		{Title: "Managed value", Lines: model.managedValueTargetSummaryLines()},
+		{Title: "Target", Lines: model.managedValueTargetSummaryLines()},
 	}, []ui.Action{
 		{Key: "Enter/y", Label: "Remove"},
 		{Key: "Esc/n", Label: "Cancel"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	})
 }
 
@@ -220,7 +213,6 @@ func (model Model) managedValueFileActions() []ui.Action {
 			{Key: "Left/Right", Label: "Move"},
 			{Key: "Bksp/Del", Label: "Edit"},
 			{Key: "Esc", Label: "Back"},
-			{Key: "Ctrl+C", Label: "Cancel"},
 		}
 	}
 
@@ -231,7 +223,6 @@ func (model Model) managedValueFileActions() []ui.Action {
 		{Key: "m", Label: "Manual path"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	}
 }
 
@@ -242,7 +233,6 @@ func (model Model) managedValueSelectorActions() []ui.Action {
 			{Key: "Left/Right", Label: "Move"},
 			{Key: "Bksp/Del", Label: "Edit"},
 			{Key: "Esc", Label: "Back"},
-			{Key: "Ctrl+C", Label: "Cancel"},
 		}
 	}
 
@@ -253,7 +243,6 @@ func (model Model) managedValueSelectorActions() []ui.Action {
 		{Key: "m", Label: "Manual selector"},
 		{Key: "Esc/h", Label: "Back"},
 		{Key: "q", Label: "Quit"},
-		{Key: "Ctrl+C", Label: "Cancel"},
 	}
 }
 
@@ -271,10 +260,10 @@ func (model Model) managedValueReviewLines() []string {
 			}
 		}
 	case managedValueDraftLocationUpdate:
-		lines = append(lines, ui.RenderKeyValue("Managed value", model.managedForm.originalName), "")
+		lines = append(lines, ui.RenderKeyValue("Target", model.managedForm.originalName), "")
 		lines = append(lines, model.managedValueTargetSummaryLines()...)
 	case managedValueDraftRemove:
-		lines = append(lines, fmt.Sprintf("Remove managed value %q.", model.managedForm.originalName))
+		lines = append(lines, fmt.Sprintf("Remove target %q.", model.managedForm.originalName))
 	default:
 		lines = append(lines, model.managedValueTargetSummaryLines()...)
 		lines = append(lines, "", "Existing profiles remain partial until values are added by editing profiles.")
@@ -286,7 +275,7 @@ func (model Model) managedValueReviewLines() []string {
 func (model Model) managedValueTargetSummaryLines() []string {
 	targetName := model.managedForm.target.Name
 	if targetName == "" {
-		targetName = "(new managed value)"
+		targetName = "(new target)"
 	}
 
 	targetType := managedValueTypeDisplayName(model.managedForm.target.Type)
@@ -301,7 +290,7 @@ func (model Model) managedValueTargetSummaryLines() []string {
 	}
 
 	return []string{
-		ui.RenderKeyValue("Managed value", targetName),
+		ui.RenderKeyValue("Target", targetName),
 		ui.RenderKeyValue("File", model.managedValueDisplayPath(model.managedForm.target.File)),
 		ui.RenderKeyValue("Type", targetType),
 		ui.RenderKeyValue(selectorName, selector),
@@ -327,12 +316,12 @@ func (model Model) managedValueDisplayPath(path string) string {
 func (model Model) managedValueFormTitle() string {
 	switch model.managedForm.mode {
 	case managedValueDraftRename:
-		return "Rename managed value"
+		return "Rename target"
 	case managedValueDraftLocationUpdate:
-		return "Edit managed value"
+		return "Edit target"
 	case managedValueDraftRemove:
-		return "Remove managed value"
+		return "Remove target"
 	default:
-		return "Add managed value"
+		return "Add target"
 	}
 }

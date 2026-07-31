@@ -52,6 +52,14 @@ const (
 	navigationRowReview
 )
 
+type overviewTab int
+
+const (
+	overviewTabProfiles overviewTab = iota
+	overviewTabTargets
+	overviewTabReview
+)
+
 type navigationRow struct {
 	Kind              navigationRowKind
 	Label             string
@@ -60,12 +68,15 @@ type navigationRow struct {
 }
 
 // Options configures the config editor model.
-type Options struct{}
+type Options struct {
+	Embedded bool
+}
 
 // Result describes how the config editor exited.
 type Result struct {
 	Saved      bool
 	Cancelled  bool
+	Quit       bool
 	ConfigPath string
 	Changes    []app.ConfigEditChange
 }
@@ -84,6 +95,8 @@ type Model struct {
 	inputValue  string
 	inputCursor int
 	saveError   string
+	activeTab   overviewTab
+	embedded    bool
 	profileForm profileDraftState
 	managedForm managedValueDraftState
 	requestID   int
@@ -91,6 +104,7 @@ type Model struct {
 	savedConfigPath string
 	savedChanges    []app.ConfigEditChange
 	result          *Result
+	returnToPicker  bool
 }
 
 // NewModel creates the Bubble Tea model for the interactive config editor.
@@ -100,12 +114,12 @@ func NewModel(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow) 
 
 // NewModelWithOptions creates the config editor model with explicit options.
 func NewModelWithOptions(document app.ConfigEditDocument, workflow app.ConfigEditWorkflow, options Options) Model {
-	_ = options
 	return Model{
 		workflow:       workflow,
 		targetWorkflow: app.DefaultInitWorkflow(),
 		document:       document,
 		state:          editorStateOverview,
+		embedded:       options.Embedded,
 	}
 }
 
@@ -138,8 +152,12 @@ func (model *Model) closeWithoutSaving() {
 	model.result = &Result{}
 }
 
+func (model *Model) quitWithoutSaving() {
+	model.result = &Result{Quit: true}
+}
+
 func (model *Model) cancel() {
-	model.result = &Result{Cancelled: true}
+	model.result = &Result{Cancelled: true, Quit: true}
 }
 
 func (model *Model) completeSaved() {
@@ -199,26 +217,54 @@ func (model *Model) nextRequestID() int {
 
 func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationRow {
 	filter := strings.ToLower(model.activeFilter())
-	rows := []navigationRow{{Kind: navigationRowProfilesSection, Label: "Profiles"}}
+	rows := make([]navigationRow, 0)
 
-	for index, profile := range overview.Profiles {
-		if filter != "" && !strings.Contains(strings.ToLower(profile.Name), filter) {
-			continue
+	switch model.activeTab {
+	case overviewTabTargets:
+		for index, managedValue := range overview.ManagedValues {
+			if filter != "" && !managedValueMatchesFilter(managedValue, filter) {
+				continue
+			}
+			rows = append(rows, navigationRow{Kind: navigationRowManagedValue, Label: managedValue.TargetName, ManagedValueIndex: index})
 		}
-		rows = append(rows, navigationRow{Kind: navigationRowProfile, Label: profile.Name, ProfileIndex: index})
-	}
-
-	rows = append(rows, navigationRow{Kind: navigationRowManagedValuesSection, Label: "Managed values"})
-	for index, managedValue := range overview.ManagedValues {
-		if filter != "" && !managedValueMatchesFilter(managedValue, filter) {
-			continue
+	case overviewTabReview:
+	default:
+		for index, profile := range overview.Profiles {
+			if filter != "" && !strings.Contains(strings.ToLower(profile.Name), filter) {
+				continue
+			}
+			rows = append(rows, navigationRow{Kind: navigationRowProfile, Label: profile.Name, ProfileIndex: index})
 		}
-		rows = append(rows, navigationRow{Kind: navigationRowManagedValue, Label: managedValue.TargetName, ManagedValueIndex: index})
 	}
-
-	rows = append(rows, navigationRow{Kind: navigationRowReview, Label: "Review changes"})
 
 	return rows
+}
+
+func (model *Model) selectOverviewTab(tab overviewTab) {
+	model.activeTab = tab
+	model.cursor = 0
+}
+
+func (model *Model) selectPreviousOverviewTab() {
+	switch model.activeTab {
+	case overviewTabTargets:
+		model.selectOverviewTab(overviewTabProfiles)
+	case overviewTabReview:
+		model.selectOverviewTab(overviewTabTargets)
+	default:
+		model.selectOverviewTab(overviewTabReview)
+	}
+}
+
+func (model *Model) selectNextOverviewTab() {
+	switch model.activeTab {
+	case overviewTabProfiles:
+		model.selectOverviewTab(overviewTabTargets)
+	case overviewTabTargets:
+		model.selectOverviewTab(overviewTabReview)
+	default:
+		model.selectOverviewTab(overviewTabProfiles)
+	}
 }
 
 func managedValueMatchesFilter(managedValue app.ConfigEditManagedValueItem, filter string) bool {

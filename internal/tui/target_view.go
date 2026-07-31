@@ -13,7 +13,7 @@ import (
 const hiddenValuePlaceholder = "****"
 
 func shouldShowTargetCount(profile app.ProfileItem) bool {
-	return profile.TotalTargets > 1 || profile.TargetCount > 1 || profile.Partial
+	return profile.TargetCount > 1
 }
 
 func targetCountLabel(targetCount int) string {
@@ -25,10 +25,7 @@ func targetCountLabel(targetCount int) string {
 }
 
 func changeCountLabel(targetCount int, totalTargets int) string {
-	if totalTargets > 0 && targetCount != totalTargets {
-		return fmt.Sprintf("%d of %d targets", targetCount, totalTargets)
-	}
-
+	_ = totalTargets
 	return targetCountLabel(targetCount)
 }
 
@@ -74,16 +71,13 @@ func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []
 
 func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContentsFileGroup, maxLineWidth int) []string {
 	if len(groups) == 0 {
-		return append(lines, "", "No included managed targets.")
-	}
-	if target, ok := singleProfileContentsTarget(groups); ok {
-		return appendProfileContentsSingleTarget(lines, groups[0].TargetFile, target, maxLineWidth)
+		return append(lines, "", "No included targets.")
 	}
 
+	lines = append(lines, "", RenderSectionHeading("Targets"))
 	for groupIndex, group := range groups {
-		lines = append(lines, "")
-		if groupIndex == 0 && len(groups) > 1 {
-			lines = append(lines, "Affected files")
+		if groupIndex > 0 {
+			lines = append(lines, "")
 		}
 		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
 		for targetIndex, target := range group.Targets {
@@ -97,33 +91,8 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 	return lines
 }
 
-func singleProfileContentsTarget(groups []app.ProfileContentsFileGroup) (app.ProfileContentsTarget, bool) {
-	if len(groups) != 1 || len(groups[0].Targets) != 1 {
-		return app.ProfileContentsTarget{}, false
-	}
-
-	return groups[0].Targets[0], true
-}
-
-func appendProfileContentsSingleTarget(lines []string, targetFile string, target app.ProfileContentsTarget, maxLineWidth int) []string {
-	fields := targetDescriptorFields(target.TargetDescriptor, true)
-	if targetFile != "" && target.TargetFile == "" {
-		fields = append([]DetailField{{Label: "File", Value: targetFile}}, fields...)
-	}
-	if !target.Available {
-		fields = appendUnavailableProfileContentsFields(fields, target)
-		lines = append(lines, "", RenderSectionHeading("Target"))
-		return append(lines, renderIndentedDetailFields("  ", fields, maxLineWidth)...)
-	}
-
-	lines = append(lines, "", RenderSectionHeading("Target"))
-	lines = append(lines, renderIndentedDetailFields("  ", fields, maxLineWidth)...)
-	lines = append(lines, "", RenderSectionHeading("Value"), "  "+profileContentsValueLabel(target, maxLineWidth))
-	return lines
-}
-
 func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth int) []string {
-	fields := []DetailField{{Label: "Managed value", Value: profileContentsTargetLabel(target)}}
+	fields := []DetailField{{Label: "Target", Value: targetNameLabel(target.TargetName)}}
 	if target.Selector != "" {
 		fields = append(fields, DetailField{Label: "Selector", Value: target.Selector})
 	}
@@ -148,10 +117,6 @@ func appendUnavailableProfileContentsFields(fields []DetailField, target app.Pro
 	return fields
 }
 
-func profileContentsTargetLabel(target app.ProfileContentsTarget) string {
-	return targetNameLabel(target.TargetName) + targetTypeBadge(string(target.TargetType))
-}
-
 func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth int) string {
 	if !target.ValueVisible {
 		return hiddenValuePlaceholder
@@ -161,14 +126,6 @@ func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth in
 	}
 
 	return fitLine(target.Value, maxLineWidth-4)
-}
-
-func omittedTargetsLabel(count int) string {
-	if count == 1 {
-		return "1 target unchanged"
-	}
-
-	return fmt.Sprintf("%d targets unchanged", count)
 }
 
 func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {

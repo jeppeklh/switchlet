@@ -105,30 +105,40 @@ func (model Model) profileContentsLines() []string {
 	contents, err := model.application.ProfileContentsByName(selectedProfile.Name, model.profileContentsPreviewOptions())
 	if err != nil {
 		return []string{
-			RenderKeyValue("Profile", selectedProfileTitle(selectedProfile)),
-			RenderKeyValue("State", model.profileStateLabel(selectedProfile)),
+			RenderSectionHeading(selectedProfileTitle(selectedProfile)),
+			model.profileStateLabel(selectedProfile),
 			"",
 			"Profile contents unavailable.",
 			RenderKeyValue("Reason", fitValueForLabel(err.Error(), secondaryPanelContentWidth(model.width), "Reason")),
 		}
 	}
 
-	summaryParts := []string{model.profileStateLabel(selectedProfile)}
-	if selectedProfile.TargetCount > 0 {
-		summaryParts = append(summaryParts, changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets))
-	}
-	lines := []string{
-		selectedProfileTitle(selectedProfile),
-		strings.Join(summaryParts, " | "),
-	}
-	if contents.Partial {
-		lines = append(lines, omittedTargetsLabel(contents.OmittedTargetCount))
+	lines := []string{RenderSectionHeading(selectedProfileTitle(selectedProfile))}
+	if model.isApplyingSelectedProfile(selectedProfile) {
+		lines = append(lines, model.profileStateLabel(selectedProfile))
 	}
 	if !selectedProfile.Available && selectedProfile.UnavailableReason != "" {
-		lines = append(lines, fitLine(selectedProfile.UnavailableReason, secondaryPanelContentWidth(model.width)))
+		lines = appendUnavailableProfileSummary(lines, selectedProfile, secondaryPanelContentWidth(model.width))
 	}
 
 	return appendProfileContentsFileGroups(lines, contents.Files, secondaryPanelContentWidth(model.width))
+}
+
+func appendUnavailableProfileSummary(lines []string, profile app.ProfileItem, maxLineWidth int) []string {
+	addedDetail := false
+	for _, value := range profile.Values {
+		if value.Available || value.EnvironmentVariableName == "" {
+			continue
+		}
+
+		lines = append(lines, fitLine(fmt.Sprintf("Set %s to apply target %s.", value.EnvironmentVariableName, targetNameLabel(value.TargetName)), maxLineWidth))
+		addedDetail = true
+	}
+	if addedDetail {
+		return lines
+	}
+
+	return append(lines, fitLine(profile.UnavailableReason, maxLineWidth))
 }
 
 func (model Model) profileContentsPreviewOptions() app.PreviewOptions {
