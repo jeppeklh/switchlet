@@ -1012,7 +1012,7 @@ func TestInitWizardModel_TextEntryScreensPreserveLiteralQAndOmitQCancel(t *testi
 				height:           32,
 			},
 			wantInput:    "q",
-			wantViewText: "Filter: q_",
+			wantViewText: "/q_",
 		},
 		{
 			name: "path search",
@@ -1027,7 +1027,7 @@ func TestInitWizardModel_TextEntryScreensPreserveLiteralQAndOmitQCancel(t *testi
 				},
 			},
 			wantInput:    "q",
-			wantViewText: "Search: q_",
+			wantViewText: "/q_",
 		},
 		{
 			name: "manual JSON path",
@@ -1124,11 +1124,113 @@ func TestInitWizardModel_TextEntryScreensPreserveLiteralQAndOmitQCancel(t *testi
 			if strings.Contains(view, "q Cancel") {
 				t.Fatalf("View() = %q, text-entry command bar must not advertise q Cancel", view)
 			}
+			if isCommandLineSearchStep(model.step) {
+				if strings.Contains(view, "Ctrl+C Cancel") {
+					t.Fatalf("View() = %q, command-line search must replace command bar guidance", view)
+				}
+				return
+			}
+
 			if !strings.Contains(view, "Ctrl+C Cancel") {
 				t.Fatalf("View() = %q, want Ctrl+C cancellation guidance", view)
 			}
 		})
 	}
+}
+
+func TestInitWizardModel_FileFilterDoesNotMoveFileRowsDown(t *testing.T) {
+	projectRoot := t.TempDir()
+	desiredCandidate := app.InitTargetFileCandidate{
+		Path:         filepath.Join(projectRoot, "src", "MyApplication", "appsettings.Development.json"),
+		RelativePath: filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+	}
+	model, err := newTestInitWizardModel(projectRoot, app.InitWorkflowDependencies{
+		DiscoverTargetFileCandidates: func(string) ([]app.InitTargetFileCandidate, error) {
+			return []app.InitTargetFileCandidate{
+				desiredCandidate,
+				{Path: filepath.Join(projectRoot, "config.json"), RelativePath: "config.json"},
+			}, nil
+		},
+	})
+	if err != nil {
+		t.Fatalf("newInitWizardModel returned error: %v", err)
+	}
+	model.width = 120
+	model.height = 32
+
+	listView := model.View()
+	listRowIndex := wizardLineIndexContaining(listView, "> src")
+	if listRowIndex < 0 {
+		t.Fatalf("View() = %q, want source file row", listView)
+	}
+
+	model = updateWizardModel(t, model, runeKey('/'))
+	filterView := model.View()
+	filterRowIndex := wizardLineIndexContaining(filterView, "> src")
+	if filterRowIndex < 0 {
+		t.Fatalf("View() = %q, want source file row while filtering", filterView)
+	}
+	if filterRowIndex != listRowIndex {
+		t.Fatalf("file row moved from line %d to %d when filter opened\nlist: %q\nfilter: %q", listRowIndex, filterRowIndex, listView, filterView)
+	}
+	if strings.Contains(filterView, "Filter:") {
+		t.Fatalf("View() = %q, want no filter input in file panel body", filterView)
+	}
+	assertWizardCommandBarAtBottom(t, filterView, "/_")
+
+	typeWizardText(t, &model, "appsettings")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	filteredListView := model.View()
+	filteredListRowIndex := wizardLineIndexContaining(filteredListView, "> src")
+	if filteredListRowIndex < 0 {
+		t.Fatalf("View() = %q, want source file row after accepting filter", filteredListView)
+	}
+	if filteredListRowIndex != listRowIndex {
+		t.Fatalf("file row moved from line %d to %d when filter was accepted\nlist: %q\nfiltered list: %q", listRowIndex, filteredListRowIndex, listView, filteredListView)
+	}
+	if strings.Contains(filteredListView, "Active filter") || strings.Contains(filteredListView, "Filter:") {
+		t.Fatalf("View() = %q, want active filter shown without a file panel body prefix", filteredListView)
+	}
+	if !strings.Contains(filteredListView, `Filter "appsettings"`) {
+		t.Fatalf("View() = %q, want active filter in panel title", filteredListView)
+	}
+}
+
+func TestInitWizardModel_PathSearchDoesNotMovePathRowsDown(t *testing.T) {
+	nodes := []app.InitStringTargetNode{
+		{Name: "databaseUrl", JSONPath: "database.url", Selectable: true},
+		{Name: "redisUrl", JSONPath: "redis.url", Selectable: true},
+	}
+	model := initWizardModel{
+		workingDirectory: t.TempDir(),
+		step:             initWizardStepPathBrowse,
+		width:            120,
+		height:           32,
+		selectedFile: app.InitTargetFileSelection{
+			DisplayPath: "config.json",
+			TargetType:  app.InitTargetTypeJSON,
+			Nodes:       nodes,
+		},
+		browseNodes: jsonTargetSelectorNodes(nodes),
+	}
+
+	model = updateWizardModel(t, model, runeKey('/'))
+	searchView := model.View()
+	searchPanelTitleIndex := wizardLineIndexContaining(searchView, "* Search results")
+	if searchPanelTitleIndex < 0 {
+		t.Fatalf("View() = %q, want search results panel title", searchView)
+	}
+	searchRowIndex := wizardLineIndexContaining(searchView, "> database.url")
+	if searchRowIndex < 0 {
+		t.Fatalf("View() = %q, want database.url search row", searchView)
+	}
+	if searchRowIndex != searchPanelTitleIndex+1 {
+		t.Fatalf("path search row rendered on line %d, want first body line after panel title %d\nsearch: %q", searchRowIndex, searchPanelTitleIndex+1, searchView)
+	}
+	if strings.Contains(searchView, "Search:") {
+		t.Fatalf("View() = %q, want no search input in path panel body", searchView)
+	}
+	assertWizardCommandBarAtBottom(t, searchView, "/_")
 }
 
 func TestInitWizardModel_CommandBarsDescribeActualEscDestinations(t *testing.T) {
@@ -2159,6 +2261,20 @@ func wizardLineContains(view string, values ...string) bool {
 	}
 
 	return false
+}
+
+func wizardLineIndexContaining(view string, value string) int {
+	for index, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, value) {
+			return index
+		}
+	}
+
+	return -1
+}
+
+func isCommandLineSearchStep(step initWizardStep) bool {
+	return step == initWizardStepFileFilter || step == initWizardStepPathSearch
 }
 
 func assertWizardViewHeight(t *testing.T, view string, height int) {

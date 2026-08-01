@@ -45,9 +45,10 @@ func (model Model) listView() string {
 			{Title: model.profilePanelTitle(), Lines: model.profileListLines(RowSelected), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 			{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: model.listActions(),
-		Width:   model.width,
-		Height:  model.height,
+		Actions:     model.listActions(),
+		CommandLine: model.profileSearchCommandLine(),
+		Width:       model.width,
+		Height:      model.height,
 	})
 }
 
@@ -141,7 +142,7 @@ func (model Model) profileContentsLines() []string {
 		lines = appendUnavailableProfileSummary(lines, selectedProfile, secondaryPanelContentWidth(model.width))
 	}
 
-	return appendProfileContentsFileGroups(lines, contents.Files, secondaryPanelContentWidth(model.width))
+	return appendProfileContentsFileGroups(lines, contents.Files, model.projectRoot, secondaryPanelContentWidth(model.width))
 }
 
 func appendUnavailableProfileSummary(lines []string, profile app.ProfileItem, maxLineWidth int) []string {
@@ -190,7 +191,7 @@ func appendSingleTargetContextLines(lines []string, profile app.ProfileItem, mod
 
 	fields := make([]DetailField, 0, 3)
 	if targetFile != "" {
-		fields = append(fields, DetailField{Label: "File", Value: targetFile})
+		fields = append(fields, DetailField{Label: "File", Value: model.displayProjectPath(targetFile)})
 	}
 	if targetLabel != "" {
 		fields = append(fields, DetailField{Label: "Managed value", Value: targetLabel})
@@ -242,7 +243,7 @@ func (model Model) statusComparisonView() string {
 func (model Model) statusComparisonShell() Shell {
 	lines := []string{"Checking current managed values..."}
 	if model.state == statusReadyState && model.statusComparison != nil {
-		lines = statusComparisonLines(*model.statusComparison, secondaryPanelContentWidth(model.width))
+		lines = statusComparisonLines(*model.statusComparison, model.projectRoot, secondaryPanelContentWidth(model.width))
 	}
 
 	return Shell{
@@ -276,7 +277,7 @@ func (model Model) diffComparisonShell() Shell {
 	panelWidth := fullPanelContentWidth(model.width)
 	lines := diffComparisonLoadingLines(profileName)
 	if model.state == diffReadyState && model.diffPreview != nil {
-		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, panelWidth)
+		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, model.projectRoot, panelWidth)
 	}
 
 	return Shell{
@@ -333,7 +334,7 @@ func comparisonActions(kind comparisonRequestKind, valuesVisible bool) []Action 
 	)
 }
 
-func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []string {
+func statusComparisonLines(status app.StatusComparison, projectRoot string, maxLineWidth int) []string {
 	lines := make([]string, 0)
 	switch status.Status {
 	case app.StatusComparisonMatched:
@@ -341,14 +342,14 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 			RenderSectionHeading("Exact match"),
 			"The managed files match one complete profile.",
 		)
-		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, maxLineWidth)
+		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, projectRoot, maxLineWidth)
 	case app.StatusComparisonAmbiguous:
 		lines = append(lines,
 			RenderSectionHeading("Ambiguous match"),
 			"The managed files match more than one complete profile.",
 		)
 		lines = appendStatusProfileMatches(lines, "Matching profiles", status.Matches)
-		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, maxLineWidth)
+		lines = appendStatusTargetSection(lines, "Matched targets", countOfTotalLabel(len(status.MatchedTargets), status.TargetCount), status.MatchedTargets, projectRoot, maxLineWidth)
 	default:
 		lines = append(lines,
 			RenderSectionHeading("No exact match"),
@@ -363,11 +364,11 @@ func statusComparisonLines(status app.StatusComparison, maxLineWidth int) []stri
 		}
 	}
 
-	lines = appendStatusUnavailableProfiles(lines, status.UnavailableProfiles, maxLineWidth)
+	lines = appendStatusUnavailableProfiles(lines, status.UnavailableProfiles, projectRoot, maxLineWidth)
 	return lines
 }
 
-func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible bool, maxLineWidth int) []string {
+func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible bool, projectRoot string, maxLineWidth int) []string {
 	lines := []string{
 		profileComparisonLabel(preview.ProfileName, preview.Protected),
 		RenderSectionHeading(managedPatchStateLabel(preview)),
@@ -379,8 +380,8 @@ func managedPatchPreviewLines(preview app.ManagedPatchPreview, valuesVisible boo
 		lines = append(lines, RenderKeyValue("Included targets", countOfTotalLabel(preview.IncludedTargetCount, preview.TargetCount)))
 	}
 
-	lines = appendManagedPatchFileGroups(lines, preview.Files, valuesVisible, maxLineWidth)
-	lines = appendManagedPatchOmittedTargets(lines, preview.OmittedTargets, maxLineWidth)
+	lines = appendManagedPatchFileGroups(lines, preview.Files, valuesVisible, projectRoot, maxLineWidth)
+	lines = appendManagedPatchOmittedTargets(lines, preview.OmittedTargets, projectRoot, maxLineWidth)
 	return lines
 }
 
@@ -413,7 +414,7 @@ func managedPatchWouldUpdateCount(preview app.ManagedPatchPreview) int {
 	return count
 }
 
-func appendStatusTargetSection(lines []string, heading string, countLabel string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+func appendStatusTargetSection(lines []string, heading string, countLabel string, descriptors []app.TargetDescriptor, projectRoot string, maxLineWidth int) []string {
 	if countLabel == "" && len(descriptors) == 0 {
 		return lines
 	}
@@ -422,7 +423,7 @@ func appendStatusTargetSection(lines []string, heading string, countLabel string
 	if countLabel != "" {
 		lines = append(lines, countLabel)
 	}
-	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+	return append(lines, targetDescriptorDetailLines(descriptors, projectRoot, maxLineWidth)...)
 }
 
 func appendStatusProfileMatches(lines []string, heading string, matches []app.ProfileMatch) []string {
@@ -469,7 +470,7 @@ func appendStatusClosestProfiles(lines []string, matches []app.ClosestProfileMat
 	return lines
 }
 
-func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableProfile, maxLineWidth int) []string {
+func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableProfile, projectRoot string, maxLineWidth int) []string {
 	if len(profiles) == 0 {
 		return lines
 	}
@@ -486,7 +487,7 @@ func appendStatusUnavailableProfiles(lines []string, profiles []app.UnavailableP
 
 		for _, value := range profile.Values {
 			lines = append(lines, "  "+profileComparisonLabel(profile.ProfileName, profile.Protected))
-			lines = append(lines, unavailableValueDetailLines(value, maxLineWidth)...)
+			lines = append(lines, unavailableValueDetailLines(value, projectRoot, maxLineWidth)...)
 		}
 	}
 
@@ -545,7 +546,7 @@ func (model Model) inspectionShell() (Shell, bool) {
 
 	if shouldShowTargetCount(selectedProfile) {
 		profileLines = append(profileLines, "", "Planned changes")
-		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values, secondaryPanelContentWidth(model.width))...)
+		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values, model.projectRoot, secondaryPanelContentWidth(model.width))...)
 	} else {
 		profileLines = appendSingleTargetContextLines(profileLines, selectedProfile, model)
 
@@ -587,7 +588,7 @@ func (model Model) confirmationView() string {
 			"",
 			"Affected targets",
 		)
-		lines = append(lines, profileValueTargetLines(selectedProfile.Values, secondaryPanelContentWidth(model.width))...)
+		lines = append(lines, profileValueTargetLines(selectedProfile.Values, model.projectRoot, secondaryPanelContentWidth(model.width))...)
 		lines = append(lines, "", model.confirmationCompletionLine(), "Press Enter or y to confirm.")
 	} else {
 		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
@@ -705,20 +706,20 @@ func (model Model) successView() string {
 	return RenderShell(Shell{
 		Title:    "Switchlet",
 		Subtitle: "Profile applied.",
-		Panels:   []Panel{{Title: "Result", Lines: successLines(model.successResult, fullPanelContentWidth(model.width)), Focused: true}},
+		Panels:   []Panel{{Title: "Result", Lines: successLines(model.successResult, model.projectRoot, fullPanelContentWidth(model.width)), Focused: true}},
 		Width:    model.width,
 		Height:   model.height,
 	})
 }
 
-func successLines(result *app.Result, maxLineWidth int) []string {
+func successLines(result *app.Result, projectRoot string, maxLineWidth int) []string {
 	changes := resultPlannedChanges(*result)
 	lines := []string{
 		RenderKeyValue("Applied profile", result.ProfileName),
 		"",
 		targetListHeading("Updated target", changes) + ":",
 	}
-	lines = append(lines, resultChangeLines(changes, maxLineWidth)...)
+	lines = append(lines, resultChangeLines(changes, projectRoot, maxLineWidth)...)
 	lines = append(lines, "", "Switchlet will now exit.")
 
 	return lines
@@ -733,7 +734,7 @@ func (model Model) FinalMessage() string {
 	var builder strings.Builder
 	changes := resultPlannedChanges(*model.successResult)
 	fmt.Fprintf(&builder, "Applied profile %q\n\n%s:\n", model.successResult.ProfileName, targetListHeading("Updated target", changes))
-	for _, line := range finalResultChangeLines(changes) {
+	for _, line := range finalResultChangeLines(changes, model.projectRoot) {
 		builder.WriteString(line)
 		builder.WriteString("\n")
 	}

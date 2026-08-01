@@ -29,7 +29,7 @@ func changeCountLabel(targetCount int, totalTargets int) string {
 	return targetCountLabel(targetCount)
 }
 
-func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []string {
+func profileValueDetailLines(values []app.ProfileValueItem, projectRoot string, maxLineWidth int) []string {
 	if len(values) == 0 {
 		return []string{"No planned target changes."}
 	}
@@ -40,7 +40,7 @@ func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
+		lines = append(lines, targetFileLabel(group.targetFile, projectRoot, maxLineWidth))
 		for _, valueItem := range group.values {
 			lines = append(lines, profileValueDetailFieldLines(valueItem, maxLineWidth)...)
 		}
@@ -49,7 +49,7 @@ func profileValueDetailLines(values []app.ProfileValueItem, maxLineWidth int) []
 	return lines
 }
 
-func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []string {
+func profileValueTargetLines(values []app.ProfileValueItem, projectRoot string, maxLineWidth int) []string {
 	if len(values) == 0 {
 		return []string{"No affected targets."}
 	}
@@ -60,7 +60,7 @@ func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, targetFileLabel(group.targetFile, maxLineWidth))
+		lines = append(lines, targetFileLabel(group.targetFile, projectRoot, maxLineWidth))
 		for _, valueItem := range group.values {
 			lines = append(lines, profileValueTargetFieldLines(valueItem, maxLineWidth)...)
 		}
@@ -69,7 +69,7 @@ func profileValueTargetLines(values []app.ProfileValueItem, maxLineWidth int) []
 	return lines
 }
 
-func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContentsFileGroup, maxLineWidth int) []string {
+func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContentsFileGroup, projectRoot string, maxLineWidth int) []string {
 	if len(groups) == 0 {
 		return append(lines, "", "No included targets.")
 	}
@@ -79,7 +79,7 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 		if groupIndex > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
+		lines = append(lines, targetFileLabel(group.TargetFile, projectRoot, maxLineWidth))
 		for targetIndex, target := range group.Targets {
 			if targetIndex > 0 {
 				lines = append(lines, "")
@@ -128,7 +128,7 @@ func profileContentsValueLabel(target app.ProfileContentsTarget, maxLineWidth in
 	return fitLine(target.Value, maxLineWidth-4)
 }
 
-func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
+func resultChangeLines(changes []app.PlannedChange, projectRoot string, maxLineWidth int) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
 	}
@@ -139,7 +139,7 @@ func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 			lines = append(lines, "")
 		}
 		prefix := "updated "
-		lines = append(lines, prefix+targetFileForResultLine(change.TargetFile, valueWidthAfterPrefix(maxLineWidth, prefix)))
+		lines = append(lines, prefix+targetFileForResultLine(change.TargetFile, projectRoot, valueWidthAfterPrefix(maxLineWidth, prefix)))
 		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
 		if selectorLine := plannedChangeSelectorLine(change); selectorLine != "" {
 			lines = append(lines, "  "+selectorLine)
@@ -149,20 +149,20 @@ func resultChangeLines(changes []app.PlannedChange, maxLineWidth int) []string {
 	return lines
 }
 
-func targetDescriptorDetailLines(descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+func targetDescriptorDetailLines(descriptors []app.TargetDescriptor, projectRoot string, maxLineWidth int) []string {
 	lines := make([]string, 0, len(descriptors)*4)
 	for index, descriptor := range descriptors {
 		if index > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, renderIndentedDetailFields("  ", targetDescriptorFields(descriptor, true), maxLineWidth)...)
+		lines = append(lines, renderIndentedDetailFields("  ", targetDescriptorFields(descriptor, true, projectRoot), maxLineWidth)...)
 	}
 
 	return lines
 }
 
-func unavailableValueDetailLines(value app.UnavailableValue, maxLineWidth int) []string {
-	fields := targetDescriptorFields(value.TargetDescriptor, true)
+func unavailableValueDetailLines(value app.UnavailableValue, projectRoot string, maxLineWidth int) []string {
+	fields := targetDescriptorFields(value.TargetDescriptor, true, projectRoot)
 	if value.EnvironmentVariableName != "" {
 		fields = append(fields, DetailField{Label: "Environment variable", Value: value.EnvironmentVariableName})
 	}
@@ -173,7 +173,7 @@ func unavailableValueDetailLines(value app.UnavailableValue, maxLineWidth int) [
 	return renderIndentedDetailFields("  ", fields, maxLineWidth)
 }
 
-func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileGroup, valuesVisible bool, maxLineWidth int) []string {
+func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileGroup, valuesVisible bool, projectRoot string, maxLineWidth int) []string {
 	if len(groups) == 0 {
 		return append(lines, "", "No included managed targets.")
 	}
@@ -183,17 +183,17 @@ func appendManagedPatchFileGroups(lines []string, groups []app.ManagedPatchFileG
 		if groupIndex == 0 && len(groups) > 1 {
 			lines = append(lines, "Affected files")
 		}
-		lines = append(lines, targetFileLabel(group.TargetFile, maxLineWidth))
+		lines = append(lines, targetFileLabel(group.TargetFile, projectRoot, maxLineWidth))
 		for _, hunk := range group.Hunks {
-			lines = append(lines, managedPatchHunkLines(hunk, valuesVisible, maxLineWidth)...)
+			lines = append(lines, managedPatchHunkLines(hunk, valuesVisible, projectRoot, maxLineWidth)...)
 		}
 	}
 
 	return lines
 }
 
-func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, maxLineWidth int) []string {
-	fields := targetDescriptorFields(hunk.TargetDescriptor, false)
+func managedPatchHunkLines(hunk app.ManagedPatchHunk, valuesVisible bool, projectRoot string, maxLineWidth int) []string {
+	fields := targetDescriptorFields(hunk.TargetDescriptor, false, projectRoot)
 	if hunk.EnvironmentVariableName != "" {
 		fields = append(fields, DetailField{Label: "Environment variable", Value: hunk.EnvironmentVariableName})
 	}
@@ -265,7 +265,7 @@ func managedPatchStatusLabel(status app.ManagedPatchStatus) string {
 	}
 }
 
-func appendManagedPatchOmittedTargets(lines []string, descriptors []app.TargetDescriptor, maxLineWidth int) []string {
+func appendManagedPatchOmittedTargets(lines []string, descriptors []app.TargetDescriptor, projectRoot string, maxLineWidth int) []string {
 	if len(descriptors) == 0 {
 		return lines
 	}
@@ -275,10 +275,10 @@ func appendManagedPatchOmittedTargets(lines []string, descriptors []app.TargetDe
 		"Omitted targets",
 		"  Unchanged by this partial profile.",
 	)
-	return append(lines, targetDescriptorDetailLines(descriptors, maxLineWidth)...)
+	return append(lines, targetDescriptorDetailLines(descriptors, projectRoot, maxLineWidth)...)
 }
 
-func finalResultChangeLines(changes []app.PlannedChange) []string {
+func finalResultChangeLines(changes []app.PlannedChange, projectRoot string) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
 	}
@@ -288,7 +288,7 @@ func finalResultChangeLines(changes []app.PlannedChange) []string {
 		if index > 0 {
 			lines = append(lines, "")
 		}
-		lines = append(lines, "updated "+targetFileForResultLine(change.TargetFile, 0))
+		lines = append(lines, "updated "+targetFileForResultLine(change.TargetFile, projectRoot, 0))
 		lines = append(lines, "  "+targetNameLabel(change.TargetName)+targetTypeBadge(string(change.TargetType)))
 		if selectorLine := plannedChangeSelectorLine(change); selectorLine != "" {
 			lines = append(lines, "  "+selectorLine)
@@ -298,15 +298,16 @@ func finalResultChangeLines(changes []app.PlannedChange) []string {
 	return lines
 }
 
-func targetFileForResultLine(targetFile string, maxLineWidth int) string {
+func targetFileForResultLine(targetFile string, projectRoot string, maxLineWidth int) string {
 	if targetFile == "" {
 		return "target file"
 	}
+	displayPath := displayProjectPath(projectRoot, targetFile)
 	if maxLineWidth <= 0 {
-		return normalizedDisplayPath(targetFile)
+		return normalizedDisplayPath(displayPath)
 	}
 
-	return compactPathForDisplay(targetFile, maxLineWidth)
+	return compactPathForDisplay(displayPath, maxLineWidth)
 }
 
 type profileValueGroup struct {
@@ -335,12 +336,12 @@ func groupProfileValuesByFile(values []app.ProfileValueItem) []profileValueGroup
 	return groups
 }
 
-func targetFileLabel(targetFile string, maxLineWidth int) string {
+func targetFileLabel(targetFile string, projectRoot string, maxLineWidth int) string {
 	if targetFile == "" {
 		return "Target details"
 	}
 
-	return compactPathForDisplay(targetFile, maxLineWidth)
+	return compactPathForDisplay(displayProjectPath(projectRoot, targetFile), maxLineWidth)
 }
 
 func profileValueTargetSummary(valueItem app.ProfileValueItem) string {
@@ -396,11 +397,11 @@ func profileValueMaskedValueLabel(valueItem app.ProfileValueItem) string {
 	return valueItem.MaskedValue
 }
 
-func recoverableProfileContextLines(profile app.ProfileItem, maxLineWidth int) []string {
+func recoverableProfileContextLines(profile app.ProfileItem, projectRoot string, maxLineWidth int) []string {
 	lines := []string{RenderKeyValue("Profile", selectedProfileTitle(profile))}
 	if len(profile.Values) > 0 {
 		lines = append(lines, "", "Affected targets")
-		lines = append(lines, profileValueTargetLines(profile.Values, maxLineWidth)...)
+		lines = append(lines, profileValueTargetLines(profile.Values, projectRoot, maxLineWidth)...)
 	}
 	if profile.Available {
 		return lines
@@ -417,7 +418,7 @@ func recoverableProfileContextLines(profile app.ProfileItem, maxLineWidth int) [
 
 		lines = append(lines, RenderKeyValue("Managed value", profileValueTargetLabel(valueItem)))
 		if valueItem.TargetFile != "" {
-			lines = append(lines, RenderKeyValue("File", compactPathForDisplay(valueItem.TargetFile, valueWidthForLabel(maxLineWidth, "File"))))
+			lines = append(lines, RenderKeyValue("File", compactPathForDisplay(displayProjectPath(projectRoot, valueItem.TargetFile), valueWidthForLabel(maxLineWidth, "File"))))
 		}
 		if valueItem.Selector != "" {
 			lines = append(lines, RenderKeyValue("Selector", fitValueForLabel(valueItem.Selector, maxLineWidth, "Selector")))
@@ -534,7 +535,7 @@ func (model Model) genericRecoverableError(cause error) RecoverableError {
 
 	context := []string(nil)
 	if selectedProfile, ok := model.selectedProfile(); ok {
-		context = recoverableProfileContextLines(selectedProfile, secondaryPanelContentWidth(model.width))
+		context = recoverableProfileContextLines(selectedProfile, model.projectRoot, secondaryPanelContentWidth(model.width))
 	}
 
 	return RecoverableError{
@@ -607,10 +608,10 @@ func plannedChangeSelectorLine(change app.PlannedChange) string {
 	return selectorSummary(change.SelectorName, change.Selector)
 }
 
-func targetDescriptorFields(descriptor app.TargetDescriptor, includeFile bool) []DetailField {
+func targetDescriptorFields(descriptor app.TargetDescriptor, includeFile bool, projectRoot string) []DetailField {
 	fields := make([]DetailField, 0, 3)
 	if includeFile && descriptor.TargetFile != "" {
-		fields = append(fields, DetailField{Label: "File", Value: descriptor.TargetFile})
+		fields = append(fields, DetailField{Label: "File", Value: displayProjectPath(projectRoot, descriptor.TargetFile)})
 	}
 	fields = append(fields, DetailField{Label: "Managed value", Value: targetNameLabel(descriptor.TargetName) + targetTypeBadge(string(descriptor.TargetType))})
 	if descriptor.Selector != "" {
@@ -698,7 +699,28 @@ func (model Model) isApplyingSelectedProfile(profile app.ProfileItem) bool {
 }
 
 func (model Model) compactTargetFileValue(targetFile string, label string) string {
-	return compactPathForDisplay(targetFile, valueWidthForLabel(secondaryPanelContentWidth(model.width), label))
+	return compactPathForDisplay(model.displayProjectPath(targetFile), valueWidthForLabel(secondaryPanelContentWidth(model.width), label))
+}
+
+func (model Model) displayProjectPath(targetPath string) string {
+	return displayProjectPath(model.projectRoot, targetPath)
+}
+
+func displayProjectPath(projectRoot string, targetPath string) string {
+	if projectRoot == "" || targetPath == "" {
+		return targetPath
+	}
+
+	relativePath, err := filepath.Rel(projectRoot, targetPath)
+	if err != nil || relativePath == "." || isParentRelativePath(relativePath) || filepath.IsAbs(relativePath) {
+		return targetPath
+	}
+
+	return filepath.ToSlash(relativePath)
+}
+
+func isParentRelativePath(targetPath string) bool {
+	return targetPath == ".." || strings.HasPrefix(targetPath, ".."+string(filepath.Separator))
 }
 
 func compactPathForDisplay(targetPath string, maxWidth int) string {

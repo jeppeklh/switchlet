@@ -53,6 +53,49 @@ profiles:
 	}
 }
 
+func TestRun_InteractiveModelDisplaysPathsRelativeToDiscoveredProjectRoot(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: app/config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+`)+"\n")
+	writeFile(t, projectRoot, "app/config.json", `{"database":{"url":"postgres://old"}}`)
+	workingDirectory := filepath.Join(projectRoot, "app")
+
+	programStarted := false
+	err := runInteractiveCommand(workingDirectory, func(model tea.Model) error {
+		programStarted = true
+
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+		view := updatedModel.View()
+		if !strings.Contains(view, "app/config.json") {
+			t.Fatalf("View() = %q, want project-relative target path", view)
+		}
+		if strings.Contains(view, projectRoot) {
+			t.Fatalf("View() = %q, must not show absolute project root %q", view, projectRoot)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("run returned error: %v", err)
+	}
+	if !programStarted {
+		t.Fatal("runProgram was not called")
+	}
+}
+
 func TestRun_StartsProgramForValidVersionTwoProject(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`

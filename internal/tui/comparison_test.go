@@ -167,6 +167,36 @@ func TestView_StatusExactMatchRendersCurrentProfileAndTargetsWithoutValues(t *te
 	}
 }
 
+func TestView_ProjectRelativePathsAcrossMainStatusAndDiff(t *testing.T) {
+	projectRoot := t.TempDir()
+	currentValue := "postgres://local-current-secret"
+	targetPath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"`+currentValue+`"}}`)
+	model := NewWithProjectRoot(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{
+			Name: "Local",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer(currentValue)},
+			},
+		}},
+	), projectRoot)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	model = updatedModel.(Model)
+
+	for surface, view := range map[string]string{
+		"main":   model.View(),
+		"status": openStatusReady(t, model).View(),
+		"diff":   openDiffReady(t, model).View(),
+	} {
+		if !strings.Contains(view, "backend/appsettings.Development.json") {
+			t.Fatalf("%s View() = %q, want project-relative target path", surface, view)
+		}
+		if strings.Contains(view, projectRoot) {
+			t.Fatalf("%s View() = %q, must not show absolute project root %q", surface, view, projectRoot)
+		}
+	}
+}
+
 func TestView_StatusAmbiguousMatchRendersMatchesWithoutChoosingCurrentProfile(t *testing.T) {
 	projectRoot := t.TempDir()
 	currentValue := "postgres://shared-secret"

@@ -736,11 +736,12 @@ func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T
 		t.Fatalf("SelectedProfileName() = %q, %t, want Staging, true", selectedProfileName, ok)
 	}
 	searchView := model.View()
-	if !strings.Contains(searchView, "Search: ST_") || !strings.Contains(searchView, "> Staging") || strings.Contains(searchView, "  Local") {
+	commandLine := visibleLines(searchView)[len(visibleLines(searchView))-1]
+	if !strings.Contains(commandLine, "/ST_") || !strings.Contains(searchView, "> Staging") || strings.Contains(searchView, "  Local") {
 		t.Fatalf("View() = %q, want live filtered search for Staging only", searchView)
 	}
-	if !strings.Contains(searchView, "Enter Apply filter") || strings.Contains(searchView, "q Quit") {
-		t.Fatalf("View() = %q, want search command bar without q quit", searchView)
+	if strings.Contains(searchView, "Search: ST_") || strings.Contains(commandLine, "Enter Apply filter") || strings.Contains(commandLine, "q Quit") {
+		t.Fatalf("View() = %q, want search input to replace command bar contents", searchView)
 	}
 
 	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -752,11 +753,42 @@ func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T
 		t.Fatalf("model after applying search = %#v, want accepted active filter", model)
 	}
 	filteredView := model.View()
-	if !strings.Contains(filteredView, "Filter: ST") || !strings.Contains(filteredView, "n/N Matches") || !strings.Contains(filteredView, "Esc Clear filter") {
+	if !strings.Contains(filteredView, `Filter "ST"`) || strings.Contains(filteredView, "Filter: ST") || !strings.Contains(filteredView, "n/N Matches") || !strings.Contains(filteredView, "Esc Clear filter") {
 		t.Fatalf("View() = %q, want active filter and filtered command actions", filteredView)
 	}
 	if strings.Contains(filteredView, "  Local") || strings.Contains(filteredView, "  Production") {
 		t.Fatalf("View() = %q, want non-matching profiles hidden", filteredView)
+	}
+}
+
+func TestView_ProfileSearchDoesNotMoveProfileRowsDown(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	model = updatedModel.(Model)
+
+	listView := model.View()
+	listRowIndex := lineIndexContaining(listView, "> Local")
+
+	updatedModel, command := model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening search")
+	}
+	searchView := model.View()
+	searchRowIndex := lineIndexContaining(searchView, "> Local")
+
+	if searchRowIndex != listRowIndex {
+		t.Fatalf("profile row moved from line %d to %d when search opened\nlist: %q\nsearch: %q", listRowIndex, searchRowIndex, listView, searchView)
+	}
+	if strings.Contains(searchView, "Search:") {
+		t.Fatalf("View() = %q, want no search input in profile pane body", searchView)
 	}
 }
 
@@ -825,7 +857,8 @@ func TestUpdate_ProfileSearchTreatsQAsLiteralInput(t *testing.T) {
 	if model.state != searchState || model.searchInput != "q" {
 		t.Fatalf("model after q search input = %#v, want literal q in search field", model)
 	}
-	if !strings.Contains(model.View(), "Search: q_") {
+	commandLine := visibleLines(model.View())[len(visibleLines(model.View()))-1]
+	if !strings.Contains(commandLine, "/q_") {
 		t.Fatalf("View() = %q, want q rendered in search field", model.View())
 	}
 }

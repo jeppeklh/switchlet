@@ -517,7 +517,7 @@ func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testin
 	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
 	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\nVITE_FEATURES=local\n")
 
-	model := New(app.NewWithTargets(
+	model := NewWithProjectRoot(app.NewWithTargets(
 		[]config.Target{
 			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
 			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
@@ -529,7 +529,7 @@ func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testin
 				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
 			},
 		}},
-	))
+	), projectRoot)
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if command == nil {
@@ -572,10 +572,10 @@ func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testin
 	for _, expected := range []string{
 		"Applied profile \"Staging\"",
 		"Updated targets:",
-		"updated " + databasePath,
+		"updated backend/appsettings.Development.json",
 		"database [json]",
 		"database.url",
-		"updated " + frontendPath,
+		"updated frontend/.env.local",
 		"frontendApi [dotenv]",
 		"VITE_API_URL",
 	} {
@@ -593,6 +593,9 @@ func TestUpdate_MultiTargetApplyShowsTargetAwareSuccessAndFinalMessage(t *testin
 	}
 	if !strings.Contains(string(readFile(t, frontendPath)), "VITE_API_URL=https://api.staging.example.test") {
 		t.Fatalf("frontend file was not updated")
+	}
+	if strings.Contains(view, projectRoot) || strings.Contains(finalMessage, projectRoot) {
+		t.Fatalf("success output must use project-relative paths\nview: %q\nfinal: %q", view, finalMessage)
 	}
 }
 

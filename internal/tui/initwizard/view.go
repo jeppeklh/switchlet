@@ -192,9 +192,6 @@ func (model initWizardModel) fileSelectionView() string {
 	model.clampCursor(len(matchingCandidates))
 
 	workLines := make([]string, 0)
-	if model.fileFilter != "" {
-		workLines = append(workLines, ui.RenderKeyValue("Active filter", model.fileFilter), "")
-	}
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines,
 			"No supported configuration files were discovered.",
@@ -223,9 +220,13 @@ func (model initWizardModel) fileSelectionView() string {
 	if len(matchingCandidates) > 0 {
 		guidanceLines = append(guidanceLines, "", ui.RenderKeyValue("Selected file", matchingCandidates[model.cursor].RelativePath))
 	}
+	filePanelTitle := "Configuration files"
+	if model.fileFilter != "" {
+		filePanelTitle = fmt.Sprintf("Configuration files | Filter %q", model.fileFilter)
+	}
 
 	return model.initWizardShell(1, "Choose configuration file", []ui.Panel{
-		{Title: "Configuration files", Lines: workLines, Focused: true},
+		{Title: filePanelTitle, Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines(guidanceLines)},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Select"},
@@ -240,7 +241,7 @@ func (model initWizardModel) fileFilterView() string {
 	matchingCandidates := model.filteredFileCandidates(model.inputValue)
 	model.clampCursor(len(matchingCandidates))
 
-	workLines := []string{model.inputLine("Filter"), ""}
+	workLines := make([]string, 0)
 	if len(model.fileCandidates) == 0 {
 		workLines = append(workLines, "No discovered configuration files are available. Press Esc and use manual file entry instead.")
 	} else {
@@ -248,7 +249,7 @@ func (model initWizardModel) fileFilterView() string {
 		workLines = append(workLines, "", fmt.Sprintf("Showing %d matching file(s) out of %d discovered.", len(matchingCandidates), len(model.fileCandidates)))
 	}
 
-	return model.initWizardShell(1, "Filter configuration files", []ui.Panel{
+	return model.initWizardShellWithCommandLine(1, "Filter configuration files", []ui.Panel{
 		{Title: "Filter results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			"Task",
@@ -256,7 +257,7 @@ func (model initWizardModel) fileFilterView() string {
 			"Enter selects the highlighted file.",
 			"Esc returns to the file list with this filter.",
 		})},
-	}, searchableTextInputActions("Select"))
+	}, searchableTextInputActions("Select"), model.commandInputLine())
 }
 
 func (model initWizardModel) pathBrowseView() string {
@@ -300,11 +301,11 @@ func (model initWizardModel) pathSearchView() string {
 	model.clampCursor(len(matchingPaths))
 	formatName := structuredValueFormatName(model.selectedFile.TargetType)
 
-	workLines := []string{model.inputLine("Search"), ""}
+	workLines := make([]string, 0, len(matchingPaths)+2)
 	workLines = append(workLines, model.choiceLines(matchingPaths, model.cursor, jsonPathChoiceWindowSize)...)
 	workLines = append(workLines, "", fmt.Sprintf("Showing %d matching path(s).", len(matchingPaths)))
 
-	return model.initWizardShell(2, "Search "+formatName+" values", []ui.Panel{
+	return model.initWizardShellWithCommandLine(2, "Search "+formatName+" values", []ui.Panel{
 		{Title: "Search results", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
@@ -314,7 +315,7 @@ func (model initWizardModel) pathSearchView() string {
 			"Search existing string values by path segment or leaf name.",
 			"Enter chooses the highlighted " + formatName + " value.",
 		})},
-	}, searchableTextInputActions("Select"))
+	}, searchableTextInputActions("Select"), model.commandInputLine())
 }
 
 func (model initWizardModel) dotenvKeySelectView() string {
@@ -535,6 +536,10 @@ func (model initWizardModel) profileValueInputView(title string, details []strin
 }
 
 func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, panels []ui.Panel, actions []ui.Action) string {
+	return model.initWizardShellWithCommandLine(stepNumber, subtitle, panels, actions, "")
+}
+
+func (model initWizardModel) initWizardShellWithCommandLine(stepNumber int, subtitle string, panels []ui.Panel, actions []ui.Action, commandLine string) string {
 	if model.height > 0 {
 		for index := range panels {
 			panels[index].FillHeight = true
@@ -542,14 +547,19 @@ func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, pa
 	}
 
 	return ui.RenderShell(ui.Shell{
-		Title:    "Switchlet init",
-		Subtitle: subtitle,
-		Metadata: wizardStepMetadata(stepNumber),
-		Panels:   panels,
-		Actions:  actions,
-		Width:    model.width,
-		Height:   model.height,
+		Title:       "Switchlet init",
+		Subtitle:    subtitle,
+		Metadata:    wizardStepMetadata(stepNumber),
+		Panels:      panels,
+		Actions:     actions,
+		CommandLine: commandLine,
+		Width:       model.width,
+		Height:      model.height,
 	})
+}
+
+func (model initWizardModel) commandInputLine() string {
+	return ui.CommandInputWithinWidth("/", model.inputValue, model.inputCursor, model.width)
 }
 
 func wizardStepMetadata(stepNumber int) []string {

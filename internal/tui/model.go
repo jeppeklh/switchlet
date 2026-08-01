@@ -35,6 +35,7 @@ const (
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
 	application       app.Application
+	projectRoot       string
 	profiles          []app.ProfileItem
 	cursor            int
 	width             int
@@ -66,7 +67,12 @@ type Model struct {
 
 // New creates the terminal model.
 func New(application app.Application) Model {
-	model := Model{application: application, currentRequestID: 1}
+	return NewWithProjectRoot(application, "")
+}
+
+// NewWithProjectRoot creates the terminal model with project-relative display context.
+func NewWithProjectRoot(application app.Application, projectRoot string) Model {
+	model := Model{application: application, projectRoot: projectRoot, currentRequestID: 1}
 	model.refreshProfiles()
 
 	return model
@@ -74,7 +80,12 @@ func New(application app.Application) Model {
 
 // NewWithSelectedProfile creates the terminal model with the requested profile selected when it exists.
 func NewWithSelectedProfile(application app.Application, profileName string) Model {
-	model := New(application)
+	return NewWithSelectedProfileAndProjectRoot(application, profileName, "")
+}
+
+// NewWithSelectedProfileAndProjectRoot creates the terminal model with selection and display context.
+func NewWithSelectedProfileAndProjectRoot(application app.Application, profileName string, projectRoot string) Model {
+	model := NewWithProjectRoot(application, projectRoot)
 	model.selectProfileByName(profileName)
 
 	return model

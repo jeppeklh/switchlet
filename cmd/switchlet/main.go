@@ -225,12 +225,12 @@ func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) e
 }
 
 func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return err
 	}
 
-	if _, err := runProgram(newInteractiveSessionModel(workingDirectory, application)); err != nil {
+	if _, err := runProgram(newInteractiveSessionModel(workingDirectory, project.Application, project.ProjectRoot)); err != nil {
 		return fmt.Errorf("run terminal UI: %w", err)
 	}
 

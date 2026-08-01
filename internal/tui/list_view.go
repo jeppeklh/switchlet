@@ -24,12 +24,6 @@ func (model Model) profilePanel(selectedState RowState, focused bool) Panel {
 
 func (model Model) profileListLines(selectedState RowState) []string {
 	lines := make([]string, 0)
-	if model.state == searchState {
-		lines = append(lines, RenderInputWithinWidth("Search", model.searchInput, model.searchCursor, PrimaryPanelWidth(model.width, 2)), "")
-	} else if model.profileFilter != "" {
-		lines = append(lines, RenderKeyValue("Filter", model.profileFilter), "")
-	}
-
 	filteredIndices := model.filteredProfileIndices()
 	switch {
 	case len(model.profiles) == 0:
@@ -71,7 +65,11 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 func (model Model) profilePanelTitle() string {
 	contexts := make([]string, 0, 2)
 	if filter := strings.TrimSpace(model.activeProfileFilter()); filter != "" {
-		contexts = append(contexts, "Filter "+fmt.Sprintf("%q", filter))
+		label := "Filter"
+		if model.state == searchState {
+			label = "Search"
+		}
+		contexts = append(contexts, label+" "+fmt.Sprintf("%q", filter))
 	}
 	positionContext := model.profileListPositionContext()
 	if positionContext != "" {
@@ -137,11 +135,15 @@ func (model Model) maxVisibleProfileRows() int {
 }
 
 func (model Model) profileListPrefixLineCount() int {
-	if model.state == searchState || model.profileFilter != "" {
-		return 2
+	return 0
+}
+
+func (model Model) profileSearchCommandLine() string {
+	if model.state != searchState {
+		return ""
 	}
 
-	return 0
+	return CommandInputWithinWidth("/", model.searchInput, model.searchCursor, model.width)
 }
 
 func (model Model) profilePageStep() int {

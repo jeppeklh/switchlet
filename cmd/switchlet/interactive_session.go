@@ -17,6 +17,7 @@ const (
 
 type interactiveSessionModel struct {
 	workingDirectory string
+	projectRoot      string
 	application      app.Application
 	mainModel        tui.Model
 	configModel      configeditor.Model
@@ -26,11 +27,17 @@ type interactiveSessionModel struct {
 	selectedProfile  string
 }
 
-func newInteractiveSessionModel(workingDirectory string, application app.Application) interactiveSessionModel {
+func newInteractiveSessionModel(workingDirectory string, application app.Application, projectRootOption ...string) interactiveSessionModel {
+	projectRoot := workingDirectory
+	if len(projectRootOption) > 0 {
+		projectRoot = projectRootOption[0]
+	}
+
 	return interactiveSessionModel{
 		workingDirectory: workingDirectory,
+		projectRoot:      projectRoot,
 		application:      application,
-		mainModel:        tui.New(application),
+		mainModel:        tui.NewWithProjectRoot(application, projectRoot),
 		mode:             interactiveSessionMain,
 	}
 }
@@ -113,17 +120,18 @@ func (model interactiveSessionModel) updateConfig(message tea.Msg) (tea.Model, t
 
 func (model interactiveSessionModel) handleConfigResult(result configeditor.Result) (tea.Model, tea.Cmd) {
 	if result.Saved {
-		application, err := loadApplication(model.workingDirectory)
+		project, err := loadProject(model.workingDirectory)
 		if err != nil {
 			model.mainModel = model.resizeMainModel(tui.NewReloadError(err))
 			model.mode = interactiveSessionMain
 			return model, model.mainModel.Init()
 		}
 
-		model.application = application
+		model.application = project.Application
+		model.projectRoot = project.ProjectRoot
 	}
 
-	model.mainModel = model.resizeMainModel(tui.NewWithSelectedProfile(model.application, model.selectedProfile))
+	model.mainModel = model.resizeMainModel(tui.NewWithSelectedProfileAndProjectRoot(model.application, model.selectedProfile, model.projectRoot))
 	model.selectedProfile = ""
 	model.mode = interactiveSessionMain
 	return model, model.mainModel.Init()

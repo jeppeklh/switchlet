@@ -117,21 +117,22 @@ type DetailField struct {
 
 // Shell describes the common application surface used by Switchlet screens.
 type Shell struct {
-	Title      string
-	Subtitle   string
-	Metadata   []string
-	Panels     []Panel
-	Actions    []Action
-	Width      int
-	Height     int
-	Headerless bool
+	Title       string
+	Subtitle    string
+	Metadata    []string
+	Panels      []Panel
+	Actions     []Action
+	CommandLine string
+	Width       int
+	Height      int
+	Headerless  bool
 }
 
 // RenderShell renders a compact application shell with titled content regions.
 func RenderShell(shell Shell) string {
 	width := normalizedWidth(shell.Width)
 	styles := defaultStyles()
-	actionLines := shellActionLines(shell.Actions, width)
+	actionLines := shellCommandLines(shell, width)
 	contentHeight := unboundedShellHeight
 	if shell.Height > 0 {
 		contentHeight = shell.Height - len(actionLines)
@@ -167,6 +168,14 @@ func shellActionLines(actions []Action, width int) []string {
 	}
 
 	return []string{Separator(width), fitLine(renderCommandBarWithinWidth(actions, width), width)}
+}
+
+func shellCommandLines(shell Shell, width int) []string {
+	if shell.CommandLine != "" {
+		return []string{Separator(width), fitLine(defaultStyles().commandBar.Render(shell.CommandLine), width)}
+	}
+
+	return shellActionLines(shell.Actions, width)
 }
 
 func joinShellContentAndActions(contentLines []string, actionLines []string, height int) string {
@@ -356,6 +365,10 @@ func RenderInput(label string, value string, cursor int) string {
 }
 
 func rawInputLine(label string, value string, cursor int) string {
+	return rawMarkedInputLine(label+": ", value, cursor)
+}
+
+func rawMarkedInputLine(prefix string, value string, cursor int) string {
 	runes := []rune(value)
 	if cursor < 0 {
 		cursor = 0
@@ -364,23 +377,31 @@ func rawInputLine(label string, value string, cursor int) string {
 		cursor = len(runes)
 	}
 
-	return label + ": " + string(runes[:cursor]) + "_" + string(runes[cursor:])
+	return prefix + string(runes[:cursor]) + "_" + string(runes[cursor:])
 }
 
 // RenderInputWithinWidth renders a text input while keeping the cursor visible.
 func RenderInputWithinWidth(label string, value string, cursor int, width int) string {
-	line := rawInputLine(label, value, cursor)
+	line := rawMarkedInputWithinWidth(label+": ", value, cursor, width)
+	return defaultStyles().input.Render(line)
+}
+
+// CommandInputWithinWidth renders a raw text input line for Shell.CommandLine.
+func CommandInputWithinWidth(prefix string, value string, cursor int, width int) string {
+	return rawMarkedInputWithinWidth(prefix, value, cursor, width)
+}
+
+func rawMarkedInputWithinWidth(prefix string, value string, cursor int, width int) string {
+	line := rawMarkedInputLine(prefix, value, cursor)
 	width = normalizedWidth(width)
-	styles := defaultStyles()
 	if lipgloss.Width(line) <= width {
-		return styles.input.Render(line)
+		return line
 	}
 
-	prefix := label + ": "
 	ellipsisWidth := lipgloss.Width(textEllipsis)
 	availableInputWidth := width - lipgloss.Width(prefix)
 	if availableInputWidth <= ellipsisWidth {
-		return styles.input.Render(fitLine(line, width))
+		return fitLine(line, width)
 	}
 
 	valueRunes := []rune(value)
@@ -392,7 +413,7 @@ func RenderInputWithinWidth(label string, value string, cursor int, width int) s
 
 	cursorMarkerIndex := cursor
 	if cursorMarkerIndex < availableInputWidth-ellipsisWidth {
-		return styles.input.Render(prefix + string(markedRunes[:availableInputWidth-ellipsisWidth]) + textEllipsis)
+		return prefix + string(markedRunes[:availableInputWidth-ellipsisWidth]) + textEllipsis
 	}
 
 	windowWidth := availableInputWidth - ellipsisWidth
@@ -409,7 +430,7 @@ func RenderInputWithinWidth(label string, value string, cursor int, width int) s
 		}
 	}
 
-	return styles.input.Render(prefix + textEllipsis + string(markedRunes[start:end]))
+	return prefix + textEllipsis + string(markedRunes[start:end])
 }
 
 // PrimaryPanelWidth returns the line width for the dominant panel in RenderShell.
