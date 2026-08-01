@@ -44,6 +44,7 @@ type Model struct {
 	searchInput       string
 	searchCursor      int
 	searchStartCursor int
+	scrollOffset      int
 	valuesVisible     bool
 	recoverableError  RecoverableError
 	successResult     *app.Result

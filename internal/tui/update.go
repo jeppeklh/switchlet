@@ -55,6 +55,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width = message.Width
 		model.height = message.Height
+		model.clampScrollOffset()
 		return model, nil
 	case tea.KeyMsg:
 		if matchesKey(message, keyCtrlC) {
@@ -128,6 +129,7 @@ func (model Model) handleStatusComparisonCompleted(message statusComparisonCompl
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusReadyState
+	model.clampScrollOffset()
 	return model, nil
 }
 
@@ -141,6 +143,7 @@ func (model Model) handleDiffPreviewCompleted(message diffPreviewCompletedMsg) (
 	model.statusComparison = nil
 	model.comparisonError = RecoverableError{}
 	model.state = diffReadyState
+	model.clampScrollOffset()
 	return model, nil
 }
 
@@ -157,6 +160,7 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 	model.currentProfiles = nil
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
+	model.clampScrollOffset()
 	return model, nil
 }
 
@@ -261,6 +265,7 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 
 		model.state = inspectState
+		model.resetScrollOffset()
 		return model, nil
 	case matchesKey(message, keyStatus):
 		return model.startStatusComparison()
@@ -475,6 +480,10 @@ func (model *Model) deleteSearchRuneAtCursor() {
 }
 
 func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	switch {
 	case matchesKey(message, keyQuit):
 		return model, tea.Quit
@@ -488,6 +497,10 @@ func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea
 }
 
 func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	switch {
 	case matchesKey(message, keyQuit):
 		return model, tea.Quit
@@ -512,6 +525,10 @@ func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.C
 }
 
 func (model Model) handleComparisonErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	switch {
 	case matchesKey(message, keyQuit):
 		return model, tea.Quit
@@ -539,11 +556,16 @@ func (model Model) handleComparisonErrorKey(message tea.KeyMsg) (tea.Model, tea.
 }
 
 func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	switch {
 	case matchesKey(message, keyQuit):
 		return model, tea.Quit
 	case matchesKey(message, keyInspect, keyEscape):
 		model.state = listState
+		model.resetScrollOffset()
 		return model, nil
 	case matchesKey(message, keyReveal):
 		return model.toggleValueVisibility(), nil
@@ -587,6 +609,10 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	if matchesKey(message, keyQuit) {
 		return model, tea.Quit
 	}
@@ -596,6 +622,7 @@ func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	model.state = listState
 	model.recoverableError = RecoverableError{}
+	model.resetScrollOffset()
 	model.refreshProfiles()
 	return model, nil
 }
@@ -609,11 +636,13 @@ func (model Model) applyOrConfirmSelectedProfile(exitAfterApply bool) (tea.Model
 	if !selectedProfile.Available {
 		model.state = errorState
 		model.recoverableError = model.unavailableProfileError(selectedProfile)
+		model.resetScrollOffset()
 		return model, nil
 	}
 	if selectedProfile.Protected {
 		model.state = confirmState
 		model.confirmExits = exitAfterApply
+		model.resetScrollOffset()
 		return model, nil
 	}
 
@@ -628,6 +657,7 @@ func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem,
 	model.recoverableError = RecoverableError{}
 	model.successResult = nil
 	model.state = listState
+	model.resetScrollOffset()
 
 	return model, applySelectedProfile(model.application, selectedProfile.Name, model.applyRequestID)
 }
@@ -641,6 +671,7 @@ func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusLoadingState
+	model.resetScrollOffset()
 
 	return model, compareStatus(model.application, model.comparisonRequestID)
 }
@@ -653,6 +684,7 @@ func (model Model) startDiffComparison(profileName string) (tea.Model, tea.Cmd) 
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = diffLoadingState
+	model.resetScrollOffset()
 
 	return model, compareDiff(model.application, profileName, model.comparisonRequestID)
 }
@@ -666,7 +698,39 @@ func (model Model) returnToListFromComparison() Model {
 
 func (model Model) toggleValueVisibility() Model {
 	model.valuesVisible = !model.valuesVisible
+	model.clampScrollOffset()
 	return model
+}
+
+func (model Model) handleFocusedPanelScrollKey(message tea.KeyMsg) (Model, bool) {
+	metrics := model.focusedPanelScrollMetrics()
+	if !metrics.CanScroll() {
+		return model, false
+	}
+	switch {
+	case matchesKey(message, keyPageUp):
+		model.scrollOffset -= metrics.PageStep()
+	case matchesKey(message, keyPageDn):
+		model.scrollOffset += metrics.PageStep()
+	case matchesKey(message, keyHome):
+		model.scrollOffset = 0
+	case matchesKey(message, keyEnd):
+		model.scrollOffset = metrics.MaxOffset
+	default:
+		return model, false
+	}
+
+	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
+	return model, true
+}
+
+func (model *Model) resetScrollOffset() {
+	model.scrollOffset = 0
+}
+
+func (model *Model) clampScrollOffset() {
+	metrics := model.focusedPanelScrollMetrics()
+	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
 }
 
 func (model *Model) updateCurrentProfile(status app.StatusComparison) {
@@ -690,6 +754,7 @@ func (model *Model) clearComparisonState() {
 	model.comparisonError = RecoverableError{}
 	model.comparisonRequestKind = comparisonRequestNone
 	model.comparisonProfileName = ""
+	model.resetScrollOffset()
 }
 
 func (model Model) isActiveComparisonRequest(kind comparisonRequestKind, requestID int) bool {

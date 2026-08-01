@@ -345,6 +345,35 @@ func TestRenderShell_WindowedPanelOverflowKeepsSelectedRowVisible(t *testing.T) 
 	}
 }
 
+func TestRenderShell_ScrollablePanelUsesModelOwnedOffset(t *testing.T) {
+	panelLines := make([]string, 0, 20)
+	for index := 1; index <= 20; index++ {
+		panelLines = append(panelLines, fmt.Sprintf("line %02d", index))
+	}
+
+	got := RenderShell(Shell{
+		Title: "Switchlet",
+		Panels: []Panel{{
+			Title:   "Long content",
+			Lines:   panelLines,
+			Focused: true,
+			Scroll:  &PanelScroll{Offset: 8},
+		}},
+		Actions: []Action{{Key: "q", Label: "Quit"}},
+		Width:   80,
+		Height:  10,
+	})
+
+	if strings.Contains(got, "line 01") {
+		t.Fatalf("RenderShell() = %q, want explicit scroll offset to hide first line", got)
+	}
+	for _, expected := range []string{"line 09", "earlier", "more"} {
+		if !strings.Contains(got, expected) {
+			t.Fatalf("RenderShell() = %q, want scrolled panel content %q", got, expected)
+		}
+	}
+}
+
 func TestRenderShell_RendersSplitLayoutAtComfortableWidth(t *testing.T) {
 	got := RenderShell(Shell{
 		Title: "Switchlet",

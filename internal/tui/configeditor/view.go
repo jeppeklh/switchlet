@@ -81,10 +81,10 @@ func (model Model) overviewView() string {
 	model.clampCursor(len(rows))
 	selectedRow := model.selectedRow(rows)
 
-	return model.configEditorShell("Edit project setup", []ui.Panel{
+	return model.configEditorShellWithScroll("Edit project setup", []ui.Panel{
 		{Title: "Configuration", Lines: model.navigationLines(overview, rows), Focused: true},
 		{Title: "Details", Lines: model.detailLines(overview, selectedRow)},
-	}, model.overviewActions(overview, selectedRow))
+	}, model.overviewActions(overview, selectedRow), model.overviewScrollablePanelIndex(selectedRow))
 }
 
 func (model Model) dirtyQuitView() string {
@@ -129,13 +129,17 @@ func (model Model) saveSuccessView() string {
 }
 
 func (model Model) configEditorShell(subtitle string, panels []ui.Panel, actions []ui.Action) string {
+	return model.configEditorShellWithScroll(subtitle, panels, actions, -1)
+}
+
+func (model Model) configEditorShellWithScroll(subtitle string, panels []ui.Panel, actions []ui.Action, scrollPanelIndex int) string {
 	if model.height > 0 {
 		for index := range panels {
 			panels[index].FillHeight = true
 		}
 	}
 
-	return ui.RenderShell(ui.Shell{
+	shell := ui.Shell{
 		Title:      "Switchlet config",
 		Subtitle:   subtitle,
 		Panels:     panels,
@@ -143,7 +147,61 @@ func (model Model) configEditorShell(subtitle string, panels []ui.Panel, actions
 		Width:      model.width,
 		Height:     model.height,
 		Headerless: true,
-	})
+	}
+	if scrollPanelIndex >= 0 && scrollPanelIndex < len(shell.Panels) {
+		metrics := ui.PanelScrollMetricsForShell(shell, scrollPanelIndex)
+		shell.Panels[scrollPanelIndex].Scroll = &ui.PanelScroll{Offset: metrics.ClampOffset(model.scrollOffset)}
+		if metrics.CanScroll() {
+			shell.Actions = append(shell.Actions, ui.PanelScrollActions()...)
+		}
+	}
+
+	return ui.RenderShell(shell)
+}
+
+func (model Model) overviewScrollablePanelIndex(selectedRow navigationRow) int {
+	if selectedRow.Kind == navigationRowReview {
+		return 1
+	}
+
+	return -1
+}
+
+func (model Model) scrollablePanelMetrics() ui.PanelScrollMetrics {
+	if model.state != editorStateOverview || model.activeTab != overviewTabReview {
+		return ui.PanelScrollMetrics{}
+	}
+
+	overview := model.overview()
+	rows := model.navigationRows(overview)
+	model.clampCursor(len(rows))
+	selectedRow := model.selectedRow(rows)
+	scrollPanelIndex := model.overviewScrollablePanelIndex(selectedRow)
+	if scrollPanelIndex < 0 {
+		return ui.PanelScrollMetrics{}
+	}
+
+	panels := []ui.Panel{
+		{Title: "Configuration", Lines: model.navigationLines(overview, rows), Focused: true},
+		{Title: "Details", Lines: model.detailLines(overview, selectedRow)},
+	}
+	if model.height > 0 {
+		for index := range panels {
+			panels[index].FillHeight = true
+		}
+	}
+
+	shell := ui.Shell{
+		Title:      "Switchlet config",
+		Subtitle:   "Edit project setup",
+		Panels:     panels,
+		Actions:    model.overviewActions(overview, selectedRow),
+		Width:      model.width,
+		Height:     model.height,
+		Headerless: true,
+	}
+
+	return ui.PanelScrollMetricsForShell(shell, scrollPanelIndex)
 }
 
 func (model Model) navigationLines(overview app.ConfigEditOverview, rows []navigationRow) []string {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -237,6 +238,49 @@ func TestUpdate_InspectionShowsResolutionErrorForUnavailableProfile(t *testing.T
 	}
 	if !strings.Contains(view, "MISSING_CONNECTION_STRING") {
 		t.Fatalf("View() = %q, want unavailable reason", view)
+	}
+}
+
+func TestUpdate_InspectionScrollsLongProfileDetailWithoutMovingProfileCursor(t *testing.T) {
+	targets := make([]config.Target, 0, 14)
+	values := make([]config.ProfileValue, 0, 14)
+	for index := 1; index <= 14; index++ {
+		name := fmt.Sprintf("target%02d", index)
+		targets = append(targets, config.Target{Name: name, File: fmt.Sprintf("config/%02d.json", index), Type: config.TargetTypeJSON, JSONPath: "service.url"})
+		values = append(values, config.ProfileValue{Target: name, Value: stringPointer(fmt.Sprintf("value-%02d", index))})
+	}
+	model := New(app.NewWithTargets(targets, []config.Profile{{Name: "Large", Values: values}}))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	model = updatedModel.(Model)
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want no command when opening inspection")
+	}
+	originalCursor := model.cursor
+	if !strings.Contains(model.View(), "PgUp/PgDn Scroll") {
+		t.Fatalf("View() = %q, want scroll command for long profile detail", model.View())
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after profile detail scroll")
+	}
+	if model.cursor != originalCursor {
+		t.Fatalf("cursor after profile detail scroll = %d, want %d", model.cursor, originalCursor)
+	}
+	if model.scrollOffset == 0 {
+		t.Fatalf("scrollOffset after PgDn = %d, want scrolled detail panel", model.scrollOffset)
+	}
+	if !strings.Contains(model.View(), "earlier") {
+		t.Fatalf("View() = %q, want hidden-before overflow indicator after scrolling", model.View())
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyHome})
+	model = updatedModel.(Model)
+	if model.scrollOffset != 0 {
+		t.Fatalf("scrollOffset after Home = %d, want top", model.scrollOffset)
 	}
 }
 

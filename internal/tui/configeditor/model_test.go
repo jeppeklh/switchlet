@@ -1,6 +1,7 @@
 package configeditor
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 func TestModel_RendersOverviewProfilesManagedValuesAndReview(t *testing.T) {
@@ -134,6 +136,42 @@ func TestModel_ReviewSaveUnavailableForUnchangedVersionThreeDraft(t *testing.T) 
 	}
 	if strings.Contains(view, "s Save") {
 		t.Fatalf("view advertises save for unchanged draft\n%s", view)
+	}
+}
+
+func TestModel_ReviewTabScrollsLongPendingChanges(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	for index := 1; index <= 18; index++ {
+		model.document.Profiles = append(model.document.Profiles, config.Profile{
+			Name: fmt.Sprintf("Generated %02d", index),
+			Values: []config.ProfileValue{{
+				Target: "database",
+				Value:  testStringPointer(fmt.Sprintf("postgres://generated-%02d", index)),
+			}},
+		})
+	}
+	model = resizeModel(t, model, 120, 24)
+	model = selectReviewTab(t, model)
+	if !strings.Contains(model.View(), "PgUp/PgDn Scroll") {
+		t.Fatalf("review view does not advertise scroll for long pending changes\n%s", model.View())
+	}
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after review scroll")
+	}
+	if model.scrollOffset == 0 {
+		t.Fatalf("scrollOffset after PgDn = %d, want scrolled review details", model.scrollOffset)
+	}
+	if !strings.Contains(model.View(), "earlier") {
+		t.Fatalf("review view after scroll does not show hidden-before indicator\n%s", model.View())
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyHome})
+	model = updatedModel.(Model)
+	if model.scrollOffset != 0 {
+		t.Fatalf("scrollOffset after Home = %d, want top", model.scrollOffset)
 	}
 }
 
@@ -791,4 +829,8 @@ func readTestFile(t *testing.T, path string) []byte {
 	}
 
 	return contents
+}
+
+func testStringPointer(value string) *string {
+	return &value
 }

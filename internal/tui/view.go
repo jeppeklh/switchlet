@@ -235,12 +235,17 @@ func (model Model) tooSmallTerminalView() string {
 }
 
 func (model Model) statusComparisonView() string {
+	shell := model.statusComparisonShell()
+	return RenderShell(model.withFocusedPanelScroll(shell, 1))
+}
+
+func (model Model) statusComparisonShell() Shell {
 	lines := []string{"Checking current managed values..."}
 	if model.state == statusReadyState && model.statusComparison != nil {
 		lines = statusComparisonLines(*model.statusComparison, secondaryPanelContentWidth(model.width))
 	}
 
-	return RenderShell(Shell{
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
@@ -249,10 +254,15 @@ func (model Model) statusComparisonView() string {
 		Actions: comparisonActions(comparisonRequestStatus, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}
 }
 
 func (model Model) diffComparisonView() string {
+	shell := model.diffComparisonShell()
+	return RenderShell(model.withFocusedPanelScroll(shell, 0))
+}
+
+func (model Model) diffComparisonShell() Shell {
 	profileName := model.comparisonProfileName
 	if model.state == diffReadyState && model.diffPreview != nil && model.diffPreview.ProfileName != "" {
 		profileName = model.diffPreview.ProfileName
@@ -269,17 +279,22 @@ func (model Model) diffComparisonView() string {
 		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, panelWidth)
 	}
 
-	return RenderShell(Shell{
+	return Shell{
 		Headerless: true,
 		Panels:     []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
 		Actions:    comparisonActions(comparisonRequestDiff, model.valuesVisible),
 		Width:      model.width,
 		Height:     model.height,
-	})
+	}
 }
 
 func (model Model) comparisonErrorView() string {
-	return RenderShell(Shell{
+	shell := model.comparisonErrorShell()
+	return RenderShell(model.withFocusedPanelScroll(shell, 1))
+}
+
+func (model Model) comparisonErrorShell() Shell {
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
@@ -288,7 +303,7 @@ func (model Model) comparisonErrorView() string {
 		Actions: comparisonActions(comparisonRequestNone, model.valuesVisible),
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}
 }
 
 func diffComparisonLoadingLines(profileName string) []string {
@@ -498,9 +513,18 @@ func countOfTotalLabel(count int, total int) string {
 }
 
 func (model Model) inspectionView() string {
-	selectedProfile, ok := model.selectedProfile()
+	shell, ok := model.inspectionShell()
 	if !ok {
 		return model.listView()
+	}
+
+	return RenderShell(model.withFocusedPanelScroll(shell, 1))
+}
+
+func (model Model) inspectionShell() (Shell, bool) {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return Shell{}, false
 	}
 
 	profileLines := []string{
@@ -532,7 +556,7 @@ func (model Model) inspectionView() string {
 		profileLines = append(profileLines, valueLines...)
 	}
 
-	return RenderShell(Shell{
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
@@ -541,7 +565,7 @@ func (model Model) inspectionView() string {
 		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary}, {Key: "i", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary}, model.valueRevealAction(), {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}},
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}, true
 }
 
 func (model Model) confirmationView() string {
@@ -615,7 +639,12 @@ func (model Model) confirmationCompletionLine() string {
 }
 
 func (model Model) errorView() string {
-	return RenderShell(Shell{
+	shell := model.errorShell()
+	return RenderShell(model.withFocusedPanelScroll(shell, 1))
+}
+
+func (model Model) errorShell() Shell {
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
@@ -624,7 +653,48 @@ func (model Model) errorView() string {
 		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}
+}
+
+func (model Model) withFocusedPanelScroll(shell Shell, panelIndex int) Shell {
+	if panelIndex < 0 || panelIndex >= len(shell.Panels) {
+		return shell
+	}
+
+	metrics := PanelScrollMetricsForShell(shell, panelIndex)
+	shell.Panels[panelIndex].Scroll = &PanelScroll{Offset: metrics.ClampOffset(model.scrollOffset)}
+	if metrics.CanScroll() {
+		shell.Actions = append(shell.Actions, PanelScrollActions()...)
+	}
+
+	return shell
+}
+
+func (model Model) focusedPanelScrollMetrics() PanelScrollMetrics {
+	shell, panelIndex, ok := model.focusedScrollablePanelShell()
+	if !ok {
+		return PanelScrollMetrics{}
+	}
+
+	return PanelScrollMetricsForShell(shell, panelIndex)
+}
+
+func (model Model) focusedScrollablePanelShell() (Shell, int, bool) {
+	switch model.state {
+	case inspectState:
+		shell, ok := model.inspectionShell()
+		return shell, 1, ok
+	case errorState:
+		return model.errorShell(), 1, true
+	case statusLoadingState, statusReadyState:
+		return model.statusComparisonShell(), 1, true
+	case diffLoadingState, diffReadyState:
+		return model.diffComparisonShell(), 0, true
+	case comparisonErrorState:
+		return model.comparisonErrorShell(), 1, true
+	default:
+		return Shell{}, 0, false
+	}
 }
 
 func (model Model) successView() string {

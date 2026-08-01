@@ -20,6 +20,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		model.width = message.Width
 		model.height = message.Height
+		model.clampScrollOffset()
 		return model, nil
 	case tea.KeyMsg:
 		if message.Type == tea.KeyCtrlC {
@@ -98,6 +99,11 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	overview := model.overview()
 	rows := model.navigationRows(overview)
 	model.clampCursor(len(rows))
+	if model.activeTab == overviewTabReview {
+		if updatedModel, handled := model.handleScrollablePanelKey(message); handled {
+			return updatedModel, nil
+		}
+	}
 
 	switch {
 	case isPreviousTabKey(message):
@@ -341,6 +347,38 @@ func (model Model) handleSaveCompleted(message saveCompletedMsg) (tea.Model, tea
 
 func (model *Model) selectReviewOverview() {
 	model.selectOverviewTab(overviewTabReview)
+}
+
+func (model Model) handleScrollablePanelKey(message tea.KeyMsg) (Model, bool) {
+	metrics := model.scrollablePanelMetrics()
+	if !metrics.CanScroll() {
+		return model, false
+	}
+
+	switch message.Type {
+	case tea.KeyPgUp:
+		model.scrollOffset -= metrics.PageStep()
+	case tea.KeyPgDown:
+		model.scrollOffset += metrics.PageStep()
+	case tea.KeyHome:
+		model.scrollOffset = 0
+	case tea.KeyEnd:
+		model.scrollOffset = metrics.MaxOffset
+	default:
+		return model, false
+	}
+
+	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
+	return model, true
+}
+
+func (model *Model) resetScrollOffset() {
+	model.scrollOffset = 0
+}
+
+func (model *Model) clampScrollOffset() {
+	metrics := model.scrollablePanelMetrics()
+	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
 }
 
 func (model *Model) handleInputEditKey(message tea.KeyMsg) bool {

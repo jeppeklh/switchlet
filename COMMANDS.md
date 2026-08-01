@@ -15,7 +15,7 @@ Command-only reference for the `switchlet` CLI.
 | `switchlet status [--json]` | Compare current managed values with configured profiles. |
 | `switchlet diff <profile-name> [--json\|--patch]` | Compare one profile with current managed values. |
 | `switchlet version` / `switchlet --version` | Show version information. |
-| `switchlet completion <shell>` | Generate a static shell completion script. |
+| `switchlet completion <shell>` | Generate a shell completion script. |
 | `switchlet help [command]` | Show general or command-specific help. |
 
 Switchlet discovers `.switchlet.yaml` by searching upward from the current
@@ -181,7 +181,8 @@ switchlet --version
 
 ### `switchlet completion`
 
-Generates static shell completion scripts without loading project configuration.
+Generates shell completion scripts. Script generation itself does not load
+project configuration.
 
 ```bash
 switchlet completion bash
@@ -189,8 +190,11 @@ switchlet completion zsh
 switchlet completion fish
 ```
 
-Completion includes static commands and flags. It does not complete profile names
-from `.switchlet.yaml`.
+Completion includes static commands and flags. For `inspect`, `apply`, and
+`diff`, the generated scripts dynamically complete profile names from the
+discovered `.switchlet.yaml` when one is available. Dynamic profile completion
+loads configuration schema only; it does not read target files, resolve
+environment variables, or inspect current managed values.
 
 ## Examples
 

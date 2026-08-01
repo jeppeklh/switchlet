@@ -11,7 +11,7 @@ func usageText() string {
 	  switchlet status [--json]                     Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
 	  switchlet version                              Show version information
-	  switchlet completion <shell>                   Generate a static shell completion script
+	  switchlet completion <shell>                   Generate a shell completion script
 	  switchlet help [command]                       Show help text
 
 	Interactive workflow:
@@ -50,7 +50,13 @@ func completionHelpText() string {
 	return `Usage:
 	  switchlet completion <shell>
 
-	Generate a static shell completion script without loading .switchlet.yaml.
+	Generate a shell completion script. The generated script completes commands and
+	flags statically, and completes profile names dynamically for inspect, apply,
+	and diff when a .switchlet.yaml can be discovered.
+
+	Dynamic profile completion loads configuration schema only. It does not read
+	target files, resolve environment variables, or inspect current managed values.
+	Script generation itself does not load .switchlet.yaml.
 	Supported shells: bash, zsh, fish.
 
 	Examples:

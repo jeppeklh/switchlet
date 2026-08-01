@@ -48,6 +48,14 @@ func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
 		t.Fatalf("--version stdout = %q, want %q", flagVersionResult.stdout, versionResult.stdout)
 	}
 
+	completionResult := runExternalCommand(t, repoRoot, nil, binaryPath, "completion", "bash")
+	if completionResult.exitCode != 0 {
+		t.Fatalf("switchlet completion bash exitCode = %d, want 0\nstdout: %q\nstderr: %q", completionResult.exitCode, completionResult.stdout, completionResult.stderr)
+	}
+	if !strings.Contains(completionResult.stdout, "switchlet __complete-profile-names") {
+		t.Fatalf("completion stdout %q does not include dynamic profile completion hook", completionResult.stdout)
+	}
+
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config/runtime.json", strings.TrimSpace(`
 {

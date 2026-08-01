@@ -87,19 +87,20 @@ type Model struct {
 	targetWorkflow app.InitWorkflow
 	document       app.ConfigEditDocument
 
-	state       editorState
-	width       int
-	height      int
-	cursor      int
-	filter      string
-	inputValue  string
-	inputCursor int
-	saveError   string
-	activeTab   overviewTab
-	embedded    bool
-	profileForm profileDraftState
-	managedForm managedValueDraftState
-	requestID   int
+	state        editorState
+	width        int
+	height       int
+	cursor       int
+	filter       string
+	inputValue   string
+	inputCursor  int
+	scrollOffset int
+	saveError    string
+	activeTab    overviewTab
+	embedded     bool
+	profileForm  profileDraftState
+	managedForm  managedValueDraftState
+	requestID    int
 
 	savedConfigPath string
 	savedChanges    []app.ConfigEditChange
@@ -173,6 +174,7 @@ func (model *Model) beginFilter() {
 	model.inputValue = model.filter
 	model.inputCursor = len([]rune(model.inputValue))
 	model.saveError = ""
+	model.resetScrollOffset()
 }
 
 func (model *Model) applyFilter() {
@@ -181,12 +183,14 @@ func (model *Model) applyFilter() {
 	model.inputCursor = 0
 	model.cursor = 0
 	model.state = editorStateOverview
+	model.resetScrollOffset()
 }
 
 func (model *Model) cancelFilter() {
 	model.inputValue = ""
 	model.inputCursor = 0
 	model.state = editorStateOverview
+	model.resetScrollOffset()
 }
 
 func (model *Model) clampCursor(rowCount int) {
@@ -243,6 +247,7 @@ func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationR
 func (model *Model) selectOverviewTab(tab overviewTab) {
 	model.activeTab = tab
 	model.cursor = 0
+	model.resetScrollOffset()
 }
 
 func (model *Model) selectPreviousOverviewTab() {

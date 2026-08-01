@@ -62,6 +62,43 @@ type ListRow struct {
 	Badges []Badge
 }
 
+// PanelScroll describes model-owned vertical scroll state for a panel body.
+type PanelScroll struct {
+	Offset int
+}
+
+// PanelScrollMetrics describes the available scroll range for a rendered panel.
+type PanelScrollMetrics struct {
+	PageSize  int
+	MaxOffset int
+}
+
+// CanScroll reports whether the panel has hidden body content.
+func (metrics PanelScrollMetrics) CanScroll() bool {
+	return metrics.MaxOffset > 0
+}
+
+// ClampOffset clamps an offset to the panel's valid scroll range.
+func (metrics PanelScrollMetrics) ClampOffset(offset int) int {
+	if offset < 0 {
+		return 0
+	}
+	if offset > metrics.MaxOffset {
+		return metrics.MaxOffset
+	}
+
+	return offset
+}
+
+// PageStep returns the number of body lines covered by one page scroll.
+func (metrics PanelScrollMetrics) PageStep() int {
+	if metrics.PageSize < 1 {
+		return 1
+	}
+
+	return metrics.PageSize
+}
+
 // Panel is one titled content region inside a terminal shell.
 type Panel struct {
 	Title      string
@@ -69,6 +106,7 @@ type Panel struct {
 	Focused    bool
 	Width      int
 	FillHeight bool
+	Scroll     *PanelScroll
 }
 
 // DetailField describes one labelled value in a detail panel.
@@ -241,6 +279,14 @@ func RenderCommandBar(actions []Action) string {
 	}
 
 	return styles.commandBar.Render(strings.Join(parts, "  "))
+}
+
+// PanelScrollActions returns the shared command hints for scrollable panel bodies.
+func PanelScrollActions() []Action {
+	return []Action{
+		{Key: "PgUp/PgDn", Label: "Scroll", Priority: ActionPrioritySecondary},
+		{Key: "Home/End", Label: "Top/Bottom", Priority: ActionPrioritySecondary},
+	}
 }
 
 func renderCommandBarWithinWidth(actions []Action, width int) string {
@@ -439,6 +485,53 @@ func shellContentLines(shell Shell, width int, styles styleSet, heightBudget int
 	return lines
 }
 
+// PanelScrollMetricsForShell reports the scroll range for one panel in a known-size shell.
+func PanelScrollMetricsForShell(shell Shell, panelIndex int) PanelScrollMetrics {
+	if panelIndex < 0 || panelIndex >= len(shell.Panels) || shell.Height <= 0 {
+		return PanelScrollMetrics{}
+	}
+
+	bodyHeight := panelBodyHeightForShell(shell, panelIndex)
+	return panelScrollMetrics(len(shell.Panels[panelIndex].Lines), bodyHeight)
+}
+
+func panelBodyHeightForShell(shell Shell, panelIndex int) int {
+	width := normalizedWidth(shell.Width)
+	styles := defaultStyles()
+	actionLines := shellActionLines(shell.Actions, width)
+	contentHeight := shell.Height - len(actionLines)
+	if contentHeight <= 0 {
+		return 0
+	}
+
+	if !shell.Headerless {
+		headerHeight := len(shellHeaderLines(shell, width, styles))
+		if headerHeight >= contentHeight {
+			return 0
+		}
+		contentHeight -= headerHeight
+		if contentHeight <= 1 {
+			return 0
+		}
+		contentHeight--
+	}
+
+	if shouldUseSplitLayout(shell.Panels, width) {
+		return panelBodyHeightBudget(shell.Panels[panelIndex], styles, contentHeight)
+	}
+
+	separatorBudget := len(shell.Panels) - 1
+	if separatorBudget > contentHeight {
+		separatorBudget = contentHeight
+	}
+	panelBudgets := allocateStackedPanelHeights(shell.Panels, width, styles, contentHeight-separatorBudget)
+	if panelIndex >= len(panelBudgets) {
+		return 0
+	}
+
+	return panelBodyHeightBudget(shell.Panels[panelIndex], styles, panelBudgets[panelIndex])
+}
+
 func shellHeaderLines(shell Shell, width int, styles styleSet) []string {
 	leftLines := []string{styles.title.Render(shell.Title)}
 	if shell.Subtitle != "" {
@@ -605,7 +698,7 @@ func renderPanel(panel Panel, width int, styles styleSet, bodyHeight int) []stri
 	textWidth := panelTextWidth(width, style)
 	bodyLines := panel.Lines
 	if bodyHeight >= 0 {
-		bodyLines = clippedPanelBodyLines(bodyLines, bodyHeight)
+		bodyLines = clippedPanelBodyLines(bodyLines, bodyHeight, panel.Scroll)
 	}
 	if bodyHeight >= 0 && panel.FillHeight {
 		for len(bodyLines) < bodyHeight {
@@ -727,7 +820,7 @@ func panelStyles(panel Panel, styles styleSet) (lipgloss.Style, lipgloss.Style, 
 	return style, titleStyle, title
 }
 
-func clippedPanelBodyLines(lines []string, bodyHeight int) []string {
+func clippedPanelBodyLines(lines []string, bodyHeight int, scroll *PanelScroll) []string {
 	if bodyHeight < 0 || len(lines) <= bodyHeight {
 		return lines
 	}
@@ -740,7 +833,10 @@ func clippedPanelBodyLines(lines []string, bodyHeight int) []string {
 
 	visibleLineCount := bodyHeight - 1
 	start := 0
-	if selectedIndex := selectedBodyLineIndex(lines); selectedIndex >= visibleLineCount {
+	if scroll != nil {
+		metrics := panelScrollMetrics(len(lines), bodyHeight)
+		start = metrics.ClampOffset(scroll.Offset)
+	} else if selectedIndex := selectedBodyLineIndex(lines); selectedIndex >= visibleLineCount {
 		start = selectedIndex - visibleLineCount/2
 		if start+visibleLineCount > len(lines) {
 			start = len(lines) - visibleLineCount
@@ -755,6 +851,18 @@ func clippedPanelBodyLines(lines []string, bodyHeight int) []string {
 	visibleLines = append(visibleLines, panelOverflowLine(start, len(lines)-end))
 
 	return visibleLines
+}
+
+func panelScrollMetrics(lineCount int, bodyHeight int) PanelScrollMetrics {
+	if bodyHeight < 0 || lineCount <= bodyHeight {
+		return PanelScrollMetrics{}
+	}
+	if bodyHeight <= 1 {
+		return PanelScrollMetrics{}
+	}
+
+	pageSize := bodyHeight - 1
+	return PanelScrollMetrics{PageSize: pageSize, MaxOffset: lineCount - pageSize}
 }
 
 func selectedBodyLineIndex(lines []string) int {

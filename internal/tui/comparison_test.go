@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -297,6 +298,57 @@ func TestView_StatusScreenContainsLongContentAtHostileDimensions(t *testing.T) {
 
 			assertMainCommandBarAtBottom(t, view, "q Quit")
 		})
+	}
+}
+
+func TestUpdate_StatusScrollsLongComparisonResult(t *testing.T) {
+	unavailableProfiles := make([]app.UnavailableProfile, 0, 18)
+	for index := 1; index <= 18; index++ {
+		unavailableProfiles = append(unavailableProfiles, app.UnavailableProfile{
+			ProfileName: fmt.Sprintf("Unavailable %02d", index),
+			Values: []app.UnavailableValue{{
+				TargetDescriptor: app.TargetDescriptor{
+					TargetName:   fmt.Sprintf("target%02d", index),
+					TargetFile:   fmt.Sprintf("config/%02d.json", index),
+					TargetType:   config.TargetTypeJSON,
+					SelectorName: "jsonPath",
+					Selector:     "service.url",
+				},
+				EnvironmentVariableName: fmt.Sprintf("MISSING_%02d", index),
+				Reason:                  "environment variable is not set",
+			}},
+		})
+	}
+
+	model := comparisonKeyTestModel()
+	model.state = statusReadyState
+	model.comparisonRequestKind = comparisonRequestStatus
+	model.statusComparison = &app.StatusComparison{
+		Status:              app.StatusComparisonUnmatched,
+		TargetCount:         18,
+		UnavailableProfiles: unavailableProfiles,
+	}
+	model = resizedMainModel(t, model, 120, 24)
+	if !strings.Contains(model.View(), "PgUp/PgDn Scroll") {
+		t.Fatalf("View() = %q, want scroll command for long status result", model.View())
+	}
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after status scroll")
+	}
+	if model.scrollOffset == 0 || model.scrollOffset != model.focusedPanelScrollMetrics().MaxOffset {
+		t.Fatalf("scrollOffset after End = %d, want bottom %d", model.scrollOffset, model.focusedPanelScrollMetrics().MaxOffset)
+	}
+	if !strings.Contains(model.View(), "earlier") {
+		t.Fatalf("View() = %q, want hidden-before overflow indicator at bottom", model.View())
+	}
+
+	updatedModel, _ = model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+	model = updatedModel.(Model)
+	if model.scrollOffset >= model.focusedPanelScrollMetrics().MaxOffset {
+		t.Fatalf("scrollOffset after PgUp = %d, want moved upward from bottom", model.scrollOffset)
 	}
 }
 
@@ -701,6 +753,64 @@ func TestView_DiffLoadingShowsSelectedProfileContextAndReadOnlyCommands(t *testi
 	}
 	if strings.Contains(view, "No files will be modified.") {
 		t.Fatalf("View() = %q, must not contain old no-write meta text", view)
+	}
+}
+
+func TestUpdate_DiffScrollsLongManagedPatchPreviewAndPreservesOffsetOnReveal(t *testing.T) {
+	hunks := make([]app.ManagedPatchHunk, 0, 16)
+	for index := 1; index <= 16; index++ {
+		hunks = append(hunks, app.ManagedPatchHunk{
+			TargetDescriptor: app.TargetDescriptor{
+				TargetName:   fmt.Sprintf("target%02d", index),
+				TargetFile:   fmt.Sprintf("config/%02d.json", index),
+				TargetType:   config.TargetTypeJSON,
+				SelectorName: "jsonPath",
+				Selector:     "service.url",
+			},
+			Status:              app.ManagedPatchStatusWouldUpdate,
+			CurrentValue:        fmt.Sprintf("current-%02d", index),
+			CurrentValueVisible: true,
+			ProfileValue:        fmt.Sprintf("profile-%02d", index),
+			ProfileValueVisible: true,
+		})
+	}
+
+	model := comparisonKeyTestModel()
+	model.state = diffReadyState
+	model.comparisonRequestKind = comparisonRequestDiff
+	model.comparisonProfileName = "Large"
+	model.diffPreview = &app.ManagedPatchPreview{
+		ProfileName:         "Large",
+		Complete:            true,
+		TargetCount:         len(hunks),
+		IncludedTargetCount: len(hunks),
+		Files:               []app.ManagedPatchFileGroup{{TargetFile: "config.json", Hunks: hunks}},
+	}
+	model = resizedMainModel(t, model, 120, 24)
+	if !strings.Contains(model.View(), "PgUp/PgDn Scroll") {
+		t.Fatalf("View() = %q, want scroll command for long diff preview", model.View())
+	}
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyPgDown})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after diff scroll")
+	}
+	if model.scrollOffset == 0 {
+		t.Fatalf("scrollOffset after PgDn = %d, want scrolled diff panel", model.scrollOffset)
+	}
+	scrolledOffset := model.scrollOffset
+	if !strings.Contains(model.View(), "earlier") {
+		t.Fatalf("View() = %q, want hidden-before overflow indicator after scrolling", model.View())
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after reveal toggle")
+	}
+	if model.scrollOffset != scrolledOffset {
+		t.Fatalf("scrollOffset after reveal toggle = %d, want preserved %d", model.scrollOffset, scrolledOffset)
 	}
 }
 

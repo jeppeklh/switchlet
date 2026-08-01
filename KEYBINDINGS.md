@@ -49,14 +49,24 @@ field. `q` is literal input instead of quit.
 | Inspection | `Enter` | Apply the selected profile and exit. |
 | Inspection | `Space` | Apply the selected profile and return to the list. |
 | Inspection | `v` | Toggle managed value visibility. |
+| Inspection | `PgUp` / `PgDn` | Scroll long profile details. |
+| Inspection | `Home` / `End` | Jump to the top or bottom of long profile details. |
 | Status | `Esc` / `s` | Return to the profile list. |
 | Status | `r` | Refresh status. |
+| Status | `PgUp` / `PgDn` | Scroll long status results. |
+| Status | `Home` / `End` | Jump to the top or bottom of long status results. |
 | Diff | `Esc` / `d` | Return to the profile list. |
 | Diff | `r` | Refresh diff. |
 | Diff | `v` | Toggle managed value visibility. |
+| Diff | `PgUp` / `PgDn` | Scroll long diff previews. |
+| Diff | `Home` / `End` | Jump to the top or bottom of long diff previews. |
 | Comparison error | `Esc` | Return to the profile list. |
 | Comparison error | `r` | Retry the failed status or diff request. |
-| Recoverable error | `Any non-quit key` | Return to the profile list. |
+| Comparison error | `PgUp` / `PgDn` | Scroll long error details. |
+| Comparison error | `Home` / `End` | Jump to the top or bottom of long error details. |
+| Recoverable error | Other non-quit key | Return to the profile list. |
+| Recoverable error | `PgUp` / `PgDn` | Scroll long error details when available. |
+| Recoverable error | `Home` / `End` | Jump to the top or bottom of long error details when available. |
 | Protected confirmation | `Enter` / `y` | Confirm apply. |
 | Protected confirmation | `Esc` / `n` | Cancel and return to the profile list. |
 | Protected confirmation | `q` | Quit without applying changes. |
@@ -116,6 +126,8 @@ When init asks whether to replace an existing current-directory
 | `d` | Delete the selected profile or target. |
 | `Space` | Toggle protection for the selected profile. |
 | `s` | Save from the `Review` tab when the draft is saveable. |
+| `PgUp` / `PgDn` | Scroll long pending-change details on the `Review` tab. |
+| `Home` / `End` | Jump to the top or bottom of long pending-change details on the `Review` tab. |
 | `c` | Return to the profile picker when the editor was opened from the picker. |
 | `q` | Quit, with dirty-draft confirmation when needed. |
 | `Ctrl+C` | Exit immediately. |

@@ -60,6 +60,8 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 	}
 
 	switch args[0] {
+	case profileCompletionCommandName:
+		return writeProfileNameCompletions(output, workingDirectory)
 	case "help", "-h", "--help":
 		return writeHelp(output, args[1:])
 	case "--version":
