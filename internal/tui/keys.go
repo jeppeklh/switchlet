@@ -18,10 +18,13 @@ const (
 	keyStatus  = "s"
 	keyDiff    = "d"
 	keyReveal  = "v"
+	keySearch  = "/"
 	keyRefresh = "r"
 	keyEscape  = "esc"
 	keyConfirm = "y"
 	keyCancel  = "n"
+	keyNext    = "n"
+	keyPrev    = "N"
 	keyQuit    = "q"
 	keyCtrlC   = "ctrl+c"
 )

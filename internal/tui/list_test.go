@@ -703,6 +703,270 @@ func TestUpdate_PageAndJumpKeysClampLongProfileList(t *testing.T) {
 	}
 }
 
+func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+	updatedModel, command := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after window resize")
+	}
+
+	updatedModel, command = model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening search")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("ST")})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after typing search")
+	}
+	if model.state != searchState || model.searchInput != "ST" {
+		t.Fatalf("model after typing search = %#v, want search state with input ST", model)
+	}
+	selectedProfileName, ok := model.SelectedProfileName()
+	if !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want Staging, true", selectedProfileName, ok)
+	}
+	searchView := model.View()
+	if !strings.Contains(searchView, "Search: ST_") || !strings.Contains(searchView, "> Staging") || strings.Contains(searchView, "  Local") {
+		t.Fatalf("View() = %q, want live filtered search for Staging only", searchView)
+	}
+	if !strings.Contains(searchView, "Enter Apply filter") || strings.Contains(searchView, "q Quit") {
+		t.Fatalf("View() = %q, want search command bar without q quit", searchView)
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after applying search filter")
+	}
+	if model.state != listState || model.profileFilter != "ST" || model.searchInput != "" {
+		t.Fatalf("model after applying search = %#v, want accepted active filter", model)
+	}
+	filteredView := model.View()
+	if !strings.Contains(filteredView, "Filter: ST") || !strings.Contains(filteredView, "n/N Matches") || !strings.Contains(filteredView, "Esc Clear filter") {
+		t.Fatalf("View() = %q, want active filter and filtered command actions", filteredView)
+	}
+	if strings.Contains(filteredView, "  Local") || strings.Contains(filteredView, "  Production") {
+		t.Fatalf("View() = %q, want non-matching profiles hidden", filteredView)
+	}
+}
+
+func TestUpdate_ProfileSearchCancelPreservesPriorFilterAndSelection(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+	model = acceptProfileSearch(t, model, "stag")
+	selectedProfileName, ok := model.SelectedProfileName()
+	if !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() after first filter = %q, %t, want Staging, true", selectedProfileName, ok)
+	}
+
+	updatedModel, command := model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after reopening search")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after clearing search input")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("prod")})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after editing search")
+	}
+	selectedProfileName, ok = model.SelectedProfileName()
+	if !ok || selectedProfileName != "Production" {
+		t.Fatalf("SelectedProfileName() during edited search = %q, %t, want Production, true", selectedProfileName, ok)
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after canceling search")
+	}
+	selectedProfileName, ok = model.SelectedProfileName()
+	if model.state != listState || model.profileFilter != "stag" || !ok || selectedProfileName != "Staging" {
+		t.Fatalf("model after canceling search = %#v, selected %q/%t, want previous filter and Staging selection", model, selectedProfileName, ok)
+	}
+}
+
+func TestUpdate_ProfileSearchTreatsQAsLiteralInput(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{{Name: "QA", Value: stringPointer("qa")}},
+	))
+
+	updatedModel, command := model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening search")
+	}
+	updatedModel, command = model.Update(runeKey('q'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after q in search input, want literal text")
+	}
+	if model.state != searchState || model.searchInput != "q" {
+		t.Fatalf("model after q search input = %#v, want literal q in search field", model)
+	}
+	if !strings.Contains(model.View(), "Search: q_") {
+		t.Fatalf("View() = %q, want q rendered in search field", model.View())
+	}
+}
+
+func TestUpdate_ProfileFilterClearRestoresFullList(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+	model = acceptProfileSearch(t, model, "stag")
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after clearing filter")
+	}
+	if model.profileFilter != "" {
+		t.Fatalf("profileFilter = %q, want cleared", model.profileFilter)
+	}
+	if selectedProfileName, ok := model.SelectedProfileName(); !ok || selectedProfileName == "" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want valid selection after clearing filter", selectedProfileName, ok)
+	}
+	view := model.View()
+	for _, expected := range []string{"Local", "Staging", "Production"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want full list restored with %q", view, expected)
+		}
+	}
+}
+
+func TestUpdate_ProfileFilterNoMatchesShowsEmptyState(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+		},
+	))
+	model = acceptProfileSearch(t, model, "missing")
+
+	if selectedProfileName, ok := model.SelectedProfileName(); ok || selectedProfileName != "" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want no selection for empty filter result", selectedProfileName, ok)
+	}
+	view := model.View()
+	if !strings.Contains(view, "No profiles match this filter.") || !strings.Contains(view, "Esc Clear filter") {
+		t.Fatalf("View() = %q, want empty filtered state with clear action", view)
+	}
+	if strings.Contains(view, "Enter Apply") || strings.Contains(view, "Space Apply") {
+		t.Fatalf("View() = %q, must not advertise apply when no filtered profile is selected", view)
+	}
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil || model.state != listState {
+		t.Fatalf("model after Enter with no matches = %#v, command %v, want no-op list state", model, command)
+	}
+}
+
+func TestUpdate_FilteredListApplyUsesHighlightedProfile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"local"}}`)
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "database.url"},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+		},
+	))
+	model = acceptProfileSearch(t, model, "stag")
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command from filtered list")
+	}
+	if model.applyingProfile != "Staging" {
+		t.Fatalf("applyingProfile = %q, want filtered profile Staging", model.applyingProfile)
+	}
+
+	updatedModel, nextCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if nextCommand == nil {
+		t.Fatal("nextCommand is nil, want current-profile refresh after Space apply")
+	}
+	if contents := string(readFile(t, targetPath)); !strings.Contains(contents, `"url": "staging"`) {
+		t.Fatalf("target contents = %q, want Staging value applied", contents)
+	}
+}
+
+func TestUpdate_FilteredListSecondaryActionsUseFilteredSelection(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+	model = acceptProfileSearch(t, model, "prod")
+
+	updatedModel, command := model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening inspection from filtered list")
+	}
+	if model.state != inspectState || !strings.Contains(model.View(), "Profile: Production") {
+		t.Fatalf("model after filtered inspection = %#v, view %q, want Production inspection", model, model.View())
+	}
+	updatedModel, command = model.Update(runeKey('i'))
+	model = updatedModel.(Model)
+	if command != nil || model.state != listState {
+		t.Fatalf("model after returning from inspection = %#v, command %v, want filtered list", model, command)
+	}
+
+	updatedModel, command = model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command == nil || model.state != diffLoadingState || model.comparisonProfileName != "Production" {
+		t.Fatalf("model after filtered diff = %#v, command %v, want diff for Production", model, command)
+	}
+	updatedModel, command = model.Update(runeKey('d'))
+	model = updatedModel.(Model)
+	if command != nil || model.state != listState {
+		t.Fatalf("model after returning from diff = %#v, command %v, want filtered list", model, command)
+	}
+
+	updatedModel, command = model.Update(runeKey('v'))
+	model = updatedModel.(Model)
+	if command != nil || !model.valuesVisible {
+		t.Fatalf("model after filtered reveal = %#v, command %v, want local reveal toggle", model, command)
+	}
+
+	updatedModel, command = model.Update(runeKey('c'))
+	model = updatedModel.(Model)
+	if command == nil || !model.ConfigRequested() {
+		t.Fatalf("model after filtered config handoff = %#v, command %v, want config request", model, command)
+	}
+}
+
 func TestUpdate_ShowsRecoverableErrorForUnavailableProfile(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
@@ -739,6 +1003,28 @@ func numberedProfiles(count int) []config.Profile {
 	}
 
 	return profiles
+}
+
+func acceptProfileSearch(t *testing.T, model Model, filter string) Model {
+	t.Helper()
+
+	updatedModel, command := model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening profile search")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(filter)})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after typing profile search")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after accepting profile search")
+	}
+
+	return model
 }
 
 func TestUpdate_QuitsImmediately(t *testing.T) {

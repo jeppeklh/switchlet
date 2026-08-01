@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
@@ -10,6 +12,7 @@ type viewState int
 
 const (
 	listState viewState = iota
+	searchState
 	inspectState
 	confirmState
 	errorState
@@ -31,22 +34,26 @@ const (
 
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
-	application      app.Application
-	profiles         []app.ProfileItem
-	cursor           int
-	width            int
-	height           int
-	state            viewState
-	valuesVisible    bool
-	recoverableError RecoverableError
-	successResult    *app.Result
-	applyingProfile  string
-	applyExits       bool
-	applyRequestID   int
-	confirmExits     bool
-	currentProfiles  map[string]struct{}
-	currentRequestID int
-	configRequested  bool
+	application       app.Application
+	profiles          []app.ProfileItem
+	cursor            int
+	width             int
+	height            int
+	state             viewState
+	profileFilter     string
+	searchInput       string
+	searchCursor      int
+	searchStartCursor int
+	valuesVisible     bool
+	recoverableError  RecoverableError
+	successResult     *app.Result
+	applyingProfile   string
+	applyExits        bool
+	applyRequestID    int
+	confirmExits      bool
+	currentProfiles   map[string]struct{}
+	currentRequestID  int
+	configRequested   bool
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -124,7 +131,10 @@ func (model Model) Init() tea.Cmd {
 
 func (model *Model) refreshProfiles() {
 	model.profiles = model.application.Profiles()
+	model.clampCursorToVisibleProfiles()
+}
 
+func (model *Model) clampCursorToVisibleProfiles() {
 	if len(model.profiles) == 0 {
 		model.cursor = 0
 		return
@@ -136,6 +146,18 @@ func (model *Model) refreshProfiles() {
 	if model.cursor >= len(model.profiles) {
 		model.cursor = len(model.profiles) - 1
 	}
+
+	visibleIndices := model.filteredProfileIndices()
+	if len(visibleIndices) == 0 {
+		return
+	}
+	for _, profileIndex := range visibleIndices {
+		if profileIndex == model.cursor {
+			return
+		}
+	}
+
+	model.cursor = visibleIndices[0]
 }
 
 func (model *Model) selectProfileByName(profileName string) {
@@ -152,9 +174,50 @@ func (model *Model) selectProfileByName(profileName string) {
 }
 
 func (model Model) selectedProfile() (app.ProfileItem, bool) {
-	if len(model.profiles) == 0 {
+	if len(model.profiles) == 0 || model.cursor < 0 || model.cursor >= len(model.profiles) {
+		return app.ProfileItem{}, false
+	}
+	selectedProfile := model.profiles[model.cursor]
+	if !model.profileMatchesActiveFilter(selectedProfile) {
 		return app.ProfileItem{}, false
 	}
 
-	return model.profiles[model.cursor], true
+	return selectedProfile, true
+}
+
+func (model Model) activeProfileFilter() string {
+	if model.state == searchState {
+		return strings.TrimSpace(model.searchInput)
+	}
+
+	return model.profileFilter
+}
+
+func (model Model) hasActiveProfileFilter() bool {
+	return normalizeProfileFilter(model.activeProfileFilter()) != ""
+}
+
+func (model Model) filteredProfileIndices() []int {
+	filter := normalizeProfileFilter(model.activeProfileFilter())
+	indices := make([]int, 0, len(model.profiles))
+	for index, profile := range model.profiles {
+		if filter == "" || profileNameMatchesFilter(profile.Name, filter) {
+			indices = append(indices, index)
+		}
+	}
+
+	return indices
+}
+
+func (model Model) profileMatchesActiveFilter(profile app.ProfileItem) bool {
+	filter := normalizeProfileFilter(model.activeProfileFilter())
+	return filter == "" || profileNameMatchesFilter(profile.Name, filter)
+}
+
+func normalizeProfileFilter(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func profileNameMatchesFilter(profileName string, normalizedFilter string) bool {
+	return strings.Contains(strings.ToLower(profileName), normalizedFilter)
 }

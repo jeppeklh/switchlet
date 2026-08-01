@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -72,6 +73,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch model.state {
 		case listState:
 			return model.handleListKey(message)
+		case searchState:
+			return model.handleSearchKey(message)
 		case inspectState:
 			return model.handleInspectKey(message)
 		case confirmState:
@@ -103,7 +106,7 @@ func (model Model) handleTooSmallTerminalKey(message tea.KeyMsg) (tea.Model, tea
 		return model, tea.Quit
 	case matchesKey(message, keyEscape):
 		switch model.state {
-		case inspectState, confirmState, statusLoadingState, statusReadyState, diffLoadingState, diffReadyState, comparisonErrorState:
+		case searchState, inspectState, confirmState, statusLoadingState, statusReadyState, diffLoadingState, diffReadyState, comparisonErrorState:
 			model.state = listState
 			model.clearComparisonState()
 		}
@@ -206,6 +209,14 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if matchesKey(message, keyQuit) {
 		return model, tea.Quit
 	}
+	if matchesKey(message, keySearch) {
+		model.beginProfileSearch()
+		return model, nil
+	}
+	if matchesKey(message, keyEscape) && model.profileFilter != "" {
+		model.clearProfileFilter()
+		return model, nil
+	}
 	if matchesKey(message, keyConfig) {
 		model.configRequested = true
 		return model, tea.Quit
@@ -217,34 +228,28 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case matchesKey(message, keyUp, keyMoveUp):
-		model.cursor--
-		if model.cursor < 0 {
-			model.cursor = len(model.profiles) - 1
-		}
+		model.moveProfileCursor(-1, true)
 		return model, nil
 	case matchesKey(message, keyDown, keyMoveDn):
-		model.cursor++
-		if model.cursor >= len(model.profiles) {
-			model.cursor = 0
-		}
+		model.moveProfileCursor(1, true)
 		return model, nil
 	case matchesKey(message, keyPageUp):
-		model.cursor -= model.profilePageStep()
-		if model.cursor < 0 {
-			model.cursor = 0
-		}
+		model.moveProfileCursor(-model.profilePageStep(), false)
 		return model, nil
 	case matchesKey(message, keyPageDn):
-		model.cursor += model.profilePageStep()
-		if model.cursor >= len(model.profiles) {
-			model.cursor = len(model.profiles) - 1
-		}
+		model.moveProfileCursor(model.profilePageStep(), false)
 		return model, nil
 	case matchesKey(message, keyHome):
-		model.cursor = 0
+		model.selectFirstVisibleProfile()
 		return model, nil
 	case matchesKey(message, keyEnd):
-		model.cursor = len(model.profiles) - 1
+		model.selectLastVisibleProfile()
+		return model, nil
+	case model.profileFilter != "" && matchesKey(message, keyNext):
+		model.moveProfileCursor(1, true)
+		return model, nil
+	case model.profileFilter != "" && matchesKey(message, keyPrev):
+		model.moveProfileCursor(-1, true)
 		return model, nil
 	case matchesKey(message, keyReveal):
 		return model.toggleValueVisibility(), nil
@@ -277,6 +282,196 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	default:
 		return model, nil
 	}
+}
+
+func (model Model) handleSearchKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch message.Type {
+	case tea.KeyEsc:
+		model.cancelProfileSearch()
+	case tea.KeyEnter:
+		model.applyProfileSearch()
+	default:
+		if model.handleSearchInputEditKey(message) {
+			model.clampCursorToVisibleProfiles()
+		}
+	}
+
+	return model, nil
+}
+
+func (model *Model) beginProfileSearch() {
+	model.state = searchState
+	model.searchInput = model.profileFilter
+	model.searchCursor = len([]rune(model.searchInput))
+	model.searchStartCursor = model.cursor
+	model.clampCursorToVisibleProfiles()
+}
+
+func (model *Model) applyProfileSearch() {
+	model.profileFilter = strings.TrimSpace(model.searchInput)
+	model.searchInput = ""
+	model.searchCursor = 0
+	model.searchStartCursor = 0
+	model.state = listState
+	model.clampCursorToVisibleProfiles()
+}
+
+func (model *Model) cancelProfileSearch() {
+	model.searchInput = ""
+	model.searchCursor = 0
+	model.cursor = model.searchStartCursor
+	model.searchStartCursor = 0
+	model.state = listState
+	model.clampCursorToVisibleProfiles()
+}
+
+func (model *Model) clearProfileFilter() {
+	model.profileFilter = ""
+	model.clampCursorToVisibleProfiles()
+}
+
+func (model *Model) moveProfileCursor(offset int, wrap bool) {
+	indices := model.filteredProfileIndices()
+	if len(indices) == 0 {
+		return
+	}
+
+	position := model.profileCursorPosition(indices) + offset
+	if wrap {
+		for position < 0 {
+			position += len(indices)
+		}
+		position %= len(indices)
+	} else {
+		if position < 0 {
+			position = 0
+		}
+		if position >= len(indices) {
+			position = len(indices) - 1
+		}
+	}
+
+	model.cursor = indices[position]
+}
+
+func (model Model) profileCursorPosition(indices []int) int {
+	for position, profileIndex := range indices {
+		if profileIndex == model.cursor {
+			return position
+		}
+	}
+
+	return 0
+}
+
+func (model *Model) selectFirstVisibleProfile() {
+	indices := model.filteredProfileIndices()
+	if len(indices) == 0 {
+		return
+	}
+
+	model.cursor = indices[0]
+}
+
+func (model *Model) selectLastVisibleProfile() {
+	indices := model.filteredProfileIndices()
+	if len(indices) == 0 {
+		return
+	}
+
+	model.cursor = indices[len(indices)-1]
+}
+
+func (model *Model) handleSearchInputEditKey(message tea.KeyMsg) bool {
+	switch message.Type {
+	case tea.KeyLeft, tea.KeyCtrlB:
+		model.moveSearchCursorLeft()
+	case tea.KeyRight, tea.KeyCtrlF:
+		model.moveSearchCursorRight()
+	case tea.KeyHome, tea.KeyCtrlA:
+		model.searchCursor = 0
+	case tea.KeyEnd, tea.KeyCtrlE:
+		model.searchCursor = len([]rune(model.searchInput))
+	case tea.KeyBackspace:
+		model.deleteSearchRuneBeforeCursor()
+	case tea.KeyDelete:
+		model.deleteSearchRuneAtCursor()
+	case tea.KeyCtrlU:
+		model.searchInput = ""
+		model.searchCursor = 0
+	case tea.KeyCtrlK:
+		model.clampSearchCursor()
+		model.searchInput = string([]rune(model.searchInput)[:model.searchCursor])
+	case tea.KeySpace:
+		model.insertSearchInput(" ")
+	case tea.KeyRunes:
+		model.insertSearchInput(string(message.Runes))
+	default:
+		return false
+	}
+
+	return true
+}
+
+func (model *Model) clampSearchCursor() {
+	model.searchCursor = clampRuneIndex(model.searchCursor, len([]rune(model.searchInput)))
+}
+
+func (model *Model) moveSearchCursorLeft() {
+	model.clampSearchCursor()
+	if model.searchCursor > 0 {
+		model.searchCursor--
+	}
+}
+
+func (model *Model) moveSearchCursorRight() {
+	model.clampSearchCursor()
+	if model.searchCursor < len([]rune(model.searchInput)) {
+		model.searchCursor++
+	}
+}
+
+func (model *Model) insertSearchInput(value string) {
+	model.clampSearchCursor()
+	currentRunes := []rune(model.searchInput)
+	insertedRunes := []rune(value)
+
+	updatedRunes := make([]rune, 0, len(currentRunes)+len(insertedRunes))
+	updatedRunes = append(updatedRunes, currentRunes[:model.searchCursor]...)
+	updatedRunes = append(updatedRunes, insertedRunes...)
+	updatedRunes = append(updatedRunes, currentRunes[model.searchCursor:]...)
+
+	model.searchInput = string(updatedRunes)
+	model.searchCursor += len(insertedRunes)
+}
+
+func (model *Model) deleteSearchRuneBeforeCursor() {
+	model.clampSearchCursor()
+	if model.searchCursor == 0 {
+		return
+	}
+
+	currentRunes := []rune(model.searchInput)
+	updatedRunes := make([]rune, 0, len(currentRunes)-1)
+	updatedRunes = append(updatedRunes, currentRunes[:model.searchCursor-1]...)
+	updatedRunes = append(updatedRunes, currentRunes[model.searchCursor:]...)
+
+	model.searchInput = string(updatedRunes)
+	model.searchCursor--
+}
+
+func (model *Model) deleteSearchRuneAtCursor() {
+	model.clampSearchCursor()
+	currentRunes := []rune(model.searchInput)
+	if model.searchCursor >= len(currentRunes) {
+		return
+	}
+
+	updatedRunes := make([]rune, 0, len(currentRunes)-1)
+	updatedRunes = append(updatedRunes, currentRunes[:model.searchCursor]...)
+	updatedRunes = append(updatedRunes, currentRunes[model.searchCursor+1:]...)
+
+	model.searchInput = string(updatedRunes)
 }
 
 func (model Model) handleStatusComparisonKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {

@@ -39,15 +39,10 @@ func (model Model) View() string {
 }
 
 func (model Model) listView() string {
-	profileLines := []string{"No profiles available."}
-	if len(model.profiles) > 0 {
-		profileLines = RenderListRows(model.profileRows(RowSelected))
-	}
-
 	return RenderShell(Shell{
 		Headerless: true,
 		Panels: []Panel{
-			{Title: model.profilePanelTitle(), Lines: profileLines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
+			{Title: model.profilePanelTitle(), Lines: model.profileListLines(RowSelected), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 			{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()},
 		},
 		Actions: model.listActions(),
@@ -64,14 +59,39 @@ func (model Model) listActions() []Action {
 	if model.isApplying() {
 		return []Action{{Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}
 	}
+	if model.state == searchState {
+		return []Action{
+			{Key: "Enter", Label: "Apply filter", Priority: ActionPriorityPrimary},
+			{Key: "Left/Right", Label: "Move", Priority: ActionPrioritySecondary},
+			{Key: "Home/End", Label: "Jump", Priority: ActionPrioritySecondary},
+			{Key: "Bksp/Del", Label: "Edit", Priority: ActionPrioritySecondary},
+			{Key: "Esc", Label: "Back", Priority: ActionPriorityPrimary},
+		}
+	}
 
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
-		return []Action{{Key: "c", Label: "Config", Priority: ActionPrioritySecondary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}
+		actions := make([]Action, 0, 4)
+		if len(model.profiles) > 0 {
+			actions = append(actions, Action{Key: "/", Label: "Search", Priority: ActionPrioritySecondary})
+		}
+		if model.profileFilter != "" {
+			actions = append(actions, Action{Key: "Esc", Label: "Clear filter", Priority: ActionPriorityPrimary})
+		}
+		return append(actions, Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal}, Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical})
 	}
 
 	actions := []Action{
 		{Key: "↑/↓ or j/k", Label: "Move", Priority: ActionPrioritySecondary},
+	}
+	if len(model.profiles) > 0 {
+		actions = append(actions, Action{Key: "/", Label: "Search", Priority: ActionPrioritySecondary})
+	}
+	if model.profileFilter != "" {
+		actions = append(actions,
+			Action{Key: "n/N", Label: "Matches", Priority: ActionPrioritySecondary},
+			Action{Key: "Esc", Label: "Clear filter", Priority: ActionPriorityPrimary},
+		)
 	}
 	if model.profileListPositionContext() != "" {
 		actions = append(actions,
@@ -83,7 +103,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "Enter", Label: enterActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
 		Action{Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary},
 		Action{Key: "i", Label: "Inspect", Priority: ActionPriorityNormal},
-		Action{Key: "c", Label: "Config", Priority: ActionPrioritySecondary},
+		Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal},
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		model.valueRevealAction(),

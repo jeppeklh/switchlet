@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -15,16 +16,39 @@ const (
 func (model Model) profilePanel(selectedState RowState, focused bool) Panel {
 	return Panel{
 		Title:      model.profilePanelTitle(),
-		Lines:      RenderListRows(model.profileRows(selectedState)),
+		Lines:      model.profileListLines(selectedState),
 		Focused:    focused,
 		FillHeight: model.shouldFillWorkspacePanels(),
 	}
 }
 
+func (model Model) profileListLines(selectedState RowState) []string {
+	lines := make([]string, 0)
+	if model.state == searchState {
+		lines = append(lines, RenderInputWithinWidth("Search", model.searchInput, model.searchCursor, PrimaryPanelWidth(model.width, 2)), "")
+	} else if model.profileFilter != "" {
+		lines = append(lines, RenderKeyValue("Filter", model.profileFilter), "")
+	}
+
+	filteredIndices := model.filteredProfileIndices()
+	switch {
+	case len(model.profiles) == 0:
+		lines = append(lines, "No profiles available.")
+	case len(filteredIndices) == 0:
+		lines = append(lines, "No profiles match this filter.")
+	default:
+		lines = append(lines, RenderListRows(model.profileRows(selectedState))...)
+	}
+
+	return lines
+}
+
 func (model Model) profileRows(selectedState RowState) []ListRow {
+	filteredIndices := model.filteredProfileIndices()
 	start, end := model.visibleProfileRange()
 	rows := make([]ListRow, 0, end-start)
-	for index := start; index < end; index++ {
+	for position := start; position < end; position++ {
+		index := filteredIndices[position]
 		item := model.profiles[index]
 		state := RowNormal
 		if !item.Available {
@@ -45,17 +69,24 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 }
 
 func (model Model) profilePanelTitle() string {
+	contexts := make([]string, 0, 2)
+	if filter := strings.TrimSpace(model.activeProfileFilter()); filter != "" {
+		contexts = append(contexts, "Filter "+fmt.Sprintf("%q", filter))
+	}
 	positionContext := model.profileListPositionContext()
-	if positionContext == "" {
+	if positionContext != "" {
+		contexts = append(contexts, positionContext)
+	}
+	if len(contexts) == 0 {
 		return "Profiles"
 	}
 
-	return "Profiles - " + positionContext
+	return "Profiles - " + strings.Join(contexts, " - ")
 }
 
 func (model Model) profileListPositionContext() string {
 	start, end := model.visibleProfileRange()
-	profileCount := len(model.profiles)
+	profileCount := len(model.filteredProfileIndices())
 	if profileCount == 0 || start == 0 && end == profileCount {
 		return ""
 	}
@@ -64,7 +95,8 @@ func (model Model) profileListPositionContext() string {
 }
 
 func (model Model) visibleProfileRange() (int, int) {
-	profileCount := len(model.profiles)
+	filteredIndices := model.filteredProfileIndices()
+	profileCount := len(filteredIndices)
 	if profileCount == 0 {
 		return 0, 0
 	}
@@ -74,7 +106,8 @@ func (model Model) visibleProfileRange() (int, int) {
 		return 0, profileCount
 	}
 
-	start := model.cursor - maxVisibleRows/2
+	cursorPosition := model.profileCursorPosition(filteredIndices)
+	start := cursorPosition - maxVisibleRows/2
 	if start < 0 {
 		start = 0
 	}
@@ -87,7 +120,7 @@ func (model Model) visibleProfileRange() (int, int) {
 
 func (model Model) maxVisibleProfileRows() int {
 	if model.height <= 0 {
-		return len(model.profiles)
+		return len(model.filteredProfileIndices())
 	}
 
 	panelHeightBudget := model.height - shellActionLineCount
@@ -95,12 +128,20 @@ func (model Model) maxVisibleProfileRows() int {
 		panelHeightBudget = (panelHeightBudget - stackedPanelGapLineCount) / 2
 	}
 
-	maxVisibleRows := panelHeightBudget - minimumPanelHeight(Panel{Title: "Profiles"}, defaultStyles())
+	maxVisibleRows := panelHeightBudget - minimumPanelHeight(Panel{Title: "Profiles"}, defaultStyles()) - model.profileListPrefixLineCount()
 	if maxVisibleRows < minimumVisibleProfileRows {
 		return minimumVisibleProfileRows
 	}
 
 	return maxVisibleRows
+}
+
+func (model Model) profileListPrefixLineCount() int {
+	if model.state == searchState || model.profileFilter != "" {
+		return 2
+	}
+
+	return 0
 }
 
 func (model Model) profilePageStep() int {

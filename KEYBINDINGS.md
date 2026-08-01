@@ -15,6 +15,9 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `j` / `k` | Move between profiles. |
 | `PgUp` / `PgDn` | Move one visible page in long profile lists. |
 | `Home` / `End` | Jump to the first or last profile. |
+| `/` | Search and filter profiles by name. |
+| `n` / `N` | Move to the next or previous match when a filter is active. |
+| `Esc` | Clear an active profile filter. |
 | `Enter` | Apply the selected profile and exit, or open protected confirmation. |
 | `Space` | Apply the selected profile and return to the list, or open protected confirmation. |
 | `i` | Inspect the selected profile. |
@@ -24,6 +27,19 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `v` | Toggle managed value visibility where reveal is supported. |
 | `q` | Quit without applying changes. |
 | `Ctrl+C` | Exit immediately. |
+
+### Profile Search
+
+| Key | Action |
+|---|---|
+| `Enter` | Apply the typed filter and return to the profile list. |
+| `Esc` | Cancel search input and keep the previous active filter. |
+| `Left` / `Right` | Move within the search field. |
+| `Home` / `End` | Jump within the search field. |
+| `Backspace` / `Delete` | Edit the search field. |
+
+While search input is focused, regular characters are inserted into the search
+field. `q` is literal input instead of quit.
 
 ### Secondary Views
 
