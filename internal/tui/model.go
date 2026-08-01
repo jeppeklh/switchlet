@@ -64,6 +64,14 @@ func New(application app.Application) Model {
 	return model
 }
 
+// NewWithSelectedProfile creates the terminal model with the requested profile selected when it exists.
+func NewWithSelectedProfile(application app.Application, profileName string) Model {
+	model := New(application)
+	model.selectProfileByName(profileName)
+
+	return model
+}
+
 // NewReloadError creates a focused error model for a failed post-save reload.
 func NewReloadError(err error) Model {
 	return Model{
@@ -95,6 +103,16 @@ func (model Model) ConfigRequested() bool {
 	return model.configRequested
 }
 
+// SelectedProfileName returns the currently selected profile name.
+func (model Model) SelectedProfileName() (string, bool) {
+	selectedProfile, ok := model.selectedProfile()
+	if !ok {
+		return "", false
+	}
+
+	return selectedProfile.Name, true
+}
+
 // Init starts the Bubble Tea model.
 func (model Model) Init() tea.Cmd {
 	if model.state == errorState {
@@ -117,6 +135,19 @@ func (model *Model) refreshProfiles() {
 	}
 	if model.cursor >= len(model.profiles) {
 		model.cursor = len(model.profiles) - 1
+	}
+}
+
+func (model *Model) selectProfileByName(profileName string) {
+	if profileName == "" {
+		return
+	}
+
+	for index, profile := range model.profiles {
+		if profile.Name == profileName {
+			model.cursor = index
+			return
+		}
 	}
 }
 

@@ -56,13 +56,16 @@ profiles:
 	for _, expected := range []string{
 		"Profile: Local",
 		"- workerQueue [yaml]",
-		"file: " + workerPath,
+		"file: worker/config.yaml",
 		"yamlPath: queue.endpoint",
 		"masked value: local-queue",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
 		}
+	}
+	if strings.Contains(result.stdout, workerPath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, workerPath)
 	}
 }
 
@@ -84,7 +87,7 @@ profiles:
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
 		"Planned target:",
-		"would update " + workerPath,
+		"would update worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
 		"No changes were written.",
@@ -95,6 +98,9 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "staging-queue") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
+	if strings.Contains(result.stdout, workerPath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, workerPath)
 	}
 	if !bytes.Equal(readFileBytes(t, workerPath), originalWorkerContents) {
 		t.Fatal("YAML target changed during dry run")
@@ -163,7 +169,7 @@ profiles:
 	for _, expected := range []string{
 		`Applied profile "Staging"`,
 		"Updated target:",
-		"updated " + workerPath,
+		"updated worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
 	} {
@@ -173,6 +179,9 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "staging-queue") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
+	if strings.Contains(result.stdout, workerPath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, workerPath)
 	}
 	if !strings.Contains(string(readFileBytes(t, workerPath)), "endpoint: staging-queue") {
 		t.Fatalf("YAML target %q was not updated", string(readFileBytes(t, workerPath)))
@@ -200,13 +209,13 @@ profiles:
 	for _, expected := range []string{
 		`Applied profile "Staging"`,
 		"Updated targets:",
-		"updated " + databasePath,
+		"updated backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"updated " + workerPath,
+		"updated worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
-		"updated " + frontendPath,
+		"updated frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 	} {
@@ -217,6 +226,11 @@ profiles:
 	for _, forbidden := range []string{"postgres-staging", "staging-queue", "https://api.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, workerPath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !strings.Contains(string(readFileBytes(t, databasePath)), "postgres-staging") {
@@ -254,13 +268,13 @@ profiles:
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
 		"Planned targets:",
-		"would update " + databasePath,
+		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"would update " + workerPath,
+		"would update worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
-		"would update " + frontendPath,
+		"would update frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 		"No changes were written.",
@@ -272,6 +286,11 @@ profiles:
 	for _, forbidden := range []string{"postgres-staging", "staging-queue", "https://api.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, workerPath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {

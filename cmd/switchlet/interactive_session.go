@@ -23,6 +23,7 @@ type interactiveSessionModel struct {
 	mode             interactiveSessionMode
 	width            int
 	height           int
+	selectedProfile  string
 }
 
 func newInteractiveSessionModel(workingDirectory string, application app.Application) interactiveSessionModel {
@@ -78,6 +79,7 @@ func (model interactiveSessionModel) updateMain(message tea.Msg) (tea.Model, tea
 	if !model.mainModel.ConfigRequested() {
 		return model, command
 	}
+	model.selectedProfile, _ = model.mainModel.SelectedProfileName()
 
 	configModel, err := configEditorModelForWorkingDirectory(model.workingDirectory, configeditor.Options{Embedded: true})
 	if err != nil {
@@ -121,7 +123,8 @@ func (model interactiveSessionModel) handleConfigResult(result configeditor.Resu
 		model.application = application
 	}
 
-	model.mainModel = model.resizeMainModel(tui.New(model.application))
+	model.mainModel = model.resizeMainModel(tui.NewWithSelectedProfile(model.application, model.selectedProfile))
+	model.selectedProfile = ""
 	model.mode = interactiveSessionMain
 	return model, model.mainModel.Init()
 }

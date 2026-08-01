@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
@@ -29,7 +30,7 @@ func writeListText(output io.Writer, profiles []app.ProfileItem) error {
 	return nil
 }
 
-func writeInspectText(output io.Writer, profileItem app.ProfileItem) error {
+func writeInspectText(output io.Writer, profileItem app.ProfileItem, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "Profile: %s\n", profileItem.Name); err != nil {
 		return err
 	}
@@ -67,7 +68,7 @@ func writeInspectText(output io.Writer, profileItem app.ProfileItem) error {
 			return err
 		}
 		for _, valueItem := range profileItem.Values {
-			if err := writeProfileValueText(output, valueItem); err != nil {
+			if err := writeProfileValueText(output, valueItem, projectRoot); err != nil {
 				return err
 			}
 		}
@@ -76,12 +77,12 @@ func writeInspectText(output io.Writer, profileItem app.ProfileItem) error {
 	return nil
 }
 
-func writeApplyText(output io.Writer, result app.Result) error {
+func writeApplyText(output io.Writer, result app.Result, projectRoot string) error {
 	if result.DryRun {
 		if _, err := fmt.Fprintf(output, "Dry run successful for profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Planned target", result.Changes)); err != nil {
 			return err
 		}
-		if err := writePlannedChangesText(output, result.Changes, "would update"); err != nil {
+		if err := writePlannedChangesText(output, result.Changes, "would update", projectRoot); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintln(output, "\nNo changes were written."); err != nil {
@@ -94,14 +95,14 @@ func writeApplyText(output io.Writer, result app.Result) error {
 	if _, err := fmt.Fprintf(output, "Applied profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Updated target", result.Changes)); err != nil {
 		return err
 	}
-	if err := writePlannedChangesText(output, result.Changes, "updated"); err != nil {
+	if err := writePlannedChangesText(output, result.Changes, "updated", projectRoot); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func writeStatusText(output io.Writer, status app.StatusComparison) error {
+func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot string) error {
 	styles := defaultCommandOutputStyles()
 	if _, err := fmt.Fprintln(output, styles.title.Render("Switchlet status")); err != nil {
 		return err
@@ -112,7 +113,7 @@ func writeStatusText(output io.Writer, status app.StatusComparison) error {
 		if err := writeCommandDetail(output, styles, "Current profile", styles.success.Render(status.CurrentProfile)); err != nil {
 			return err
 		}
-		if err := writeTargetDescriptorSection(output, styles, "Matched targets", status.MatchedTargets); err != nil {
+		if err := writeTargetDescriptorSection(output, styles, "Matched targets", status.MatchedTargets, projectRoot); err != nil {
 			return err
 		}
 	case app.StatusComparisonAmbiguous:
@@ -134,10 +135,10 @@ func writeStatusText(output io.Writer, status app.StatusComparison) error {
 		}
 	}
 
-	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles)
+	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles, projectRoot)
 }
 
-func writeDiffText(output io.Writer, diff app.ProfileDiff) error {
+func writeDiffText(output io.Writer, diff app.ProfileDiff, projectRoot string) error {
 	styles := defaultCommandOutputStyles()
 	if _, err := fmt.Fprintf(output, "%s  %s\n", styles.title.Render("Switchlet diff"), styles.heading.Render(diff.ProfileName)); err != nil {
 		return err
@@ -146,24 +147,24 @@ func writeDiffText(output io.Writer, diff app.ProfileDiff) error {
 		return err
 	}
 
-	if err := writeTargetDescriptorSection(output, styles, "Would update", diff.WouldUpdate); err != nil {
+	if err := writeTargetDescriptorSection(output, styles, "Would update", diff.WouldUpdate, projectRoot); err != nil {
 		return err
 	}
-	if err := writeTargetDescriptorSection(output, styles, "Already matches", diff.AlreadyMatches); err != nil {
+	if err := writeTargetDescriptorSection(output, styles, "Already matches", diff.AlreadyMatches, projectRoot); err != nil {
 		return err
 	}
-	if err := writeUnavailableValueSection(output, styles, "Unavailable", diff.Unavailable); err != nil {
+	if err := writeUnavailableValueSection(output, styles, "Unavailable", diff.Unavailable, projectRoot); err != nil {
 		return err
 	}
-	return writeTargetDescriptorSection(output, styles, "Omitted targets", diff.OmittedTargets)
+	return writeTargetDescriptorSection(output, styles, "Omitted targets", diff.OmittedTargets, projectRoot)
 }
 
-func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem) error {
+func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(valueItem.TargetName), targetTypeBadge(string(valueItem.TargetType))); err != nil {
 		return err
 	}
 	if valueItem.TargetFile != "" {
-		if _, err := fmt.Fprintf(output, "  file: %s\n", valueItem.TargetFile); err != nil {
+		if _, err := fmt.Fprintf(output, "  file: %s\n", displayProjectPath(projectRoot, valueItem.TargetFile)); err != nil {
 			return err
 		}
 	}
@@ -195,9 +196,9 @@ func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem) err
 	return nil
 }
 
-func writePlannedChangesText(output io.Writer, changes []app.PlannedChange, marker string) error {
+func writePlannedChangesText(output io.Writer, changes []app.PlannedChange, marker string, projectRoot string) error {
 	for index, change := range changes {
-		if _, err := fmt.Fprintf(output, "%s %s\n", marker, change.TargetFile); err != nil {
+		if _, err := fmt.Fprintf(output, "%s %s\n", marker, displayProjectPath(projectRoot, change.TargetFile)); err != nil {
 			return err
 		}
 		if _, err := fmt.Fprintf(output, "  %s%s\n", targetNameLabel(change.TargetName), targetTypeBadge(string(change.TargetType))); err != nil {
@@ -232,7 +233,7 @@ func commandDetailLabel(label string) string {
 	return fmt.Sprintf("%-16s", label)
 }
 
-func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, heading string, descriptors []app.TargetDescriptor) error {
+func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, heading string, descriptors []app.TargetDescriptor, projectRoot string) error {
 	if len(descriptors) == 0 {
 		return nil
 	}
@@ -240,7 +241,7 @@ func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, 
 		return err
 	}
 	for _, descriptor := range descriptors {
-		if err := writeTargetDescriptorText(output, styles, descriptor); err != nil {
+		if err := writeTargetDescriptorText(output, styles, descriptor, projectRoot); err != nil {
 			return err
 		}
 	}
@@ -248,12 +249,12 @@ func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, 
 	return nil
 }
 
-func writeTargetDescriptorText(output io.Writer, styles commandOutputStyles, descriptor app.TargetDescriptor) error {
+func writeTargetDescriptorText(output io.Writer, styles commandOutputStyles, descriptor app.TargetDescriptor, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(descriptor.TargetName)), styledTargetTypeBadge(styles, string(descriptor.TargetType))); err != nil {
 		return err
 	}
 	if descriptor.TargetFile != "" {
-		if err := writeTargetDetail(output, styles, "file", descriptor.TargetFile); err != nil {
+		if err := writeTargetDetail(output, styles, "file", displayProjectPath(projectRoot, descriptor.TargetFile)); err != nil {
 			return err
 		}
 	}
@@ -328,7 +329,7 @@ func writeClosestProfileSection(output io.Writer, styles commandOutputStyles, ma
 	return nil
 }
 
-func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles, profiles []app.UnavailableProfile) error {
+func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles, profiles []app.UnavailableProfile, projectRoot string) error {
 	if len(profiles) == 0 {
 		return nil
 	}
@@ -352,7 +353,7 @@ func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles
 			if _, err := fmt.Fprintf(output, "%s %s %s %s%s\n", styles.marker.Render(">"), styledProfileLabel(styles, profile.ProfileName, profile.Protected), styles.muted.Render("/"), styles.heading.Render(targetNameLabel(value.TargetName)), styledTargetTypeBadge(styles, string(value.TargetType))); err != nil {
 				return err
 			}
-			if err := writeUnavailableValueDetails(output, styles, value); err != nil {
+			if err := writeUnavailableValueDetails(output, styles, value, projectRoot); err != nil {
 				return err
 			}
 		}
@@ -361,7 +362,7 @@ func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles
 	return nil
 }
 
-func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, heading string, values []app.UnavailableValue) error {
+func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, heading string, values []app.UnavailableValue, projectRoot string) error {
 	if len(values) == 0 {
 		return nil
 	}
@@ -372,7 +373,7 @@ func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, 
 		if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(value.TargetName)), styledTargetTypeBadge(styles, string(value.TargetType))); err != nil {
 			return err
 		}
-		if err := writeUnavailableValueDetails(output, styles, value); err != nil {
+		if err := writeUnavailableValueDetails(output, styles, value, projectRoot); err != nil {
 			return err
 		}
 	}
@@ -380,9 +381,9 @@ func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, 
 	return nil
 }
 
-func writeUnavailableValueDetails(output io.Writer, styles commandOutputStyles, value app.UnavailableValue) error {
+func writeUnavailableValueDetails(output io.Writer, styles commandOutputStyles, value app.UnavailableValue, projectRoot string) error {
 	if value.TargetFile != "" {
-		if err := writeTargetDetail(output, styles, "file", value.TargetFile); err != nil {
+		if err := writeTargetDetail(output, styles, "file", displayProjectPath(projectRoot, value.TargetFile)); err != nil {
 			return err
 		}
 	}
@@ -449,4 +450,21 @@ func targetListHeading(singular string, changes []app.PlannedChange) string {
 	}
 
 	return singular + "s"
+}
+
+func displayProjectPath(projectRoot string, path string) string {
+	if projectRoot == "" || path == "" {
+		return path
+	}
+
+	relativePath, err := filepath.Rel(projectRoot, path)
+	if err != nil || relativePath == "." || isParentRelativePath(relativePath) || filepath.IsAbs(relativePath) {
+		return path
+	}
+
+	return filepath.ToSlash(relativePath)
+}
+
+func isParentRelativePath(path string) bool {
+	return path == ".." || strings.HasPrefix(path, ".."+string(filepath.Separator))
 }

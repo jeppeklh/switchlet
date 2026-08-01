@@ -29,6 +29,24 @@ func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
 	if !strings.Contains(helpResult.stdout, "Enter/y to confirm") {
 		t.Fatalf("help stdout %q does not mention the protected confirmation keys", helpResult.stdout)
 	}
+	if !strings.Contains(helpResult.stdout, "switchlet version") {
+		t.Fatalf("help stdout %q does not mention version command", helpResult.stdout)
+	}
+
+	versionResult := runExternalCommand(t, repoRoot, nil, binaryPath, "version")
+	flagVersionResult := runExternalCommand(t, repoRoot, nil, binaryPath, "--version")
+	if versionResult.exitCode != 0 {
+		t.Fatalf("switchlet version exitCode = %d, want 0\nstdout: %q\nstderr: %q", versionResult.exitCode, versionResult.stdout, versionResult.stderr)
+	}
+	if flagVersionResult.exitCode != 0 {
+		t.Fatalf("switchlet --version exitCode = %d, want 0\nstdout: %q\nstderr: %q", flagVersionResult.exitCode, flagVersionResult.stdout, flagVersionResult.stderr)
+	}
+	if versionResult.stdout == "" || !strings.HasPrefix(versionResult.stdout, "switchlet ") {
+		t.Fatalf("version stdout %q does not contain a concise switchlet version line", versionResult.stdout)
+	}
+	if flagVersionResult.stdout != versionResult.stdout {
+		t.Fatalf("--version stdout = %q, want %q", flagVersionResult.stdout, versionResult.stdout)
+	}
 
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "config/runtime.json", strings.TrimSpace(`
@@ -98,11 +116,11 @@ profiles:
 	if !strings.Contains(applyResult.stdout, `Applied profile "Local"`) {
 		t.Fatalf("apply stdout %q does not contain success message", applyResult.stdout)
 	}
-	if !strings.Contains(applyResult.stdout, "updated "+targetPath) {
+	if !strings.Contains(applyResult.stdout, "updated config/runtime.json") {
 		t.Fatalf("apply stdout %q does not contain updated target marker", applyResult.stdout)
 	}
-	if !strings.Contains(applyResult.stdout, targetPath) {
-		t.Fatalf("apply stdout %q does not contain target file path", applyResult.stdout)
+	if strings.Contains(applyResult.stdout, targetPath) {
+		t.Fatalf("apply stdout %q must use project-relative target path instead of %q", applyResult.stdout, targetPath)
 	}
 	if strings.Contains(applyResult.stdout, "https://local.example.test") {
 		t.Fatalf("apply stdout %q must not contain resolved replacement value", applyResult.stdout)
@@ -210,9 +228,14 @@ profiles:
 	if applyResult.exitCode != 0 {
 		t.Fatalf("switchlet apply --allow-protected exitCode = %d, want 0\nstdout: %q\nstderr: %q", applyResult.exitCode, applyResult.stdout, applyResult.stderr)
 	}
-	for _, expected := range []string{`Applied profile "Staging"`, "Updated targets:", "updated " + databasePath, "  database [json]", "updated " + frontendPath, "  frontendApi [dotenv]"} {
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated targets:", "updated backend/appsettings.Development.json", "  database [json]", "updated frontend/.env.local", "  frontendApi [dotenv]"} {
 		if !strings.Contains(applyResult.stdout, expected) {
 			t.Fatalf("apply stdout %q does not contain %q", applyResult.stdout, expected)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(applyResult.stdout, absolutePath) {
+			t.Fatalf("apply stdout %q must use project-relative paths instead of %q", applyResult.stdout, absolutePath)
 		}
 	}
 	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {

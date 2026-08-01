@@ -23,12 +23,12 @@ func runListCommand(workingDirectory string, args []string, output io.Writer) er
 		return usageCommandError(jsonOutput, "list does not accept a profile name\n\n%s", listHelpText())
 	}
 
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return runtimeCommandError(jsonOutput, err)
 	}
 
-	profiles := application.Profiles()
+	profiles := project.Application.Profiles()
 	if jsonOutput {
 		return writeListJSON(output, profiles)
 	}
@@ -55,16 +55,16 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer)
 		return usageCommandError(jsonOutput, "inspect requires exactly one profile name\n\n%s", inspectHelpText())
 	}
 
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return runtimeCommandError(jsonOutput, err)
 	}
 
 	profileName := positionals[0]
-	profileItem, err := application.InspectProfileByName(profileName)
+	profileItem, err := project.Application.InspectProfileByName(profileName)
 	if err != nil {
 		if errors.Is(err, app.ErrProfileNotFound) {
-			return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+			return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, project.Application.Profiles()))
 		}
 
 		return runtimeCommandError(jsonOutput, err)
@@ -74,7 +74,7 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer)
 		return writeInspectJSON(output, profileItem)
 	}
 
-	return writeInspectText(output, profileItem)
+	return writeInspectText(output, profileItem, project.ProjectRoot)
 }
 
 func runApplyCommand(workingDirectory string, args []string, output io.Writer) error {
@@ -102,25 +102,25 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer) e
 		return usageCommandError(jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
 	}
 
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return runtimeCommandError(jsonOutput, err)
 	}
 
 	profileName := positionals[0]
-	result, err := application.ApplyProfileByNameWithOptions(profileName, app.ApplyOptions{
+	result, err := project.Application.ApplyProfileByNameWithOptions(profileName, app.ApplyOptions{
 		DryRun:         dryRun,
 		AllowProtected: allowProtected,
 	})
 	if err != nil {
-		return applyCommandError(jsonOutput, application, profileName, err)
+		return applyCommandError(jsonOutput, project.Application, profileName, err, project.ProjectRoot)
 	}
 
 	if jsonOutput {
 		return writeApplyJSON(output, result)
 	}
 
-	return writeApplyText(output, result)
+	return writeApplyText(output, result, project.ProjectRoot)
 }
 
 func runStatusCommand(workingDirectory string, args []string, output io.Writer) error {
@@ -139,21 +139,21 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer) 
 		return usageCommandError(jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
 	}
 
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return runtimeCommandError(jsonOutput, err)
 	}
 
-	status, err := application.CompareStatus()
+	status, err := project.Application.CompareStatus()
 	if err != nil {
-		return comparisonCommandError(jsonOutput, "status", err)
+		return comparisonCommandError(jsonOutput, "status", err, project.ProjectRoot)
 	}
 
 	if jsonOutput {
 		return writeStatusJSON(output, status)
 	}
 
-	return writeStatusText(output, status)
+	return writeStatusText(output, status, project.ProjectRoot)
 }
 
 func runDiffCommand(workingDirectory string, args []string, output io.Writer) error {
@@ -179,29 +179,29 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer) er
 		return usageCommandError(jsonOutput, "diff requires exactly one profile name\n\n%s", diffHelpText())
 	}
 
-	application, err := loadApplication(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return runtimeCommandError(jsonOutput, err)
 	}
 
 	profileName := positionals[0]
 	if patchOutput {
-		preview, err := application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown})
+		preview, err := project.Application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown})
 		if err != nil {
-			return diffCommandError(false, application, profileName, err)
+			return diffCommandError(false, project.Application, profileName, err, project.ProjectRoot)
 		}
 
-		return writeManagedPatchText(output, preview)
+		return writeManagedPatchText(output, preview, project.ProjectRoot)
 	}
 
-	diff, err := application.DiffProfileByName(profileName)
+	diff, err := project.Application.DiffProfileByName(profileName)
 	if err != nil {
-		return diffCommandError(jsonOutput, application, profileName, err)
+		return diffCommandError(jsonOutput, project.Application, profileName, err, project.ProjectRoot)
 	}
 
 	if jsonOutput {
 		return writeDiffJSON(output, diff)
 	}
 
-	return writeDiffText(output, diff)
+	return writeDiffText(output, diff, project.ProjectRoot)
 }

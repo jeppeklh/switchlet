@@ -48,6 +48,49 @@ func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	}
 }
 
+func TestNewWithSelectedProfile_SelectsRequestedProfileWhenPresent(t *testing.T) {
+	application := app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")},
+			{Name: "Staging", Value: stringPointer("Server=staging;Database=App;")},
+		},
+	)
+
+	model := NewWithSelectedProfile(application, "Staging")
+
+	selectedProfileName, ok := model.SelectedProfileName()
+	if !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want Staging, true", selectedProfileName, ok)
+	}
+	if model.cursor != 1 {
+		t.Fatalf("cursor = %d, want requested profile index 1", model.cursor)
+	}
+	if !strings.Contains(model.View(), "> Staging") {
+		t.Fatalf("View() = %q, want selected Staging profile", model.View())
+	}
+}
+
+func TestNewWithSelectedProfile_FallsBackWhenRequestedProfileIsMissing(t *testing.T) {
+	application := app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")},
+			{Name: "Staging", Value: stringPointer("Server=staging;Database=App;")},
+		},
+	)
+
+	model := NewWithSelectedProfile(application, "Deleted")
+
+	selectedProfileName, ok := model.SelectedProfileName()
+	if !ok || selectedProfileName != "Local" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want Local fallback, true", selectedProfileName, ok)
+	}
+	if model.cursor != 0 {
+		t.Fatalf("cursor = %d, want default clamped cursor", model.cursor)
+	}
+}
+
 func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 	projectRoot := t.TempDir()
 	currentValue := "postgres://local-current"

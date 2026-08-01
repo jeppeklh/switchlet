@@ -16,18 +16,31 @@ func TestModel_RendersOverviewProfilesManagedValuesAndReview(t *testing.T) {
 	model = resizeModel(t, model, 120, 32)
 
 	view := model.View()
-	for _, expected := range []string{"Profiles", "Local", "Frontend Only", "Targets", "Review", "database", "frontendApi"} {
+	for _, expected := range []string{"Profiles", "Local", "Frontend Only", "Managed values", "Review", "database", "frontendApi"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("view does not contain %q\n%s", expected, view)
 		}
 	}
-	for _, forbidden := range []string{"Switchlet config", "Managed values", "Review changes", "[1/2]", "[2/2]", "[protected]", "[partial]", "[saveable]"} {
+	for _, forbidden := range []string{"Switchlet config", "Targets", "Add target", "Review changes", "[1/2]", "[2/2]", "[protected]", "[partial]", "[saveable]"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("overview view contains noisy label %q\n%s", forbidden, view)
 		}
 	}
 	if strings.Contains(view, "postgres://local-secret") {
 		t.Fatalf("view leaked literal profile value\n%s", view)
+	}
+
+	model = selectTargetsTab(t, model)
+	view = model.View()
+	for _, expected := range []string{"Managed values", "database", "jsonPath", "a Add value"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("managed values view does not contain %q\n%s", expected, view)
+		}
+	}
+	for _, forbidden := range []string{"Targets", "Select a target", "Add target"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("managed values view contains target wording %q\n%s", forbidden, view)
+		}
 	}
 }
 
@@ -419,7 +432,7 @@ func TestModel_RemoveManagedValueShowsAffectedProfilesAndBlocksInvalidSave(t *te
 		t.Fatalf("state = %v, want overview after target removal", model.state)
 	}
 	view = model.View()
-	if !strings.Contains(view, "Removed target \"frontendApi\"") || !strings.Contains(view, "Save unavailable") {
+	if !strings.Contains(view, "Removed managed value \"frontendApi\"") || !strings.Contains(view, "Save unavailable") {
 		t.Fatalf("review does not show removal and invalid draft\n%s", view)
 	}
 }
@@ -593,12 +606,18 @@ func addManagedValueFromFile(t *testing.T, model Model, fileFilter string, selec
 	model = chooseManagedValueFileByFilter(t, model, fileFilter)
 	model = chooseManagedValueSelectorByFilter(t, model, selectorFilter)
 	if model.state != editorStateManagedValueNameInput {
-		t.Fatalf("state = %v, want target name input", model.state)
+		t.Fatalf("state = %v, want managed value name input", model.state)
+	}
+	if view := model.View(); !strings.Contains(view, "Managed value name") || !strings.Contains(view, "Name managed value") {
+		t.Fatalf("name input view does not use managed value language\n%s", view)
 	}
 	model = enterText(t, model, managedValueName)
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateManagedValueReview {
-		t.Fatalf("state = %v, want target review", model.state)
+		t.Fatalf("state = %v, want managed value review", model.state)
+	}
+	if view := model.View(); !strings.Contains(view, "Review managed value") || strings.Contains(view, "Review target") {
+		t.Fatalf("review view does not use managed value language\n%s", view)
 	}
 	model, _ = pressKey(t, model, tea.KeyEnter)
 	if model.state != editorStateOverview {

@@ -8,8 +8,11 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
-func writeManagedPatchText(output io.Writer, preview app.ManagedPatchPreview) error {
+func writeManagedPatchText(output io.Writer, preview app.ManagedPatchPreview, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "# Switchlet managed patch: %s\n", preview.ProfileName); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(output, "# values: shown for changed managed targets"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(output, "# protected: %t\n", preview.Protected); err != nil {
@@ -26,25 +29,26 @@ func writeManagedPatchText(output io.Writer, preview app.ManagedPatchPreview) er
 	}
 
 	for _, fileGroup := range preview.Files {
-		if err := writeManagedPatchFile(output, fileGroup); err != nil {
+		if err := writeManagedPatchFile(output, fileGroup, projectRoot); err != nil {
 			return err
 		}
 	}
 
-	return writeManagedPatchOmittedTargets(output, preview.OmittedTargets)
+	return writeManagedPatchOmittedTargets(output, preview.OmittedTargets, projectRoot)
 }
 
-func writeManagedPatchFile(output io.Writer, fileGroup app.ManagedPatchFileGroup) error {
+func writeManagedPatchFile(output io.Writer, fileGroup app.ManagedPatchFileGroup, projectRoot string) error {
+	displayPath := displayProjectPath(projectRoot, fileGroup.TargetFile)
 	if _, err := fmt.Fprintln(output); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "diff --switchlet %s\n", fileGroup.TargetFile); err != nil {
+	if _, err := fmt.Fprintf(output, "diff --switchlet %s\n", displayPath); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "--- %s\n", fileGroup.TargetFile); err != nil {
+	if _, err := fmt.Fprintf(output, "--- %s\n", displayPath); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(output, "+++ %s\n", fileGroup.TargetFile); err != nil {
+	if _, err := fmt.Fprintf(output, "+++ %s\n", displayPath); err != nil {
 		return err
 	}
 
@@ -106,7 +110,7 @@ func writeManagedPatchUnavailableHunk(output io.Writer, hunk app.ManagedPatchHun
 	return nil
 }
 
-func writeManagedPatchOmittedTargets(output io.Writer, omittedTargets []app.TargetDescriptor) error {
+func writeManagedPatchOmittedTargets(output io.Writer, omittedTargets []app.TargetDescriptor, projectRoot string) error {
 	if len(omittedTargets) == 0 {
 		return nil
 	}
@@ -122,7 +126,7 @@ func writeManagedPatchOmittedTargets(output io.Writer, omittedTargets []app.Targ
 			return err
 		}
 		if target.TargetFile != "" {
-			if _, err := fmt.Fprintf(output, "# file: %s\n", target.TargetFile); err != nil {
+			if _, err := fmt.Fprintf(output, "# file: %s\n", displayProjectPath(projectRoot, target.TargetFile)); err != nil {
 				return err
 			}
 		}

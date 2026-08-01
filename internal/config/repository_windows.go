@@ -40,3 +40,7 @@ func replaceExistingConfigFile(sourcePath string, targetPath string) error {
 
 	return syscall.EINVAL
 }
+
+func syncConfigContainingDirectory(string) error {
+	return nil
+}

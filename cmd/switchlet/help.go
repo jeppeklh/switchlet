@@ -10,6 +10,8 @@ func usageText() string {
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
 	  switchlet status [--json]                     Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
+	  switchlet version                              Show version information
+	  switchlet completion <shell>                   Generate a static shell completion script
 	  switchlet help [command]                       Show help text
 
 	Interactive workflow:
@@ -33,6 +35,8 @@ func usageText() string {
 	  switchlet status
 	  switchlet diff Local
 	  switchlet diff Local --patch
+	  switchlet version
+	  switchlet completion bash
 	  switchlet help apply
 
 	Exit codes:
@@ -42,20 +46,46 @@ func usageText() string {
 `
 }
 
+func completionHelpText() string {
+	return `Usage:
+	  switchlet completion <shell>
+
+	Generate a static shell completion script without loading .switchlet.yaml.
+	Supported shells: bash, zsh, fish.
+
+	Examples:
+	  switchlet completion bash
+	  switchlet completion zsh
+	  switchlet completion fish
+`
+}
+
 func configHelpText() string {
 	return `Usage:
 	  switchlet config
 
 	Open the interactive configuration editor for the discovered .switchlet.yaml.
-	The editor is a full-screen terminal workflow for reviewing and editing project
-	setup. Version 0.19 requires stdin and stdout to be interactive terminals.
+	The editor is a full-screen terminal workflow for editing profiles and managed
+	values in an in-memory draft. Nothing is written until you review and save the
+	changes.
 
-	Phase 2 exposes the read-only editor shell, review surface, dirty-state handling,
-	and save pipeline scaffolding. Profile and managed-value mutation workflows are
-	extended in later phases.
+	This command requires stdin and stdout to be interactive terminals.
 
 	Examples:
 	  switchlet config
+`
+}
+
+func versionHelpText() string {
+	return `Usage:
+	  switchlet version
+	  switchlet --version
+
+	Show the Switchlet version and exit without loading .switchlet.yaml.
+
+	Examples:
+	  switchlet version
+	  switchlet --version
 `
 }
 

@@ -93,7 +93,7 @@ func (model Model) dirtyQuitView() string {
 			"The draft has pending configuration changes.",
 			"Quit without saving?",
 			"",
-			"No target files have been changed by the config editor.",
+			"No managed files have been changed by the config editor.",
 		}, Focused: true},
 		{Title: "Review", Lines: reviewChangeLines(model.overview())},
 	}, []ui.Action{
@@ -104,7 +104,7 @@ func (model Model) dirtyQuitView() string {
 
 func (model Model) savingView() string {
 	return model.configEditorShell("Saving configuration", []ui.Panel{
-		{Title: "Working", Lines: []string{"Validating draft and target selectors.", "Checking for stale .switchlet.yaml contents.", "Preparing safe replacement."}, Focused: true},
+		{Title: "Working", Lines: []string{"Validating draft and managed value selectors.", "Checking for stale .switchlet.yaml contents.", "Preparing safe replacement."}, Focused: true},
 		{Title: "Configuration", Lines: []string{ui.RenderKeyValue("Config file", model.document.ConfigPath)}},
 	}, nil)
 }
@@ -117,7 +117,7 @@ func (model Model) saveSuccessView() string {
 	if len(model.savedChanges) > 0 {
 		lines = append(lines, "", "Saved changes")
 		for _, change := range model.savedChanges {
-			lines = append(lines, "- "+change.Summary)
+			lines = append(lines, "- "+configEditorChangeSummary(change))
 		}
 	}
 
@@ -183,7 +183,7 @@ func (model Model) navigationLines(overview app.ConfigEditOverview, rows []navig
 func (model Model) overviewTabsLine() string {
 	tabs := []string{
 		model.overviewTabLabel(overviewTabProfiles, "Profiles"),
-		model.overviewTabLabel(overviewTabTargets, "Targets"),
+		model.overviewTabLabel(overviewTabTargets, "Managed values"),
 		model.overviewTabLabel(overviewTabReview, "Review"),
 	}
 
@@ -200,7 +200,7 @@ func (model Model) overviewTabLabel(tab overviewTab, label string) string {
 
 func (model Model) emptyTabLine() string {
 	if model.activeTab == overviewTabTargets {
-		return "No targets configured."
+		return "No managed values configured."
 	}
 
 	return "No profiles configured."
@@ -220,7 +220,7 @@ func (model Model) navigationLabel(overview app.ConfigEditOverview, row navigati
 func (model Model) detailLines(overview app.ConfigEditOverview, row navigationRow) []string {
 	if model.state == editorStateFilter {
 		return []string{
-			"Filter profiles and targets by name, file, type, or selector.",
+			"Filter profiles and managed values by name, file, type, or selector.",
 			"",
 			"Enter applies the filter.",
 			"Esc returns without changing the active filter.",
@@ -247,10 +247,10 @@ func (model Model) detailLines(overview app.ConfigEditOverview, row navigationRo
 func profileSectionLines(overview app.ConfigEditOverview) []string {
 	return []string{
 		ui.RenderKeyValue("Profiles", fmt.Sprintf("%d", len(overview.Profiles))),
-		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(overview.ManagedValues))),
+		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
-		"Select a profile to inspect its included targets.",
-		"Press a to add a profile from existing targets.",
+		"Select a profile to inspect its included managed values.",
+		"Press a to add a profile from existing managed values.",
 	}
 }
 
@@ -258,10 +258,10 @@ func profileDetailLines(profile app.ConfigEditProfileItem) []string {
 	lines := []string{
 		ui.RenderSectionHeading(profile.Name),
 		"",
-		ui.RenderSectionHeading("Targets"),
+		ui.RenderSectionHeading("Managed values"),
 	}
 	if len(profile.Values) == 0 {
-		return append(lines, "No targets are included.")
+		return append(lines, "No managed values are included.")
 	}
 
 	for _, value := range profile.Values {
@@ -280,9 +280,9 @@ func profileDetailLines(profile app.ConfigEditProfileItem) []string {
 
 func managedValueSectionLines(overview app.ConfigEditOverview) []string {
 	return []string{
-		ui.RenderKeyValue("Targets", fmt.Sprintf("%d", len(overview.ManagedValues))),
+		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
-		"Select a target to inspect its file, type, selector, and profile usage.",
+		"Select a managed value to inspect its file, type, selector, and profile usage.",
 		"Press a to add one through files-first selection.",
 	}
 }
@@ -325,13 +325,36 @@ func reviewChangeLines(overview app.ConfigEditOverview) []string {
 		if change.Warning {
 			prefix = "! "
 		}
-		lines = append(lines, prefix+change.Summary)
+		lines = append(lines, prefix+configEditorChangeSummary(change))
 		for _, detail := range change.Detail {
-			lines = append(lines, "  "+detail)
+			lines = append(lines, "  "+configEditorChangeDetail(detail))
 		}
 	}
 
 	return lines
+}
+
+func configEditorChangeSummary(change app.ConfigEditChange) string {
+	summary := change.Summary
+	switch change.Kind {
+	case app.ConfigEditChangeManagedValueAdded, app.ConfigEditChangeManagedValueUpdated, app.ConfigEditChangeManagedValueRenamed, app.ConfigEditChangeManagedValueRemoved:
+		summary = strings.ReplaceAll(summary, "target", "managed value")
+		summary = strings.ReplaceAll(summary, "Target", "Managed value")
+	}
+
+	return summary
+}
+
+func configEditorChangeDetail(detail string) string {
+	switch detail {
+	case "Targets or value sources changed.":
+		return "Managed values or value sources changed."
+	}
+	if strings.HasPrefix(detail, "Targets:") {
+		return strings.Replace(detail, "Targets:", "Managed values:", 1)
+	}
+
+	return detail
 }
 
 func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow navigationRow) []ui.Action {
@@ -370,7 +393,7 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 		)
 	}
 	if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
-		actions = append(actions, ui.Action{Key: "a", Label: "Add target"})
+		actions = append(actions, ui.Action{Key: "a", Label: "Add value"})
 	}
 	if selectedRow.Kind == navigationRowManagedValue {
 		actions = append(actions,
@@ -411,13 +434,13 @@ func sourceLabel(source app.ProfileSource) string {
 func selectorDetailLabel(selectorName string) string {
 	switch selectorName {
 	case "jsonPath":
-		return "JSON path"
+		return "jsonPath"
 	case "yamlPath":
-		return "YAML path"
+		return "yamlPath"
 	case "tomlPath":
-		return "TOML path"
+		return "tomlPath"
 	case "key":
-		return "Key"
+		return "key"
 	default:
 		return selectorName
 	}

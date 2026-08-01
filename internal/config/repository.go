@@ -14,6 +14,12 @@ import (
 
 const gitignoreFileName = ".gitignore"
 
+var (
+	replaceConfigFile   = replaceExistingConfigFile
+	syncConfigFile      = syncTemporaryConfigFile
+	syncConfigDirectory = syncConfigContainingDirectory
+)
+
 // ErrConfigAlreadyExists indicates that init found an existing Switchlet configuration.
 var ErrConfigAlreadyExists = errors.New("configuration already exists")
 
@@ -478,20 +484,31 @@ func writePreparedReplacement(configPath string, contents []byte, permissions fs
 		return fmt.Errorf("write temporary configuration file %q: %w", temporaryFilePath, err)
 	}
 
+	if err := temporaryFile.Chmod(permissions); err != nil {
+		return fmt.Errorf("apply permissions to temporary configuration file %q: %w", temporaryFilePath, err)
+	}
+
+	if err := syncConfigFile(temporaryFile); err != nil {
+		return fmt.Errorf("sync temporary configuration file %q: %w", temporaryFilePath, err)
+	}
+
 	if err := temporaryFile.Close(); err != nil {
 		return fmt.Errorf("close temporary configuration file %q: %w", temporaryFilePath, err)
 	}
 	temporaryFile = nil
 
-	if err := os.Chmod(temporaryFilePath, permissions); err != nil {
-		return fmt.Errorf("apply permissions to temporary configuration file %q: %w", temporaryFilePath, err)
-	}
-
-	if err := replaceExistingConfigFile(temporaryFilePath, configPath); err != nil {
+	if err := replaceConfigFile(temporaryFilePath, configPath); err != nil {
 		return fmt.Errorf("replace configuration file with temporary file %q: %w", temporaryFilePath, err)
+	}
+	if err := syncConfigDirectory(configDirectory); err != nil {
+		return fmt.Errorf("sync configuration directory %q: %w", configDirectory, err)
 	}
 
 	return nil
+}
+
+func syncTemporaryConfigFile(file *os.File) error {
+	return file.Sync()
 }
 
 func tempConfigFilePattern(configPath string) string {

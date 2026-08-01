@@ -14,6 +14,8 @@ Command-only reference for the `switchlet` CLI.
 | `switchlet apply <profile-name> [flags]` | Apply one configured profile. |
 | `switchlet status [--json]` | Compare current managed values with configured profiles. |
 | `switchlet diff <profile-name> [--json\|--patch]` | Compare one profile with current managed values. |
+| `switchlet version` / `switchlet --version` | Show version information. |
+| `switchlet completion <shell>` | Generate a static shell completion script. |
 | `switchlet help [command]` | Show general or command-specific help. |
 
 Switchlet discovers `.switchlet.yaml` by searching upward from the current
@@ -166,6 +168,30 @@ Patch output intentionally includes current and profile values for would-update
 managed targets. It does not print unrelated file contents, omitted target
 values, unavailable values, or unchanged already-matching values.
 
+## Utility Commands
+
+### `switchlet version`
+
+Shows the Switchlet version without loading project configuration.
+
+```bash
+switchlet version
+switchlet --version
+```
+
+### `switchlet completion`
+
+Generates static shell completion scripts without loading project configuration.
+
+```bash
+switchlet completion bash
+switchlet completion zsh
+switchlet completion fish
+```
+
+Completion includes static commands and flags. It does not complete profile names
+from `.switchlet.yaml`.
+
 ## Examples
 
 ```bash
@@ -176,6 +202,8 @@ switchlet apply Local --dry-run
 switchlet apply Local
 switchlet status
 switchlet diff Local
+switchlet version
+switchlet completion bash
 switchlet help apply
 ```
 

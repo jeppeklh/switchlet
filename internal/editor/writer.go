@@ -8,7 +8,11 @@ import (
 	"path/filepath"
 )
 
-var replaceFile = replaceExistingFile
+var (
+	replaceFile   = replaceExistingFile
+	syncFile      = syncTemporaryFile
+	syncDirectory = syncContainingDirectory
+)
 
 func writeFileAtomically(targetPath string, contents []byte, permissions fs.FileMode) (returnErr error) {
 	targetDirectory := filepath.Dir(targetPath)
@@ -36,20 +40,31 @@ func writeFileAtomically(targetPath string, contents []byte, permissions fs.File
 		return fmt.Errorf("write temporary file %q: %w", temporaryFilePath, err)
 	}
 
+	if err := temporaryFile.Chmod(permissions); err != nil {
+		return fmt.Errorf("apply permissions to temporary file %q: %w", temporaryFilePath, err)
+	}
+
+	if err := syncFile(temporaryFile); err != nil {
+		return fmt.Errorf("sync temporary file %q: %w", temporaryFilePath, err)
+	}
+
 	if err := temporaryFile.Close(); err != nil {
 		return fmt.Errorf("close temporary file %q: %w", temporaryFilePath, err)
 	}
 	temporaryFile = nil
 
-	if err := os.Chmod(temporaryFilePath, permissions); err != nil {
-		return fmt.Errorf("apply permissions to temporary file %q: %w", temporaryFilePath, err)
-	}
-
 	if err := replaceFile(temporaryFilePath, targetPath); err != nil {
 		return fmt.Errorf("replace target file with temporary file %q: %w", temporaryFilePath, err)
 	}
+	if err := syncDirectory(targetDirectory); err != nil {
+		return fmt.Errorf("sync target directory %q: %w", targetDirectory, err)
+	}
 
 	return nil
+}
+
+func syncTemporaryFile(file *os.File) error {
+	return file.Sync()
 }
 
 func tempFilePattern(targetPath string) string {

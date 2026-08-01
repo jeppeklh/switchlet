@@ -53,7 +53,7 @@ func (model Model) handleProfileIncludeValuesKey(message tea.KeyMsg) (tea.Model,
 		}
 	case isOpenKey(message):
 		if model.includedProfileValueCount() == 0 {
-			model.profileForm.errorMessage = "Include at least one target."
+			model.profileForm.errorMessage = "Include at least one managed value."
 			return model, nil
 		}
 		if nextIndex, ok := model.nextIncompleteIncludedProfileValue(0); ok {

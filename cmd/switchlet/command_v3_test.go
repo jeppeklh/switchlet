@@ -152,12 +152,12 @@ profiles:
 		"Profile: Staging",
 		"Changes: 2 targets",
 		"- database [json]",
-		"file: " + databasePath,
+		"file: backend/appsettings.Development.json",
 		"jsonPath: database.url",
 		"environment variable: STAGING_DATABASE_URL",
 		"Password=****",
 		"- frontendApi [dotenv]",
-		"file: " + frontendPath,
+		"file: frontend/.env.local",
 		"key: VITE_API_URL",
 		"masked value: https://api.staging.example.test",
 	} {
@@ -167,6 +167,11 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "super-secret") {
 		t.Fatalf("stdout %q must not include the resolved secret", result.stdout)
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
+		}
 	}
 }
 
@@ -251,10 +256,10 @@ profiles:
 	for _, expected := range []string{
 		`Applied profile "Staging"`,
 		"Updated targets:",
-		"updated " + databasePath,
+		"updated backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"updated " + frontendPath,
+		"updated frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 	} {
@@ -265,6 +270,11 @@ profiles:
 	for _, forbidden := range []string{"postgres://staging", "https://api.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !strings.Contains(string(readFileBytes(t, databasePath)), "postgres://staging") {
@@ -297,10 +307,10 @@ profiles:
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
 		"Planned targets:",
-		"would update " + databasePath,
+		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"would update " + frontendPath,
+		"would update frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 		"No changes were written.",
@@ -312,6 +322,11 @@ profiles:
 	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
@@ -370,7 +385,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Could not prepare target "frontendApi".`,
-		"File:\n" + frontendPath,
+		"File:\nfrontend/.env.local",
 		"Type:\ndotenv",
 		"Selector:\nVITE_API_URL",
 		"Reason:\nreplacement value must not contain newline characters",
@@ -382,6 +397,9 @@ profiles:
 	}
 	if strings.Contains(result.stderr, "secret-value") {
 		t.Fatalf("stderr %q must not contain resolved replacement value", result.stderr)
+	}
+	if strings.Contains(result.stderr, frontendPath) {
+		t.Fatalf("stderr %q must use project-relative path instead of %q", result.stderr, frontendPath)
 	}
 
 	jsonResult := runCommandForTest(t, []string{"apply", "Staging", "--json"}, projectRoot)

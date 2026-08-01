@@ -40,3 +40,7 @@ func replaceExistingFile(sourcePath string, targetPath string) error {
 
 	return syscall.EINVAL
 }
+
+func syncContainingDirectory(string) error {
+	return nil
+}

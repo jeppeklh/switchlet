@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -538,6 +539,72 @@ func TestRunCommand_ApplyWithoutProfileFallsBackToUsageWhenConfigCannotLoad(t *t
 	}
 }
 
+func TestRunCommand_VersionPrintsWithoutLoadingConfiguration(t *testing.T) {
+	commandResult := runCommandForTest(t, []string{"version"}, t.TempDir())
+	flagResult := runCommandForTest(t, []string{"--version"}, t.TempDir())
+
+	if commandResult.exitCode != 0 {
+		t.Fatalf("switchlet version exitCode = %d, want 0 (stdout: %q, stderr: %q)", commandResult.exitCode, commandResult.stdout, commandResult.stderr)
+	}
+	if flagResult.exitCode != 0 {
+		t.Fatalf("switchlet --version exitCode = %d, want 0 (stdout: %q, stderr: %q)", flagResult.exitCode, flagResult.stdout, flagResult.stderr)
+	}
+	if commandResult.programStarted || flagResult.programStarted {
+		t.Fatal("version command started the terminal program")
+	}
+	if commandResult.stdout == "" || !strings.HasPrefix(commandResult.stdout, "switchlet ") {
+		t.Fatalf("version stdout = %q, want concise switchlet version line", commandResult.stdout)
+	}
+	if flagResult.stdout != commandResult.stdout {
+		t.Fatalf("--version stdout = %q, want %q", flagResult.stdout, commandResult.stdout)
+	}
+}
+
+func TestRunCommand_VersionUsesBuildOverride(t *testing.T) {
+	originalBuildVersion := buildVersion
+	buildVersion = "v0.20.0-test"
+	t.Cleanup(func() { buildVersion = originalBuildVersion })
+
+	result := runCommandForTest(t, []string{"version"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.stdout != "switchlet v0.20.0-test\n" {
+		t.Fatalf("stdout = %q, want build override version", result.stdout)
+	}
+}
+
+func TestRunCommand_HelpListsVersionCommand(t *testing.T) {
+	result := runCommandForTest(t, []string{"help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "switchlet version") {
+		t.Fatalf("stdout %q does not list version command", result.stdout)
+	}
+}
+
+func TestRunCommand_UnknownCommandSuggestsVersion(t *testing.T) {
+	result := runCommandForTest(t, []string{"versoin"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{`unknown command "versoin"`, `Did you mean "version"?`} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestDisplayProjectPathKeepsOutsideProjectPathAbsolute(t *testing.T) {
+	projectRoot := filepath.Join(t.TempDir(), "project")
+	outsidePath := filepath.Join(t.TempDir(), "runtime.json")
+
+	if got := displayProjectPath(projectRoot, outsidePath); got != outsidePath {
+		t.Fatalf("displayProjectPath() = %q, want outside path %q", got, outsidePath)
+	}
+}
+
 func TestRunCommand_UnknownCommandSuggestsNearestCommand(t *testing.T) {
 	result := runCommandForTest(t, []string{"aply"}, t.TempDir())
 	if result.exitCode != usageExitCode {
@@ -584,14 +651,14 @@ profiles:
 	if !strings.Contains(result.stdout, `Applied profile "Local"`) {
 		t.Fatalf("stdout %q does not include apply success", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Updated target:") || !strings.Contains(result.stdout, "updated "+targetPath) {
+	if !strings.Contains(result.stdout, "Updated target:") || !strings.Contains(result.stdout, "updated config/runtime.json") {
 		t.Fatalf("stdout %q does not include updated target marker", result.stdout)
 	}
 	if !strings.Contains(result.stdout, "default [json]") {
 		t.Fatalf("stdout %q does not include target name and type", result.stdout)
 	}
-	if !strings.Contains(result.stdout, targetPath) {
-		t.Fatalf("stdout %q does not include target file path", result.stdout)
+	if strings.Contains(result.stdout, targetPath) {
+		t.Fatalf("stdout %q must use project-relative target path instead of %q", result.stdout, targetPath)
 	}
 	if !strings.Contains(result.stdout, "services.backend.baseUrl") {
 		t.Fatalf("stdout %q does not include target JSON path", result.stdout)
@@ -738,14 +805,14 @@ profiles:
 	if !strings.Contains(allowed.stdout, `Dry run successful for profile "Production"`) {
 		t.Fatalf("stdout %q does not include dry-run success", allowed.stdout)
 	}
-	if !strings.Contains(allowed.stdout, "Planned target:") || !strings.Contains(allowed.stdout, "would update "+targetPath) {
+	if !strings.Contains(allowed.stdout, "Planned target:") || !strings.Contains(allowed.stdout, "would update config/runtime.json") {
 		t.Fatalf("stdout %q does not include planned target marker", allowed.stdout)
 	}
 	if !strings.Contains(allowed.stdout, "default [json]") {
 		t.Fatalf("stdout %q does not include target name and type", allowed.stdout)
 	}
-	if !strings.Contains(allowed.stdout, targetPath) {
-		t.Fatalf("stdout %q does not include target file path", allowed.stdout)
+	if strings.Contains(allowed.stdout, targetPath) {
+		t.Fatalf("stdout %q must use project-relative target path instead of %q", allowed.stdout, targetPath)
 	}
 	if !strings.Contains(allowed.stdout, "services.backend.baseUrl") {
 		t.Fatalf("stdout %q does not include target JSON path", allowed.stdout)
@@ -886,7 +953,8 @@ func TestRunCommand_ListJSONReturnsStructuredConfigNotFoundError(t *testing.T) {
 
 	var payload struct {
 		Error struct {
-			Kind string `json:"kind"`
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
@@ -894,6 +962,21 @@ func TestRunCommand_ListJSONReturnsStructuredConfigNotFoundError(t *testing.T) {
 	}
 	if payload.Error.Kind != "config_not_found" {
 		t.Fatalf("error.kind = %q, want %q", payload.Error.Kind, "config_not_found")
+	}
+	if !strings.Contains(payload.Error.Message, "Run `switchlet init`") {
+		t.Fatalf("error.message = %q, want init guidance", payload.Error.Message)
+	}
+}
+
+func TestRunCommand_ListWithoutConfigSuggestsInit(t *testing.T) {
+	result := runCommandForTest(t, []string{"list"}, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	for _, expected := range []string{"No .switchlet.yaml found.", "Run `switchlet init` to create one"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
 	}
 }
 

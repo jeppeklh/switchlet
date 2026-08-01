@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 
@@ -21,9 +23,15 @@ const (
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
 
 var (
-	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff"}
-	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff"}
+	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "version", "completion"}
+	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "version", "completion"}
+	buildVersion   = ""
 )
+
+type loadedProject struct {
+	Application app.Application
+	ProjectRoot string
+}
 
 func main() {
 	workingDirectory, err := os.Getwd()
@@ -54,6 +62,45 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 	switch args[0] {
 	case "help", "-h", "--help":
 		return writeHelp(output, args[1:])
+	case "--version":
+		if len(args) != 1 {
+			return usageCommandError(false, "--version does not accept arguments\n\n%s", usageText())
+		}
+
+		return writeVersion(output)
+	case "version":
+		if wantsHelpFlag(args[1:]) {
+			_, err := io.WriteString(output, versionHelpText())
+			return err
+		}
+
+		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		if err != nil {
+			return usageCommandError(false, "version: %v\n\n%s", err, versionHelpText())
+		}
+		if len(positionals) != 0 {
+			return usageCommandError(false, "version does not accept a positional argument\n\n%s", versionHelpText())
+		}
+
+		return writeVersion(output)
+	case "completion":
+		if wantsHelpFlag(args[1:]) {
+			_, err := io.WriteString(output, completionHelpText())
+			return err
+		}
+
+		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		if err != nil {
+			return usageCommandError(false, "completion: %v\n\n%s", err, completionHelpText())
+		}
+		if len(positionals) == 0 {
+			return usageCommandError(false, "completion requires a shell name\n\n%s", completionHelpText())
+		}
+		if len(positionals) != 1 {
+			return usageCommandError(false, "completion requires exactly one shell name\n\n%s", completionHelpText())
+		}
+
+		return writeCompletionScript(output, positionals[0])
 	case "init":
 		if wantsHelpFlag(args[1:]) {
 			_, err := io.WriteString(output, initHelpText())
@@ -140,9 +187,35 @@ func helpTextForTopic(topic string) (string, error) {
 		return statusHelpText(), nil
 	case "diff":
 		return diffHelpText(), nil
+	case "version":
+		return versionHelpText(), nil
+	case "completion":
+		return completionHelpText(), nil
 	default:
 		return "", usageCommandError(false, "%s\n\n%s", unknownHelpTopicMessage(topic), usageText())
 	}
+}
+
+func writeVersion(output io.Writer) error {
+	_, err := fmt.Fprintln(output, versionLine())
+	return err
+}
+
+func versionLine() string {
+	return "switchlet " + resolvedVersion()
+}
+
+func resolvedVersion() string {
+	if version := strings.TrimSpace(buildVersion); version != "" {
+		return version
+	}
+
+	buildInfo, ok := debug.ReadBuildInfo()
+	if ok && buildInfo.Main.Version != "" && buildInfo.Main.Version != "(devel)" {
+		return buildInfo.Main.Version
+	}
+
+	return "dev"
 }
 
 func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) error) error {
@@ -163,22 +236,31 @@ func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram
 }
 
 func loadApplication(workingDirectory string) (app.Application, error) {
-	configPath, err := config.Discover(workingDirectory)
+	project, err := loadProject(workingDirectory)
 	if err != nil {
 		return app.Application{}, err
+	}
+
+	return project.Application, nil
+}
+
+func loadProject(workingDirectory string) (loadedProject, error) {
+	configPath, err := config.Discover(workingDirectory)
+	if err != nil {
+		return loadedProject{}, err
 	}
 
 	loadedConfig, err := config.Load(configPath)
 	if err != nil {
-		return app.Application{}, err
+		return loadedProject{}, err
 	}
 
 	application := app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles)
 	if err := application.ValidateStartup(); err != nil {
-		return app.Application{}, err
+		return loadedProject{}, err
 	}
 
-	return application, nil
+	return loadedProject{Application: application, ProjectRoot: filepath.Dir(configPath)}, nil
 }
 
 func startFullScreenProgram(output io.Writer) terminalProgramRunner {

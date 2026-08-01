@@ -40,10 +40,10 @@ profiles:
 		"Local",
 		"Matched targets",
 		"> database [json]",
-		databasePath,
+		"backend/appsettings.Development.json",
 		"jsonPath          database.url",
 		"> frontendApi [dotenv]",
-		frontendPath,
+		"frontend/.env.local",
 		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
@@ -53,6 +53,11 @@ profiles:
 	for _, forbidden := range []string{"postgres://old", "http://localhost:5173", "postgres://staging", "https://api.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
@@ -167,16 +172,16 @@ func TestRunCommand_StatusReportsMixedTargetExactMatchAndUnavailableProfileWitho
 		"Local",
 		"Matched targets",
 		"> database [json]",
-		targetPaths["database"],
+		"backend/appsettings.Development.json",
 		"jsonPath          database.url",
 		"> workerQueue [yaml]",
-		targetPaths["workerQueue"],
+		"worker/config.yaml",
 		"yamlPath          queue.endpoint",
 		"> serviceEndpoint [toml]",
-		targetPaths["serviceEndpoint"],
+		"services/development.toml",
 		"tomlPath          services.api.endpoint",
 		"> frontendApi [dotenv]",
-		targetPaths["frontendApi"],
+		"frontend/.env.local",
 		"key               VITE_API_URL",
 		"Unavailable profiles",
 		"> Staging [protected] / workerQueue [yaml]",
@@ -197,6 +202,11 @@ func TestRunCommand_StatusReportsMixedTargetExactMatchAndUnavailableProfileWitho
 	} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range targetPaths {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	assertTargetContentsUnchanged(t, targetPaths, originalContents)
@@ -276,11 +286,11 @@ profiles:
 		"Protection        not protected",
 		"Would update",
 		"> database [json]",
-		databasePath,
+		"backend/appsettings.Development.json",
 		"jsonPath          database.url",
 		"Already matches",
 		"> frontendApi [dotenv]",
-		frontendPath,
+		"frontend/.env.local",
 		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
@@ -290,6 +300,11 @@ profiles:
 	for _, forbidden := range []string{"postgres://staging", "http://localhost:5173"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
@@ -323,7 +338,7 @@ profiles:
 		`environment variable "MISSING_DATABASE_URL" is not set`,
 		"Omitted targets",
 		"> frontendApi [dotenv]",
-		frontendPath,
+		"frontend/.env.local",
 		"key               VITE_API_URL",
 	} {
 		if !strings.Contains(result.stdout, expected) {
@@ -332,6 +347,9 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "postgres://old") || strings.Contains(result.stdout, "http://localhost:5173") {
 		t.Fatalf("stdout %q must not contain raw current values", result.stdout)
+	}
+	if strings.Contains(result.stdout, frontendPath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, frontendPath)
 	}
 }
 

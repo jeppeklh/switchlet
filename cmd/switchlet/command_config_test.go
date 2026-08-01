@@ -16,6 +16,16 @@ func TestRunCommand_ConfigHelpWritesUsageWithoutLaunchingEditor(t *testing.T) {
 	if !strings.Contains(result.stdout, "switchlet config") {
 		t.Fatalf("stdout %q does not contain config usage", result.stdout)
 	}
+	for _, forbidden := range []string{"Phase", "scaffolding", "later phases"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain internal config help wording %q", result.stdout, forbidden)
+		}
+	}
+	for _, expected := range []string{"in-memory draft", "review and save", "interactive terminals"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain user-facing config help wording %q", result.stdout, expected)
+		}
+	}
 }
 
 func TestRunCommand_HelpConfigWritesUsage(t *testing.T) {

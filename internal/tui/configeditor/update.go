@@ -236,7 +236,7 @@ func (model Model) selectedRow(rows []navigationRow) navigationRow {
 	if len(rows) == 0 {
 		switch model.activeTab {
 		case overviewTabTargets:
-			return navigationRow{Kind: navigationRowManagedValuesSection, Label: "Targets"}
+			return navigationRow{Kind: navigationRowManagedValuesSection, Label: "Managed values"}
 		case overviewTabReview:
 			return navigationRow{Kind: navigationRowReview, Label: "Review changes"}
 		default:

@@ -54,10 +54,11 @@ func usageCommandError(jsonOutput bool, format string, arguments ...any) error {
 }
 
 func runtimeCommandError(jsonOutput bool, err error) error {
-	return runtimeCommandErrorWithMessage(jsonOutput, err, err.Error())
+	return runtimeCommandErrorWithMessage(jsonOutput, err, formatRuntimeErrorMessage(err, err.Error()))
 }
 
 func runtimeCommandErrorWithMessage(jsonOutput bool, err error, message string) error {
+	message = formatRuntimeErrorMessage(err, message)
 	if !jsonOutput {
 		return commandError{message: message, exitCode: runtimeExitCode}
 	}
@@ -65,7 +66,7 @@ func runtimeCommandErrorWithMessage(jsonOutput bool, err error, message string) 
 	return commandFailure(true, runtimeExitCode, runtimeErrorKind(err), message)
 }
 
-func applyCommandError(jsonOutput bool, application app.Application, profileName string, err error) error {
+func applyCommandError(jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
 	if errors.Is(err, app.ErrProfileNotFound) {
 		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
 	}
@@ -78,10 +79,18 @@ func applyCommandError(jsonOutput bool, application app.Application, profileName
 
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetErrorMessage(profileName, targetErr))
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetErrorMessage(profileName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
 	}
 
 	return runtimeCommandError(jsonOutput, err)
+}
+
+func formatRuntimeErrorMessage(err error, message string) string {
+	if errors.Is(err, config.ErrConfigNotFound) {
+		return "No .switchlet.yaml found.\n\nRun `switchlet init` to create one, or run Switchlet from a configured project."
+	}
+
+	return message
 }
 
 func unknownCommandMessage(commandName string) string {
@@ -325,13 +334,13 @@ func unavailableProfileValues(profileItem app.ProfileItem) []app.ProfileValueIte
 	return unavailableValues
 }
 
-func formatTargetErrorMessage(profileName string, targetErr editor.TargetError) string {
+func formatTargetErrorMessage(profileName string, targetErr editor.TargetError, projectRoot string) string {
 	target := targetErr.Target
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Could not prepare target %q.", targetNameLabel(target.Name))
 
 	if target.File != "" {
-		fmt.Fprintf(&builder, "\n\nFile:\n%s", target.File)
+		fmt.Fprintf(&builder, "\n\nFile:\n%s", displayProjectPath(projectRoot, target.File))
 	}
 	if target.Type != "" {
 		fmt.Fprintf(&builder, "\n\nType:\n%s", target.Type)
@@ -347,30 +356,30 @@ func formatTargetErrorMessage(profileName string, targetErr editor.TargetError) 
 	return builder.String()
 }
 
-func comparisonCommandError(jsonOutput bool, commandName string, err error) error {
+func comparisonCommandError(jsonOutput bool, commandName string, err error, projectRoot string) error {
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetReadErrorMessage(commandName, targetErr))
+		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetReadErrorMessage(commandName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
 	}
 
 	return runtimeCommandError(jsonOutput, err)
 }
 
-func diffCommandError(jsonOutput bool, application app.Application, profileName string, err error) error {
+func diffCommandError(jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
 	if errors.Is(err, app.ErrProfileNotFound) {
 		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
 	}
 
-	return comparisonCommandError(jsonOutput, "diff", err)
+	return comparisonCommandError(jsonOutput, "diff", err, projectRoot)
 }
 
-func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetError) string {
+func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetError, projectRoot string) string {
 	target := targetErr.Target
 	var builder strings.Builder
 	fmt.Fprintf(&builder, "Could not read target %q while running switchlet %s.", targetNameLabel(target.Name), commandName)
 
 	if target.File != "" {
-		fmt.Fprintf(&builder, "\n\nFile:\n%s", target.File)
+		fmt.Fprintf(&builder, "\n\nFile:\n%s", displayProjectPath(projectRoot, target.File))
 	}
 	if target.Type != "" {
 		fmt.Fprintf(&builder, "\n\nType:\n%s", target.Type)
@@ -383,6 +392,14 @@ func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetErr
 	}
 
 	return builder.String()
+}
+
+func textProjectRoot(jsonOutput bool, projectRoot string) string {
+	if jsonOutput {
+		return ""
+	}
+
+	return projectRoot
 }
 
 func selectorValue(target config.Target) string {

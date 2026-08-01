@@ -82,3 +82,42 @@ func TestUpdateStringValue_RenameFailureLeavesOriginalFileIntactAndCleansTempora
 		t.Fatal("temporary file was not cleaned up after rename failure")
 	}
 }
+
+func TestUpdateStringValue_SyncFailureLeavesOriginalFileIntactAndCleansTemporaryFiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	originalSyncFile := syncFile
+	syncFile = func(*os.File) error {
+		return errors.New("sync failed")
+	}
+	t.Cleanup(func() {
+		syncFile = originalSyncFile
+	})
+
+	err := UpdateStringValue(targetPath, "database.primary.url", "postgres://new")
+	if err == nil {
+		t.Fatal("UpdateStringValue returned nil error, want sync failure")
+	}
+	if !strings.Contains(err.Error(), "sync failed") {
+		t.Fatalf("UpdateStringValue returned error %q, want sync failure", err)
+	}
+
+	updatedContents := readFile(t, targetPath)
+	if !bytes.Equal(updatedContents, originalContents) {
+		t.Fatal("target file changed after sync failure")
+	}
+
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("temporary file was not cleaned up after sync failure")
+	}
+}

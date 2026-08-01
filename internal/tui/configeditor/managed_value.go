@@ -65,7 +65,7 @@ func (model *Model) beginAddManagedValue() tea.Cmd {
 func (model *Model) beginRenameManagedValue(targetName string) {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
 		model.selectReviewOverview()
 		return
 	}
@@ -84,7 +84,7 @@ func (model *Model) beginRenameManagedValue(targetName string) {
 func (model *Model) beginEditManagedValueLocation(targetName string) tea.Cmd {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
 		model.selectReviewOverview()
 		return nil
 	}
@@ -105,7 +105,7 @@ func (model *Model) beginEditManagedValueLocation(targetName string) tea.Cmd {
 func (model *Model) beginRemoveManagedValue(targetName string) {
 	target, ok := model.managedValueTarget(targetName)
 	if !ok {
-		model.saveError = fmt.Sprintf("target %q was not found", targetName)
+		model.saveError = fmt.Sprintf("managed value %q was not found", targetName)
 		model.selectReviewOverview()
 		return
 	}
@@ -286,7 +286,7 @@ func (model *Model) applyManagedValueManualSelector() tea.Cmd {
 func (model *Model) applyManagedValueNameInput() {
 	managedValueName := strings.TrimSpace(model.inputValue)
 	if managedValueName == "" {
-		model.managedForm.errorMessage = "Target name must be set."
+		model.managedForm.errorMessage = "Managed value name must be set."
 		return
 	}
 

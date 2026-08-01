@@ -283,6 +283,189 @@ profiles:
 	}
 }
 
+func TestInteractiveSession_ConfigReturnPreservesSelectedProfileAndCurrentBadgeSemantics(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+`)+"\n")
+	writeFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+
+	application, err := loadApplication(projectRoot)
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+	session := newInteractiveSessionModel(projectRoot, application)
+	updatedModel, _ := session.Update(tea.KeyMsg{Type: tea.KeyDown})
+	session = updatedModel.(interactiveSessionModel)
+	updatedModel, _ = session.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	session = updatedModel.(interactiveSessionModel)
+	if session.mode != interactiveSessionConfig {
+		t.Fatalf("session mode = %v, want config editor", session.mode)
+	}
+
+	updatedModel, command := session.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	session = updatedModel.(interactiveSessionModel)
+	if command == nil {
+		t.Fatal("command is nil, want main picker init command after returning")
+	}
+	updatedModel, _ = session.Update(command())
+	session = updatedModel.(interactiveSessionModel)
+
+	view := session.View()
+	if !strings.Contains(view, "> Staging") {
+		t.Fatalf("returned picker view = %q, want Staging cursor preserved", view)
+	}
+	if !strings.Contains(view, "Local [current]") {
+		t.Fatalf("returned picker view = %q, want Local current badge from file contents", view)
+	}
+	if strings.Contains(view, "Staging [current]") {
+		t.Fatalf("returned picker view = %q, selected Staging must not become current badge", view)
+	}
+}
+
+func TestInteractiveSession_ConfigSavePreservesSelectedProfileWhenStillPresent(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+`)+"\n")
+	writeFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+
+	application, err := loadApplication(projectRoot)
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+	session := newInteractiveSessionModel(projectRoot, application)
+	updatedModel, _ := session.Update(tea.KeyMsg{Type: tea.KeyDown})
+	session = updatedModel.(interactiveSessionModel)
+	updatedModel, _ = session.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	session = updatedModel.(interactiveSessionModel)
+
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+  - name: QA
+    values:
+      - target: database
+        value: postgres://qa
+`)+"\n")
+
+	updatedModel, command := session.handleConfigResult(configeditor.Result{Saved: true, ConfigPath: filepath.Join(projectRoot, ".switchlet.yaml")})
+	session = updatedModel.(interactiveSessionModel)
+	if command == nil {
+		t.Fatal("command is nil, want main picker init command after saved reload")
+	}
+	if !strings.Contains(session.View(), "> Staging") {
+		t.Fatalf("reloaded picker view = %q, want Staging cursor preserved", session.View())
+	}
+}
+
+func TestInteractiveSession_ConfigSaveFallsBackWhenSelectedProfileWasDeleted(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+`)+"\n")
+	writeFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+
+	application, err := loadApplication(projectRoot)
+	if err != nil {
+		t.Fatalf("loadApplication returned error: %v", err)
+	}
+	session := newInteractiveSessionModel(projectRoot, application)
+	updatedModel, _ := session.Update(tea.KeyMsg{Type: tea.KeyDown})
+	session = updatedModel.(interactiveSessionModel)
+	updatedModel, _ = session.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	session = updatedModel.(interactiveSessionModel)
+
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local
+`)+"\n")
+
+	updatedModel, _ = session.handleConfigResult(configeditor.Result{Saved: true, ConfigPath: filepath.Join(projectRoot, ".switchlet.yaml")})
+	session = updatedModel.(interactiveSessionModel)
+	view := session.View()
+	if !strings.Contains(view, "> Local") {
+		t.Fatalf("reloaded picker view = %q, want valid fallback selection", view)
+	}
+	if strings.Contains(view, "> Staging") {
+		t.Fatalf("reloaded picker view = %q, must not select deleted profile", view)
+	}
+}
+
 func TestInteractiveSession_ConfigSaveReloadsBeforeReturningToPicker(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`

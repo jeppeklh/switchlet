@@ -58,13 +58,16 @@ profiles:
 	for _, expected := range []string{
 		"Profile: Local",
 		"- serviceEndpoint [toml]",
-		"file: " + servicePath,
+		"file: services/development.toml",
 		"tomlPath: services.api.endpoint",
 		"masked value: http://localhost:8080",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
 		}
+	}
+	if strings.Contains(result.stdout, servicePath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, servicePath)
 	}
 }
 
@@ -156,7 +159,7 @@ profiles:
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
 		"Planned target:",
-		"would update " + servicePath,
+		"would update services/development.toml",
 		"  serviceEndpoint [toml]",
 		"  services.api.endpoint",
 		"No changes were written.",
@@ -167,6 +170,9 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "https://api.staging.example.test") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
+	if strings.Contains(result.stdout, servicePath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, servicePath)
 	}
 	if !bytes.Equal(readFileBytes(t, servicePath), originalServiceContents) {
 		t.Fatal("TOML target changed during dry run")
@@ -235,7 +241,7 @@ profiles:
 	for _, expected := range []string{
 		`Applied profile "Staging"`,
 		"Updated target:",
-		"updated " + servicePath,
+		"updated services/development.toml",
 		"  serviceEndpoint [toml]",
 		"  services.api.endpoint",
 	} {
@@ -245,6 +251,9 @@ profiles:
 	}
 	if strings.Contains(result.stdout, "https://api.staging.example.test") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)
+	}
+	if strings.Contains(result.stdout, servicePath) {
+		t.Fatalf("stdout %q must use project-relative path instead of %q", result.stdout, servicePath)
 	}
 	if !strings.Contains(string(readFileBytes(t, servicePath)), `endpoint = "https://api.staging.example.test"`) {
 		t.Fatalf("TOML target %q was not updated", string(readFileBytes(t, servicePath)))
@@ -274,16 +283,16 @@ profiles:
 	for _, expected := range []string{
 		`Applied profile "Staging"`,
 		"Updated targets:",
-		"updated " + databasePath,
+		"updated backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"updated " + workerPath,
+		"updated worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
-		"updated " + servicePath,
+		"updated services/development.toml",
 		"  serviceEndpoint [toml]",
 		"  services.api.endpoint",
-		"updated " + frontendPath,
+		"updated frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 	} {
@@ -294,6 +303,11 @@ profiles:
 	for _, forbidden := range []string{"postgres-staging", "staging-queue", "https://api.staging.example.test", "https://frontend.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, workerPath, servicePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !strings.Contains(string(readFileBytes(t, databasePath)), "postgres-staging") {
@@ -337,16 +351,16 @@ profiles:
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
 		"Planned targets:",
-		"would update " + databasePath,
+		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
-		"would update " + workerPath,
+		"would update worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
-		"would update " + servicePath,
+		"would update services/development.toml",
 		"  serviceEndpoint [toml]",
 		"  services.api.endpoint",
-		"would update " + frontendPath,
+		"would update frontend/.env.local",
 		"  frontendApi [dotenv]",
 		"  VITE_API_URL",
 		"No changes were written.",
@@ -358,6 +372,11 @@ profiles:
 	for _, forbidden := range []string{"postgres-staging", "staging-queue", "https://api.staging.example.test", "https://frontend.staging.example.test"} {
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain resolved replacement value %q", result.stdout, forbidden)
+		}
+	}
+	for _, absolutePath := range []string{databasePath, workerPath, servicePath, frontendPath} {
+		if strings.Contains(result.stdout, absolutePath) {
+			t.Fatalf("stdout %q must use project-relative paths instead of %q", result.stdout, absolutePath)
 		}
 	}
 	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
