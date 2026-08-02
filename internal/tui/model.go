@@ -32,6 +32,15 @@ const (
 	comparisonRequestDiff
 )
 
+type currentProfileDetectionState int
+
+const (
+	currentProfileDetectionUnknown currentProfileDetectionState = iota
+	currentProfileDetectionChecking
+	currentProfileDetectionReady
+	currentProfileDetectionUnavailable
+)
+
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
 	application       app.Application
@@ -55,6 +64,7 @@ type Model struct {
 	confirmExits      bool
 	currentProfiles   map[string]struct{}
 	currentRequestID  int
+	currentDetection  currentProfileDetectionState
 	configRequested   bool
 
 	statusComparison      *app.StatusComparison
@@ -72,7 +82,7 @@ func New(application app.Application) Model {
 
 // NewWithProjectRoot creates the terminal model with project-relative display context.
 func NewWithProjectRoot(application app.Application, projectRoot string) Model {
-	model := Model{application: application, projectRoot: projectRoot, currentRequestID: 1}
+	model := Model{application: application, projectRoot: projectRoot, currentRequestID: 1, currentDetection: currentProfileDetectionChecking}
 	model.refreshProfiles()
 
 	return model

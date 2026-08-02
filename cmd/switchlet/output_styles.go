@@ -7,6 +7,7 @@ import (
 )
 
 type commandOutputStyles struct {
+	styled  bool
 	title   lipgloss.Style
 	muted   lipgloss.Style
 	heading lipgloss.Style
@@ -18,8 +19,13 @@ type commandOutputStyles struct {
 	error   lipgloss.Style
 }
 
-func defaultCommandOutputStyles() commandOutputStyles {
+func defaultCommandOutputStyles(outputOptions commandOutputOptions) commandOutputStyles {
+	if outputOptions.NoColor {
+		return plainCommandOutputStyles()
+	}
+
 	return commandOutputStyles{
+		styled:  true,
 		title:   lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")),
 		muted:   lipgloss.NewStyle().Foreground(lipgloss.Color("8")),
 		heading: lipgloss.NewStyle().Bold(true),
@@ -32,8 +38,24 @@ func defaultCommandOutputStyles() commandOutputStyles {
 	}
 }
 
-func renderCommandErrorText(message string) string {
-	styles := defaultCommandOutputStyles()
+func plainCommandOutputStyles() commandOutputStyles {
+	style := lipgloss.NewStyle()
+	return commandOutputStyles{
+		styled:  false,
+		title:   style,
+		muted:   style,
+		heading: style,
+		label:   style,
+		marker:  style,
+		badge:   style,
+		success: style,
+		warning: style,
+		error:   style,
+	}
+}
+
+func renderCommandErrorText(message string, outputOptions commandOutputOptions) string {
+	styles := defaultCommandOutputStyles(outputOptions)
 	lines := strings.Split(message, "\n")
 	for index, line := range lines {
 		switch {

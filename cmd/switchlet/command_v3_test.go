@@ -369,6 +369,24 @@ profiles:
 	}
 }
 
+func TestRunCommand_ApplyUnavailableProfileQuotesInspectRecoveryCommand(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Stage Env
+    values:
+      - target: database
+        valueFromEnv: STAGE_DATABASE_URL
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Stage Env"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(result.stderr, "Run `switchlet inspect \"Stage Env\"` to review profile values.") {
+		t.Fatalf("stderr %q does not contain shell-safe inspect recovery command", result.stderr)
+	}
+}
+
 func TestRunCommand_ApplyVersionThreeTargetPreparationErrorShowsSafeTargetContext(t *testing.T) {
 	projectRoot, _, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -420,6 +438,27 @@ profiles:
 	}
 	if !strings.Contains(payload.Error.Message, `Could not prepare target "frontendApi".`) || strings.Contains(payload.Error.Message, "secret-value") {
 		t.Fatalf("error.message = %q, want safe target context", payload.Error.Message)
+	}
+}
+
+func TestRunCommand_ApplyTargetPreparationErrorQuotesInspectRecoveryCommand(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Stage Env
+    values:
+      - target: frontendApi
+        value: "https://secret-value.example.test\nNEXT=value"
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Stage Env"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(result.stderr, "Run `switchlet inspect \"Stage Env\"` to review planned targets.") {
+		t.Fatalf("stderr %q does not contain shell-safe inspect recovery command", result.stderr)
+	}
+	if strings.Contains(result.stderr, "secret-value") {
+		t.Fatalf("stderr %q must not contain resolved replacement value", result.stderr)
 	}
 }
 

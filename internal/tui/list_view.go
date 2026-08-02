@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -63,23 +62,12 @@ func (model Model) profileRows(selectedState RowState) []ListRow {
 }
 
 func (model Model) profilePanelTitle() string {
-	contexts := make([]string, 0, 2)
-	if filter := strings.TrimSpace(model.activeProfileFilter()); filter != "" {
-		label := "Filter"
-		if model.state == searchState {
-			label = "Search"
-		}
-		contexts = append(contexts, label+" "+fmt.Sprintf("%q", filter))
-	}
 	positionContext := model.profileListPositionContext()
-	if positionContext != "" {
-		contexts = append(contexts, positionContext)
-	}
-	if len(contexts) == 0 {
+	if positionContext == "" {
 		return "Profiles"
 	}
 
-	return "Profiles - " + strings.Join(contexts, " - ")
+	return "Profiles - " + positionContext
 }
 
 func (model Model) profileListPositionContext() string {

@@ -126,6 +126,7 @@ func (model Model) handleStatusComparisonCompleted(message statusComparisonCompl
 	result := message.result
 	model.statusComparison = &result
 	model.updateCurrentProfile(result)
+	model.currentDetection = currentProfileDetectionReady
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusReadyState
@@ -158,6 +159,9 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 	model.statusComparison = nil
 	model.diffPreview = nil
 	model.currentProfiles = nil
+	if message.kind == comparisonRequestStatus {
+		model.currentDetection = currentProfileDetectionUnavailable
+	}
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
 	model.clampScrollOffset()
@@ -170,10 +174,12 @@ func (model Model) handleCurrentProfileDetected(message currentProfileDetectedMs
 	}
 	if message.err != nil {
 		model.currentProfiles = nil
+		model.currentDetection = currentProfileDetectionUnavailable
 		return model, nil
 	}
 
 	model.updateCurrentProfile(message.result)
+	model.currentDetection = currentProfileDetectionReady
 	return model, nil
 }
 
@@ -191,6 +197,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.recoverableError = model.applyFailureError(profileName, message.err)
 		model.successResult = nil
 		model.currentProfiles = nil
+		model.currentDetection = currentProfileDetectionUnknown
 		return model, nil
 	}
 
@@ -200,6 +207,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.state = listState
 		model.successResult = nil
 		model.currentProfiles = nil
+		model.currentDetection = currentProfileDetectionChecking
 		model.currentRequestID++
 		return model, detectCurrentProfile(model.application, model.currentRequestID)
 	}
@@ -665,6 +673,7 @@ func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem,
 func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.comparisonRequestID++
 	model.currentRequestID++
+	model.currentDetection = currentProfileDetectionUnknown
 	model.comparisonRequestKind = comparisonRequestStatus
 	model.comparisonProfileName = ""
 	model.statusComparison = nil

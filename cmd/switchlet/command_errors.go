@@ -13,9 +13,10 @@ import (
 )
 
 type commandError struct {
-	message    string
-	exitCode   int
-	jsonOutput bool
+	message       string
+	exitCode      int
+	jsonOutput    bool
+	outputOptions commandOutputOptions
 }
 
 func (errorValue commandError) Error() string {
@@ -32,7 +33,7 @@ func writeCommandError(err error, output io.Writer, errorOutput io.Writer) error
 			return writeErr
 		}
 
-		_, writeErr := fmt.Fprintln(writer, renderCommandErrorText(commandFailure.message))
+		_, writeErr := fmt.Fprintln(writer, renderCommandErrorText(commandFailure.message, commandFailure.outputOptions))
 		return writeErr
 	}
 
@@ -49,40 +50,40 @@ func exitCodeForError(err error) int {
 	return runtimeExitCode
 }
 
-func usageCommandError(jsonOutput bool, format string, arguments ...any) error {
-	return commandFailure(jsonOutput, usageExitCode, "usage", fmt.Sprintf(format, arguments...))
+func usageCommandError(outputOptions commandOutputOptions, jsonOutput bool, format string, arguments ...any) error {
+	return commandFailure(outputOptions, jsonOutput, usageExitCode, "usage", fmt.Sprintf(format, arguments...))
 }
 
-func runtimeCommandError(jsonOutput bool, err error) error {
-	return runtimeCommandErrorWithMessage(jsonOutput, err, formatRuntimeErrorMessage(err, err.Error()))
+func runtimeCommandError(outputOptions commandOutputOptions, jsonOutput bool, err error) error {
+	return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatRuntimeErrorMessage(err, err.Error()))
 }
 
-func runtimeCommandErrorWithMessage(jsonOutput bool, err error, message string) error {
+func runtimeCommandErrorWithMessage(outputOptions commandOutputOptions, jsonOutput bool, err error, message string) error {
 	message = formatRuntimeErrorMessage(err, message)
 	if !jsonOutput {
-		return commandError{message: message, exitCode: runtimeExitCode}
+		return commandError{message: message, exitCode: runtimeExitCode, outputOptions: outputOptions}
 	}
 
-	return commandFailure(true, runtimeExitCode, runtimeErrorKind(err), message)
+	return commandFailure(outputOptions, true, runtimeExitCode, runtimeErrorKind(err), message)
 }
 
-func applyCommandError(jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
+func applyCommandError(outputOptions commandOutputOptions, jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
 	if errors.Is(err, app.ErrProfileNotFound) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
 	}
 	if errors.Is(err, app.ErrProfileUnavailable) {
 		profileItem, inspectErr := application.InspectProfileByName(profileName)
 		if inspectErr == nil {
-			return runtimeCommandErrorWithMessage(jsonOutput, err, formatUnavailableProfileMessage(profileItem))
+			return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatUnavailableProfileMessage(profileItem))
 		}
 	}
 
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetErrorMessage(profileName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatTargetErrorMessage(profileName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
 	}
 
-	return runtimeCommandError(jsonOutput, err)
+	return runtimeCommandError(outputOptions, jsonOutput, err)
 }
 
 func formatRuntimeErrorMessage(err error, message string) string {
@@ -123,9 +124,9 @@ func unsupportedFlagError(flag string, allowedFlags []string) error {
 	return errors.New(builder.String())
 }
 
-func commandFailure(jsonOutput bool, exitCode int, kind string, message string) error {
+func commandFailure(outputOptions commandOutputOptions, jsonOutput bool, exitCode int, kind string, message string) error {
 	if !jsonOutput {
-		return commandError{message: message, exitCode: exitCode}
+		return commandError{message: message, exitCode: exitCode, outputOptions: outputOptions}
 	}
 
 	encodedError, err := json.Marshal(struct {
@@ -135,7 +136,7 @@ func commandFailure(jsonOutput bool, exitCode int, kind string, message string) 
 		return fmt.Errorf("serialize command error: %w", err)
 	}
 
-	return commandError{message: string(encodedError), exitCode: exitCode, jsonOutput: true}
+	return commandError{message: string(encodedError), exitCode: exitCode, jsonOutput: true, outputOptions: outputOptions}
 }
 
 func runtimeErrorKind(err error) string {
@@ -158,18 +159,18 @@ type commandErrorJSON struct {
 	Message string `json:"message"`
 }
 
-func noProfileUsageCommandError(workingDirectory string, commandName string, jsonOutput bool) error {
+func noProfileUsageCommandError(workingDirectory string, commandName string, outputOptions commandOutputOptions, jsonOutput bool) error {
 	application, err := loadApplication(workingDirectory)
 	if err != nil {
-		return usageCommandError(jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
+		return usageCommandError(outputOptions, jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
 	}
 
 	profiles := application.Profiles()
 	if len(profiles) == 0 {
-		return usageCommandError(jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
+		return usageCommandError(outputOptions, jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
 	}
 
-	return usageCommandError(jsonOutput, "%s", formatNoProfileMessage(commandName, profiles))
+	return usageCommandError(outputOptions, jsonOutput, "%s", formatNoProfileMessage(commandName, profiles))
 }
 
 func profileCommandHelpText(commandName string) string {
@@ -286,7 +287,7 @@ func exampleProfileForCommand(commandName string, profiles []app.ProfileItem) (a
 }
 
 func quoteCommandArgument(value string) string {
-	if value != "" && !strings.ContainsAny(value, " \t\n\r\"\\$`") {
+	if value != "" && !strings.ContainsAny(value, " \t\n\r\"\\$`'!#&();<>|*?[]{}~") {
 		return value
 	}
 
@@ -319,7 +320,7 @@ func formatUnavailableProfileMessage(profileItem app.ProfileItem) string {
 		fmt.Fprintf(&builder, "\n\nReason:\n%s", profileItem.UnavailableReason)
 	}
 
-	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review profile values.", profileItem.Name)
+	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review profile values.", quoteCommandArgument(profileItem.Name))
 	return builder.String()
 }
 
@@ -352,25 +353,25 @@ func formatTargetErrorMessage(profileName string, targetErr editor.TargetError, 
 		fmt.Fprintf(&builder, "\n\nReason:\n%s", targetErr.Err)
 	}
 
-	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review planned targets.", profileName)
+	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet inspect %s` to review planned targets.", quoteCommandArgument(profileName))
 	return builder.String()
 }
 
-func comparisonCommandError(jsonOutput bool, commandName string, err error, projectRoot string) error {
+func comparisonCommandError(outputOptions commandOutputOptions, jsonOutput bool, commandName string, err error, projectRoot string) error {
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatTargetReadErrorMessage(commandName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatTargetReadErrorMessage(commandName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
 	}
 
-	return runtimeCommandError(jsonOutput, err)
+	return runtimeCommandError(outputOptions, jsonOutput, err)
 }
 
-func diffCommandError(jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
+func diffCommandError(outputOptions commandOutputOptions, jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
 	if errors.Is(err, app.ErrProfileNotFound) {
-		return runtimeCommandErrorWithMessage(jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))
 	}
 
-	return comparisonCommandError(jsonOutput, "diff", err, projectRoot)
+	return comparisonCommandError(outputOptions, jsonOutput, "diff", err, projectRoot)
 }
 
 func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetError, projectRoot string) string {

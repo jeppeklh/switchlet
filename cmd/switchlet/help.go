@@ -8,7 +8,7 @@ func usageText() string {
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
-	  switchlet status [--json]                     Compare current managed values with configured profiles
+	  switchlet status [--json]                      Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
 	  switchlet version                              Show version information
 	  switchlet completion <shell>                   Generate a shell completion script
@@ -23,6 +23,7 @@ func usageText() string {
 	  --patch              Write read-only managed patch text for diff
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+	  --no-color           Disable styled command output; also honored through NO_COLOR
 
 	Examples:
 	  switchlet
@@ -102,7 +103,8 @@ func statusHelpText() string {
 	Compare current managed target values with configured profiles without writing files.
 
 	Flags:
-	  --json   Write machine-readable JSON output
+	  --json       Write machine-readable JSON output
+	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet status
@@ -119,8 +121,9 @@ func diffHelpText() string {
 	Patch output is read-only managed patch text for piping to tools such as delta.
 
 	Flags:
-	  --json    Write machine-readable JSON output
-	  --patch   Write managed patch text; cannot be combined with --json
+	  --json       Write machine-readable JSON output
+	  --patch      Write managed patch text; cannot be combined with --json
+	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet diff Local
@@ -169,7 +172,8 @@ func listHelpText() string {
 	List configured profiles, availability, and included target counts without launching the TUI.
 
 	Flags:
-	  --json   Write machine-readable JSON output
+	  --json       Write machine-readable JSON output
+	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet list
@@ -184,7 +188,8 @@ func inspectHelpText() string {
 	Inspect one configured profile by name, including planned targets and safe display values.
 
 	Flags:
-	  --json   Write machine-readable JSON output
+	  --json       Write machine-readable JSON output
+	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet inspect Local
@@ -205,6 +210,7 @@ func applyHelpText() string {
 	  --json               Write machine-readable JSON output
 	  --dry-run            Validate the apply operation without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+	  --no-color           Disable styled command output
 
 	Examples:
 	  switchlet apply Local --dry-run

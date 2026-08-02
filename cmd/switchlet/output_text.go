@@ -102,8 +102,8 @@ func writeApplyText(output io.Writer, result app.Result, projectRoot string) err
 	return nil
 }
 
-func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot string) error {
-	styles := defaultCommandOutputStyles()
+func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot string, outputOptions commandOutputOptions) error {
+	styles := defaultCommandOutputStyles(outputOptions)
 	if _, err := fmt.Fprintln(output, styles.title.Render("Switchlet status")); err != nil {
 		return err
 	}
@@ -138,8 +138,8 @@ func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot 
 	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles, projectRoot)
 }
 
-func writeDiffText(output io.Writer, diff app.ProfileDiff, projectRoot string) error {
-	styles := defaultCommandOutputStyles()
+func writeDiffText(output io.Writer, diff app.ProfileDiff, projectRoot string, outputOptions commandOutputOptions) error {
+	styles := defaultCommandOutputStyles(outputOptions)
 	if _, err := fmt.Fprintf(output, "%s  %s\n", styles.title.Render("Switchlet diff"), styles.heading.Render(diff.ProfileName)); err != nil {
 		return err
 	}
@@ -407,6 +407,10 @@ func writeUnavailableValueDetails(output io.Writer, styles commandOutputStyles, 
 }
 
 func styledSectionHeading(styles commandOutputStyles, heading string) string {
+	if !styles.styled {
+		return styles.heading.Render(heading)
+	}
+
 	switch heading {
 	case "Matched targets", "Matches", "Already matches":
 		return styles.success.Bold(true).Render(heading)

@@ -69,6 +69,7 @@ Lists configured profiles, availability, protection, and target counts.
 ```bash
 switchlet list
 switchlet list --json
+switchlet list --no-color
 ```
 
 ### `switchlet inspect`
@@ -78,6 +79,7 @@ Shows one profile's planned target changes without writing files.
 ```bash
 switchlet inspect Local
 switchlet inspect Local --json
+switchlet inspect Local --no-color
 ```
 
 ### `switchlet apply`
@@ -96,6 +98,7 @@ switchlet apply Local --dry-run --json
 | `--dry-run` | Validate the apply operation without writing target files. |
 | `--allow-protected` | Explicitly allow non-interactive apply for protected profiles. |
 | `--json` | Write machine-readable JSON output. |
+| `--no-color` | Disable styled command output. |
 
 Protected profiles are never applied silently. Non-interactive apply requires
 `--allow-protected` for protected profiles.
@@ -110,6 +113,7 @@ files.
 ```bash
 switchlet status
 switchlet status --json
+switchlet status --no-color
 ```
 
 A profile is reported as current only when it includes every configured target
@@ -126,6 +130,7 @@ writing files.
 switchlet diff Staging
 switchlet diff Staging --json
 switchlet diff Staging --patch
+switchlet diff Staging --no-color
 switchlet diff Staging --patch | delta
 ```
 
@@ -134,6 +139,19 @@ unchanged by that profile. Protected profiles can be diffed without
 `--allow-protected` because the command is read-only.
 
 ## Output Modes
+
+### Color Control
+
+Use `--no-color` to disable ANSI styling in human-readable command output and
+command errors:
+
+```bash
+switchlet --no-color status
+switchlet diff Local --no-color
+```
+
+Switchlet also honors `NO_COLOR` when the environment variable is present and
+not empty. JSON output and managed patch output remain plain and unstyled.
 
 ### JSON
 

@@ -1,7 +1,9 @@
 package tui
 
 import (
+	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -107,6 +109,9 @@ func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}},
 		},
 	))
+	if !strings.Contains(model.View(), "Checking current profile...") {
+		t.Fatalf("View() = %q, want startup current-profile checking feedback", model.View())
+	}
 
 	command := model.Init()
 	if command == nil {
@@ -124,12 +129,123 @@ func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 	if !strings.Contains(view, "> Local [current]") {
 		t.Fatalf("View() = %q, want Local current badge", view)
 	}
+	if strings.Contains(view, "Checking current profile") || strings.Contains(view, "Current profile check unavailable") {
+		t.Fatalf("View() = %q, want detection feedback removed after successful result", view)
+	}
 	if strings.Contains(view, "Staging [current]") {
 		t.Fatalf("View() = %q, must not mark non-matching profile current", view)
 	}
 	assertFileUnchanged(t, targetPath, originalContents, originalMode)
 	assertNoTargetTempFile(t, targetPath)
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
+}
+
+func TestInit_CurrentProfileDetectionFailureShowsUnavailableFeedback(t *testing.T) {
+	projectRoot := t.TempDir()
+	missingTargetPath := filepath.Join(projectRoot, "missing.json")
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: missingTargetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local-secret")}}}},
+	))
+
+	updatedModel, command := model.Update(model.Init()())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after current-profile detection failure")
+	}
+	if model.state != listState || model.currentDetection != currentProfileDetectionUnavailable || model.profileIsCurrent("Local") {
+		t.Fatalf("model after current-profile detection failure = %#v, want non-current unavailable detection state", model)
+	}
+	view := model.View()
+	if !strings.Contains(view, "Current profile check unavailable.") {
+		t.Fatalf("View() = %q, want value-safe current-profile unavailable feedback", view)
+	}
+	if strings.Contains(view, "postgres://local-secret") {
+		t.Fatalf("View() = %q, must not reveal profile value", view)
+	}
+}
+
+func TestUpdate_CurrentProfileDetectionFailureDoesNotBlockListActions(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	baseModel := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}},
+		},
+	))
+	updatedModel, command := baseModel.Update(currentProfileDetectedMsg{requestID: baseModel.currentRequestID, err: errors.New("status read failed")})
+	baseModel = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after failed startup detection message")
+	}
+	if !strings.Contains(baseModel.View(), "Current profile check unavailable.") {
+		t.Fatalf("View() = %q, want unavailable current-profile feedback before exercising actions", baseModel.View())
+	}
+
+	t.Run("selection", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+		model = updatedModel.(Model)
+		if command != nil || model.cursor != 1 {
+			t.Fatalf("model after Down = %#v, command %v, want selection to move", model, command)
+		}
+	})
+
+	t.Run("search", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(runeKey('/'))
+		model = updatedModel.(Model)
+		if command != nil || model.state != searchState {
+			t.Fatalf("model after search key = %#v, command %v, want search state", model, command)
+		}
+	})
+
+	t.Run("apply", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
+		model = updatedModel.(Model)
+		if command == nil || model.applyingProfile != "Local" {
+			t.Fatalf("model after Space = %#v, command %v, want apply command", model, command)
+		}
+	})
+
+	t.Run("status", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(runeKey('s'))
+		model = updatedModel.(Model)
+		if command == nil || model.state != statusLoadingState {
+			t.Fatalf("model after status key = %#v, command %v, want status loading", model, command)
+		}
+	})
+
+	t.Run("diff", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(runeKey('d'))
+		model = updatedModel.(Model)
+		if command == nil || model.state != diffLoadingState {
+			t.Fatalf("model after diff key = %#v, command %v, want diff loading", model, command)
+		}
+	})
+
+	t.Run("config", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(runeKey('c'))
+		model = updatedModel.(Model)
+		if command == nil || !model.ConfigRequested() {
+			t.Fatalf("model after config key = %#v, command %v, want config handoff", model, command)
+		}
+	})
+
+	t.Run("quit", func(t *testing.T) {
+		model := baseModel
+		updatedModel, command := model.Update(runeKey('q'))
+		model = updatedModel.(Model)
+		if command == nil || model.state != listState {
+			t.Fatalf("model after quit key = %#v, command %v, want quit command from list", model, command)
+		}
+	})
 }
 
 func TestInit_ShowsCurrentBadgeForEveryMatchingProfile(t *testing.T) {
@@ -740,7 +856,7 @@ func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T
 	if !strings.Contains(commandLine, "/ST_") || !strings.Contains(searchView, "> Staging") || strings.Contains(searchView, "  Local") {
 		t.Fatalf("View() = %q, want live filtered search for Staging only", searchView)
 	}
-	if strings.Contains(searchView, "Search: ST_") || strings.Contains(commandLine, "Enter Apply filter") || strings.Contains(commandLine, "q Quit") {
+	if strings.Contains(searchView, "Search: ST_") || strings.Contains(searchView, `Search "ST"`) || strings.Contains(searchView, `Filter "ST"`) || strings.Contains(commandLine, "Enter Apply filter") || strings.Contains(commandLine, "q Quit") {
 		t.Fatalf("View() = %q, want search input to replace command bar contents", searchView)
 	}
 
@@ -753,8 +869,11 @@ func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T
 		t.Fatalf("model after applying search = %#v, want accepted active filter", model)
 	}
 	filteredView := model.View()
-	if !strings.Contains(filteredView, `Filter "ST"`) || strings.Contains(filteredView, "Filter: ST") || !strings.Contains(filteredView, "n/N Matches") || !strings.Contains(filteredView, "Esc Clear filter") {
-		t.Fatalf("View() = %q, want active filter and filtered command actions", filteredView)
+	if strings.Contains(filteredView, `Filter "ST"`) || strings.Contains(filteredView, "Filter: ST") {
+		t.Fatalf("View() = %q, active filter text must not appear in profile panel title", filteredView)
+	}
+	if !strings.Contains(filteredView, "n/N Matches") || !strings.Contains(filteredView, "Esc Clear filter") {
+		t.Fatalf("View() = %q, want filtered command actions", filteredView)
 	}
 	if strings.Contains(filteredView, "  Local") || strings.Contains(filteredView, "  Production") {
 		t.Fatalf("View() = %q, want non-matching profiles hidden", filteredView)
@@ -909,6 +1028,9 @@ func TestUpdate_ProfileFilterNoMatchesShowsEmptyState(t *testing.T) {
 	view := model.View()
 	if !strings.Contains(view, "No profiles match this filter.") || !strings.Contains(view, "Esc Clear filter") {
 		t.Fatalf("View() = %q, want empty filtered state with clear action", view)
+	}
+	if strings.Contains(view, `Filter "missing"`) || strings.Contains(view, "missing_") {
+		t.Fatalf("View() = %q, must not duplicate filter query in the profile panel", view)
 	}
 	if strings.Contains(view, "Enter Apply") || strings.Contains(view, "Space Apply") {
 		t.Fatalf("View() = %q, must not advertise apply when no filtered profile is selected", view)

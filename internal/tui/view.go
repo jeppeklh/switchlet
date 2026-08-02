@@ -117,24 +117,26 @@ func (model Model) listActions() []Action {
 func (model Model) profileContentsLines() []string {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
-		return []string{
+		lines := model.currentProfileDetectionFeedbackLines(nil)
+		return append(lines,
 			RenderKeyValue("State", "No profile selected"),
 			RenderKeyValue("Enter", "Nothing to apply."),
-		}
+		)
 	}
 
 	contents, err := model.application.ProfileContentsByName(selectedProfile.Name, model.profileContentsPreviewOptions())
 	if err != nil {
-		return []string{
-			RenderSectionHeading(selectedProfileTitle(selectedProfile)),
+		lines := model.currentProfileDetectionFeedbackLines([]string{RenderSectionHeading(selectedProfileTitle(selectedProfile))})
+		return append(lines,
 			model.profileStateLabel(selectedProfile),
 			"",
 			"Profile contents unavailable.",
 			RenderKeyValue("Reason", fitValueForLabel(err.Error(), secondaryPanelContentWidth(model.width), "Reason")),
-		}
+		)
 	}
 
 	lines := []string{RenderSectionHeading(selectedProfileTitle(selectedProfile))}
+	lines = model.currentProfileDetectionFeedbackLines(lines)
 	if model.isApplyingSelectedProfile(selectedProfile) {
 		lines = append(lines, model.profileStateLabel(selectedProfile))
 	}
@@ -143,6 +145,26 @@ func (model Model) profileContentsLines() []string {
 	}
 
 	return appendProfileContentsFileGroups(lines, contents.Files, model.projectRoot, secondaryPanelContentWidth(model.width))
+}
+
+func (model Model) currentProfileDetectionFeedbackLines(lines []string) []string {
+	message := model.currentProfileDetectionMessage()
+	if message == "" {
+		return lines
+	}
+
+	return append(lines, message)
+}
+
+func (model Model) currentProfileDetectionMessage() string {
+	switch model.currentDetection {
+	case currentProfileDetectionChecking:
+		return "Checking current profile..."
+	case currentProfileDetectionUnavailable:
+		return "Current profile check unavailable."
+	default:
+		return ""
+	}
 }
 
 func appendUnavailableProfileSummary(lines []string, profile app.ProfileItem, maxLineWidth int) []string {

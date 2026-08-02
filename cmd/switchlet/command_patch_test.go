@@ -123,6 +123,34 @@ profiles:
 	}
 }
 
+func TestRunCommand_DiffPatchOutputRemainsPlainWithNoColor(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Database Only
+    values:
+      - target: database
+        value: postgres://staging
+`)+"\n")
+
+	patchResult := runCommandForTest(t, []string{"diff", "Database Only", "--patch"}, projectRoot)
+	if patchResult.exitCode != 0 {
+		t.Fatalf("diff --patch exitCode = %d, want 0 (stdout: %q, stderr: %q)", patchResult.exitCode, patchResult.stdout, patchResult.stderr)
+	}
+
+	noColorResult := runCommandForTest(t, []string{"diff", "Database Only", "--patch", "--no-color"}, projectRoot)
+	if noColorResult.exitCode != 0 {
+		t.Fatalf("diff --patch --no-color exitCode = %d, want 0 (stdout: %q, stderr: %q)", noColorResult.exitCode, noColorResult.stdout, noColorResult.stderr)
+	}
+	if noColorResult.stdout != patchResult.stdout {
+		t.Fatalf("diff --patch --no-color stdout = %q, want unchanged %q", noColorResult.stdout, patchResult.stdout)
+	}
+	if containsANSIStyling(noColorResult.stdout) {
+		t.Fatalf("patch stdout %q contains ANSI styling", noColorResult.stdout)
+	}
+}
+
 func TestRunCommand_DiffPatchAndJSONConflictReturnsUsageError(t *testing.T) {
 	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:

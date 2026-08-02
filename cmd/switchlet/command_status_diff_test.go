@@ -259,6 +259,108 @@ profiles:
 	}
 }
 
+func TestRunCommand_NoColorFlagRemovesANSIFromStatusAndDiffText(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	statusResult := runCommandForTest(t, []string{"--no-color", "status"}, projectRoot)
+	if statusResult.exitCode != 0 {
+		t.Fatalf("status exitCode = %d, want 0 (stdout: %q, stderr: %q)", statusResult.exitCode, statusResult.stdout, statusResult.stderr)
+	}
+	if containsANSIStyling(statusResult.stdout) {
+		t.Fatalf("status stdout %q contains ANSI styling despite --no-color", statusResult.stdout)
+	}
+
+	diffResult := runCommandForTest(t, []string{"diff", "Staging", "--no-color"}, projectRoot)
+	if diffResult.exitCode != 0 {
+		t.Fatalf("diff exitCode = %d, want 0 (stdout: %q, stderr: %q)", diffResult.exitCode, diffResult.stdout, diffResult.stderr)
+	}
+	if containsANSIStyling(diffResult.stdout) {
+		t.Fatalf("diff stdout %q contains ANSI styling despite --no-color", diffResult.stdout)
+	}
+}
+
+func TestRunCommand_NoColorEnvironmentRemovesANSIFromStatusAndDiffText(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	statusResult := runCommandForTest(t, []string{"status"}, projectRoot)
+	if statusResult.exitCode != 0 {
+		t.Fatalf("status exitCode = %d, want 0 (stdout: %q, stderr: %q)", statusResult.exitCode, statusResult.stdout, statusResult.stderr)
+	}
+	if containsANSIStyling(statusResult.stdout) {
+		t.Fatalf("status stdout %q contains ANSI styling despite NO_COLOR", statusResult.stdout)
+	}
+
+	diffResult := runCommandForTest(t, []string{"diff", "Staging"}, projectRoot)
+	if diffResult.exitCode != 0 {
+		t.Fatalf("diff exitCode = %d, want 0 (stdout: %q, stderr: %q)", diffResult.exitCode, diffResult.stdout, diffResult.stderr)
+	}
+	if containsANSIStyling(diffResult.stdout) {
+		t.Fatalf("diff stdout %q contains ANSI styling despite NO_COLOR", diffResult.stdout)
+	}
+}
+
+func TestRunCommand_NoColorDoesNotChangeStatusJSONOutput(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	jsonResult := runCommandForTest(t, []string{"status", "--json"}, projectRoot)
+	if jsonResult.exitCode != 0 {
+		t.Fatalf("status --json exitCode = %d, want 0 (stdout: %q, stderr: %q)", jsonResult.exitCode, jsonResult.stdout, jsonResult.stderr)
+	}
+
+	noColorResult := runCommandForTest(t, []string{"--no-color", "status", "--json"}, projectRoot)
+	if noColorResult.exitCode != 0 {
+		t.Fatalf("--no-color status --json exitCode = %d, want 0 (stdout: %q, stderr: %q)", noColorResult.exitCode, noColorResult.stdout, noColorResult.stderr)
+	}
+	if noColorResult.stdout != jsonResult.stdout {
+		t.Fatalf("--no-color JSON stdout = %q, want unchanged %q", noColorResult.stdout, jsonResult.stdout)
+	}
+	if containsANSIStyling(noColorResult.stdout) {
+		t.Fatalf("JSON stdout %q contains ANSI styling", noColorResult.stdout)
+	}
+}
+
 func TestRunCommand_DiffReportsWouldUpdateAndAlreadyMatchingTargetsWithoutWriting(t *testing.T) {
 	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:

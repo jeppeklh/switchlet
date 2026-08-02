@@ -25,6 +25,7 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"complete -F _switchlet_completion switchlet",
 				"--dry-run",
 				"--patch",
+				"--no-color",
 				"bash zsh fish",
 			},
 		},
@@ -40,6 +41,7 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"switchlet __complete-profile-names",
 				"apply:Apply one configured profile",
 				"--allow-protected[Allow non-interactive apply for a protected profile]",
+				"--no-color[Disable styled command output]",
 				"_values 'shell' bash zsh fish",
 			},
 		},
@@ -56,6 +58,7 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"complete -c switchlet -n '__fish_use_subcommand' -a \"completion\"",
 				"complete -c switchlet -n '__fish_seen_subcommand_from init' -l overwrite",
 				"complete -c switchlet -n '__fish_seen_subcommand_from diff' -l patch",
+				"complete -c switchlet -l no-color -d 'Disable styled command output'",
 			},
 		},
 	}

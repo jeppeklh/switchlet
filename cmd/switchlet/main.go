@@ -18,6 +18,7 @@ import (
 const (
 	runtimeExitCode = 1
 	usageExitCode   = 2
+	noColorFlag     = "--no-color"
 )
 
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
@@ -31,6 +32,10 @@ var (
 type loadedProject struct {
 	Application app.Application
 	ProjectRoot string
+}
+
+type commandOutputOptions struct {
+	NoColor bool
 }
 
 func main() {
@@ -55,6 +60,9 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 }
 
 func runCommandWithTerminalRunner(args []string, workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
+	outputOptions := defaultCommandOutputOptions()
+	args = parseLeadingCommandOutputOptions(args, &outputOptions)
+
 	if len(args) == 0 {
 		return runInteractiveCommandWithTerminalRunner(workingDirectory, runProgram, input, output)
 	}
@@ -63,10 +71,10 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 	case profileCompletionCommandName:
 		return writeProfileNameCompletions(output, workingDirectory)
 	case "help", "-h", "--help":
-		return writeHelp(output, args[1:])
+		return writeHelp(output, args[1:], outputOptions)
 	case "--version":
 		if len(args) != 1 {
-			return usageCommandError(false, "--version does not accept arguments\n\n%s", usageText())
+			return usageCommandError(outputOptions, false, "--version does not accept arguments\n\n%s", usageText())
 		}
 
 		return writeVersion(output)
@@ -76,12 +84,12 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 			return err
 		}
 
-		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		positionals, err := parseArguments(args[1:], map[string]*bool{}, &outputOptions)
 		if err != nil {
-			return usageCommandError(false, "version: %v\n\n%s", err, versionHelpText())
+			return usageCommandError(outputOptions, false, "version: %v\n\n%s", err, versionHelpText())
 		}
 		if len(positionals) != 0 {
-			return usageCommandError(false, "version does not accept a positional argument\n\n%s", versionHelpText())
+			return usageCommandError(outputOptions, false, "version does not accept a positional argument\n\n%s", versionHelpText())
 		}
 
 		return writeVersion(output)
@@ -91,18 +99,18 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 			return err
 		}
 
-		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		positionals, err := parseArguments(args[1:], map[string]*bool{}, &outputOptions)
 		if err != nil {
-			return usageCommandError(false, "completion: %v\n\n%s", err, completionHelpText())
+			return usageCommandError(outputOptions, false, "completion: %v\n\n%s", err, completionHelpText())
 		}
 		if len(positionals) == 0 {
-			return usageCommandError(false, "completion requires a shell name\n\n%s", completionHelpText())
+			return usageCommandError(outputOptions, false, "completion requires a shell name\n\n%s", completionHelpText())
 		}
 		if len(positionals) != 1 {
-			return usageCommandError(false, "completion requires exactly one shell name\n\n%s", completionHelpText())
+			return usageCommandError(outputOptions, false, "completion requires exactly one shell name\n\n%s", completionHelpText())
 		}
 
-		return writeCompletionScript(output, positionals[0])
+		return writeCompletionScript(output, positionals[0], outputOptions)
 	case "init":
 		if wantsHelpFlag(args[1:]) {
 			_, err := io.WriteString(output, initHelpText())
@@ -110,12 +118,12 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 		}
 
 		overwriteExistingConfig := false
-		positionals, err := parseArguments(args[1:], map[string]*bool{"--overwrite": &overwriteExistingConfig})
+		positionals, err := parseArguments(args[1:], map[string]*bool{"--overwrite": &overwriteExistingConfig}, &outputOptions)
 		if err != nil {
-			return usageCommandError(false, "init: %v\n\n%s", err, initHelpText())
+			return usageCommandError(outputOptions, false, "init: %v\n\n%s", err, initHelpText())
 		}
 		if len(positionals) != 0 {
-			return usageCommandError(false, "init does not accept a positional argument\n\n%s", initHelpText())
+			return usageCommandError(outputOptions, false, "init does not accept a positional argument\n\n%s", initHelpText())
 		}
 
 		return runInitWithOptions(workingDirectory, input, output, defaultInitDependencies(), initOptions{OverwriteExistingConfig: overwriteExistingConfig})
@@ -125,28 +133,41 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 			return err
 		}
 
-		positionals, err := parseArguments(args[1:], map[string]*bool{})
+		positionals, err := parseArguments(args[1:], map[string]*bool{}, &outputOptions)
 		if err != nil {
-			return usageCommandError(false, "config: %v\n\n%s", err, configHelpText())
+			return usageCommandError(outputOptions, false, "config: %v\n\n%s", err, configHelpText())
 		}
 		if len(positionals) != 0 {
-			return usageCommandError(false, "config does not accept a positional argument\n\n%s", configHelpText())
+			return usageCommandError(outputOptions, false, "config does not accept a positional argument\n\n%s", configHelpText())
 		}
 
 		return runConfigCommand(workingDirectory, input, output)
 	case "list":
-		return runListCommand(workingDirectory, args[1:], output)
+		return runListCommand(workingDirectory, args[1:], output, outputOptions)
 	case "inspect":
-		return runInspectCommand(workingDirectory, args[1:], output)
+		return runInspectCommand(workingDirectory, args[1:], output, outputOptions)
 	case "apply":
-		return runApplyCommand(workingDirectory, args[1:], output)
+		return runApplyCommand(workingDirectory, args[1:], output, outputOptions)
 	case "status":
-		return runStatusCommand(workingDirectory, args[1:], output)
+		return runStatusCommand(workingDirectory, args[1:], output, outputOptions)
 	case "diff":
-		return runDiffCommand(workingDirectory, args[1:], output)
+		return runDiffCommand(workingDirectory, args[1:], output, outputOptions)
 	default:
-		return usageCommandError(false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
+		return usageCommandError(outputOptions, false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
+}
+
+func defaultCommandOutputOptions() commandOutputOptions {
+	return commandOutputOptions{NoColor: os.Getenv("NO_COLOR") != ""}
+}
+
+func parseLeadingCommandOutputOptions(args []string, outputOptions *commandOutputOptions) []string {
+	for len(args) > 0 && args[0] == noColorFlag {
+		outputOptions.NoColor = true
+		args = args[1:]
+	}
+
+	return args
 }
 
 func adaptTerminalProgramRunner(runProgram func(tea.Model) error) terminalProgramRunner {
@@ -155,16 +176,16 @@ func adaptTerminalProgramRunner(runProgram func(tea.Model) error) terminalProgra
 	}
 }
 
-func writeHelp(output io.Writer, args []string) error {
+func writeHelp(output io.Writer, args []string, outputOptions commandOutputOptions) error {
 	if len(args) == 0 {
 		_, err := io.WriteString(output, usageText())
 		return err
 	}
 	if len(args) != 1 {
-		return usageCommandError(false, "help accepts at most one command name\n\n%s", usageText())
+		return usageCommandError(outputOptions, false, "help accepts at most one command name\n\n%s", usageText())
 	}
 
-	helpText, err := helpTextForTopic(args[0])
+	helpText, err := helpTextForTopic(args[0], outputOptions)
 	if err != nil {
 		return err
 	}
@@ -173,7 +194,7 @@ func writeHelp(output io.Writer, args []string) error {
 	return err
 }
 
-func helpTextForTopic(topic string) (string, error) {
+func helpTextForTopic(topic string, outputOptions commandOutputOptions) (string, error) {
 	switch topic {
 	case "init":
 		return initHelpText(), nil
@@ -194,7 +215,7 @@ func helpTextForTopic(topic string) (string, error) {
 	case "completion":
 		return completionHelpText(), nil
 	default:
-		return "", usageCommandError(false, "%s\n\n%s", unknownHelpTopicMessage(topic), usageText())
+		return "", usageCommandError(outputOptions, false, "%s\n\n%s", unknownHelpTopicMessage(topic), usageText())
 	}
 }
 
@@ -292,7 +313,9 @@ func runFullScreenTerminalProgram(model tea.Model, options ...tea.ProgramOption)
 	return tea.NewProgram(model, programOptions...).Run()
 }
 
-func parseArguments(args []string, allowedFlags map[string]*bool) ([]string, error) {
+func parseArguments(args []string, allowedFlags map[string]*bool, outputOptions *commandOutputOptions) ([]string, error) {
+	args = parseCommandOutputOptions(args, outputOptions)
+
 	positionals := make([]string, 0, len(args))
 	for _, arg := range args {
 		if !strings.HasPrefix(arg, "-") {
@@ -302,7 +325,7 @@ func parseArguments(args []string, allowedFlags map[string]*bool) ([]string, err
 
 		flagValue, ok := allowedFlags[arg]
 		if !ok {
-			return nil, unsupportedFlagError(arg, allowedFlagNames(allowedFlags))
+			return nil, unsupportedFlagError(arg, allowedFlagNames(allowedFlags, outputOptions))
 		}
 
 		*flagValue = true
@@ -311,10 +334,31 @@ func parseArguments(args []string, allowedFlags map[string]*bool) ([]string, err
 	return positionals, nil
 }
 
-func allowedFlagNames(allowedFlags map[string]*bool) []string {
+func parseCommandOutputOptions(args []string, outputOptions *commandOutputOptions) []string {
+	if outputOptions == nil {
+		return args
+	}
+
+	parsedArgs := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == noColorFlag {
+			outputOptions.NoColor = true
+			continue
+		}
+
+		parsedArgs = append(parsedArgs, arg)
+	}
+
+	return parsedArgs
+}
+
+func allowedFlagNames(allowedFlags map[string]*bool, outputOptions *commandOutputOptions) []string {
 	flagNames := make([]string, 0, len(allowedFlags))
 	for flagName := range allowedFlags {
 		flagNames = append(flagNames, flagName)
+	}
+	if outputOptions != nil {
+		flagNames = append(flagNames, noColorFlag)
 	}
 	sort.Strings(flagNames)
 

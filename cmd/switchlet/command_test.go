@@ -584,6 +584,18 @@ func TestRunCommand_HelpListsVersionCommand(t *testing.T) {
 	}
 }
 
+func TestRunCommand_HelpAlignsStatusUsageRow(t *testing.T) {
+	result := runCommandForTest(t, []string{"help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	expected := "switchlet status [--json]                      Compare current managed values with configured profiles"
+	if !strings.Contains(result.stdout, expected) {
+		t.Fatalf("stdout %q does not contain aligned status usage row %q", result.stdout, expected)
+	}
+}
+
 func TestRunCommand_UnknownCommandSuggestsVersion(t *testing.T) {
 	result := runCommandForTest(t, []string{"versoin"}, t.TempDir())
 	if result.exitCode != usageExitCode {
@@ -626,6 +638,45 @@ func TestRunCommand_UnsupportedFlagSuggestsNearestFlag(t *testing.T) {
 		if !strings.Contains(result.stderr, expected) {
 			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
 		}
+	}
+}
+
+func TestRunCommand_UnsupportedFlagSuggestsNoColorFlag(t *testing.T) {
+	result := runCommandForTest(t, []string{"status", "--no-colr"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	for _, expected := range []string{`status: unsupported flag "--no-colr"`, `Did you mean "--no-color"`, "switchlet status [--json]"} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_NoColorFlagRemovesANSIFromCommandError(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	result := runCommandForTest(t, []string{"list", "--no-color"}, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if containsANSIStyling(result.stderr) {
+		t.Fatalf("stderr %q contains ANSI styling despite --no-color", result.stderr)
+	}
+	if !strings.Contains(result.stderr, "No .switchlet.yaml found.") {
+		t.Fatalf("stderr %q does not contain config-not-found guidance", result.stderr)
+	}
+}
+
+func TestRunCommand_NoColorEnvironmentRemovesANSIFromCommandError(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+
+	result := runCommandForTest(t, []string{"list"}, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if containsANSIStyling(result.stderr) {
+		t.Fatalf("stderr %q contains ANSI styling despite NO_COLOR", result.stderr)
 	}
 }
 
@@ -1021,6 +1072,10 @@ func runCommandForTest(t *testing.T, args []string, workingDirectory string) com
 	result.exitCode = exitCodeForError(err)
 
 	return result
+}
+
+func containsANSIStyling(value string) bool {
+	return strings.Contains(value, "\x1b[")
 }
 
 func readFileBytes(t *testing.T, path string) []byte {
