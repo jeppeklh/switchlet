@@ -132,6 +132,51 @@ func TestUpdateStringValue_ReplacesNestedStringAndPreservesOtherValues(t *testin
 	}
 }
 
+func TestUpdateStringValue_PreservesJSONFormattingAndKeyOrderWherePractical(t *testing.T) {
+	projectRoot := t.TempDir()
+	originalContents := strings.TrimSpace(`
+{
+    "zebra": 1,
+    "database": { "url": "postgres://old", "poolSize": 10 },
+    "alpha": true
+}
+`) + "\n"
+	targetPath := writeTargetFile(t, projectRoot, "config.json", originalContents)
+
+	if err := UpdateStringValue(targetPath, "database.url", "postgres://new"); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
+	}
+
+	wantContents := strings.Replace(originalContents, `"url": "postgres://old"`, `"url": "postgres://new"`, 1)
+	if updatedContents := string(readFile(t, targetPath)); updatedContents != wantContents {
+		t.Fatalf("updated JSON =\n%s\nwant =\n%s", updatedContents, wantContents)
+	}
+}
+
+func TestUpdateStringValue_EscapesJSONReplacementValue(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://old"}}`)
+	replacementValue := "postgres://new/\"quoted\"\\path\nnext"
+
+	if err := UpdateStringValue(targetPath, "database.url", replacementValue); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
+	}
+
+	rootObject := decodeJSONRoot(t, readFile(t, targetPath))
+	database := rootObject["database"].(map[string]any)
+	if database["url"] != replacementValue {
+		t.Fatalf("database.url = %q, want escaped replacement value", database["url"])
+	}
+
+	quotedReplacement, err := json.Marshal(replacementValue)
+	if err != nil {
+		t.Fatalf("quote replacement value: %v", err)
+	}
+	if !strings.Contains(string(readFile(t, targetPath)), string(quotedReplacement)) {
+		t.Fatalf("updated JSON does not contain quoted replacement %s", quotedReplacement)
+	}
+}
+
 func TestPreviewStringValueUpdate_ValidatesWithoutWritingTargetFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`

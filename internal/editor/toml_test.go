@@ -547,8 +547,8 @@ func TestDiscoverTargetFileCandidates_IncludesInspectableTOMLFiles(t *testing.T)
 	}
 
 	wantRelativePaths := []string{
-		"root.json",
 		"settings.toml",
+		"root.json",
 		"worker.yaml",
 	}
 	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {

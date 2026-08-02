@@ -11,7 +11,86 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-func TestRunCommand_NoArgumentsStartsProgram(t *testing.T) {
+func TestRunCommand_NoArgumentsRequiresInteractiveTerminal(t *testing.T) {
+	result := runCommandForTest(t, nil, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+	}
+	if result.programStarted {
+		t.Fatal("runProgram was called for non-terminal default command")
+	}
+	for _, expected := range []string{
+		"`switchlet` without a command launches the interactive profile picker.",
+		"stdin and stdout must be interactive terminals.",
+		"switchlet list",
+		"switchlet status",
+		"switchlet apply <profile-name>",
+	} {
+		if !strings.Contains(result.stderr, expected) {
+			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
+		}
+	}
+}
+
+func TestRunCommand_NoArgumentsRejectsNonTerminalOutput(t *testing.T) {
+	projectRoot := writeMinimalCommandProject(t)
+	input := openTerminalLikeFile(t, os.O_RDONLY)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	programStarted := false
+
+	err := runCommandWithTerminalRunner(nil, projectRoot, func(model tea.Model) (tea.Model, error) {
+		programStarted = true
+		return model, nil
+	}, input, &stdout)
+	if err == nil {
+		t.Fatal("runCommandWithTerminalRunner returned nil error, want terminal error")
+	}
+	if writeErr := writeCommandError(err, &stdout, &stderr); writeErr != nil {
+		t.Fatalf("writeCommandError returned error: %v", writeErr)
+	}
+	if exitCodeForError(err) != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", exitCodeForError(err), runtimeExitCode)
+	}
+	if programStarted {
+		t.Fatal("runProgram was called for non-terminal output")
+	}
+	if !strings.Contains(stderr.String(), "stdin and stdout must be interactive terminals") {
+		t.Fatalf("stderr %q does not explain terminal requirement", stderr.String())
+	}
+}
+
+func TestRunCommand_NoArgumentsRejectsNonTerminalInput(t *testing.T) {
+	projectRoot := writeMinimalCommandProject(t)
+	output := openTerminalLikeFile(t, os.O_WRONLY)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	programStarted := false
+
+	err := runCommandWithTerminalRunner(nil, projectRoot, func(model tea.Model) (tea.Model, error) {
+		programStarted = true
+		return model, nil
+	}, strings.NewReader(""), output)
+	if err == nil {
+		t.Fatal("runCommandWithTerminalRunner returned nil error, want terminal error")
+	}
+	if writeErr := writeCommandError(err, &stdout, &stderr); writeErr != nil {
+		t.Fatalf("writeCommandError returned error: %v", writeErr)
+	}
+	if exitCodeForError(err) != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", exitCodeForError(err), runtimeExitCode)
+	}
+	if programStarted {
+		t.Fatal("runProgram was called for non-terminal input")
+	}
+	if !strings.Contains(stderr.String(), "stdin and stdout must be interactive terminals") {
+		t.Fatalf("stderr %q does not explain terminal requirement", stderr.String())
+	}
+}
+
+func TestRunCommand_NoArgumentsStartsProgramWithInteractiveTerminals(t *testing.T) {
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
 version: 2
@@ -34,11 +113,22 @@ profiles:
 }
 `)+"\n")
 
-	result := runCommandForTest(t, nil, projectRoot)
-	if result.exitCode != 0 {
-		t.Fatalf("exitCode = %d, want 0 (stderr: %q)", result.exitCode, result.stderr)
+	input := openTerminalLikeFile(t, os.O_RDONLY)
+	output := openTerminalLikeFile(t, os.O_WRONLY)
+	programStarted := false
+
+	err := runCommandWithTerminalRunner(nil, projectRoot, func(model tea.Model) (tea.Model, error) {
+		programStarted = true
+		if model == nil {
+			t.Fatal("runProgram received nil model")
+		}
+
+		return model, nil
+	}, input, output)
+	if err != nil {
+		t.Fatalf("runCommandWithTerminalRunner returned error: %v", err)
 	}
-	if !result.programStarted {
+	if !programStarted {
 		t.Fatal("runProgram was not called for default command")
 	}
 }
@@ -590,7 +680,7 @@ func TestRunCommand_HelpAlignsStatusUsageRow(t *testing.T) {
 		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
 	}
 
-	expected := "switchlet status [--json]                      Compare current managed values with configured profiles"
+	expected := "switchlet status [--json|--short]              Compare current managed values with configured profiles"
 	if !strings.Contains(result.stdout, expected) {
 		t.Fatalf("stdout %q does not contain aligned status usage row %q", result.stdout, expected)
 	}
@@ -646,7 +736,7 @@ func TestRunCommand_UnsupportedFlagSuggestsNoColorFlag(t *testing.T) {
 	if result.exitCode != usageExitCode {
 		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
 	}
-	for _, expected := range []string{`status: unsupported flag "--no-colr"`, `Did you mean "--no-color"`, "switchlet status [--json]"} {
+	for _, expected := range []string{`status: unsupported flag "--no-colr"`, `Did you mean "--no-color"`, "switchlet status [--json|--short]"} {
 		if !strings.Contains(result.stderr, expected) {
 			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
 		}
@@ -1072,6 +1162,42 @@ func runCommandForTest(t *testing.T, args []string, workingDirectory string) com
 	result.exitCode = exitCodeForError(err)
 
 	return result
+}
+
+func writeMinimalCommandProject(t *testing.T) string {
+	t.Helper()
+
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: services.backend.baseUrl
+
+profiles:
+  - name: Local
+    value: http://localhost:8080
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
+
+	return projectRoot
+}
+
+func openTerminalLikeFile(t *testing.T, flag int) *os.File {
+	t.Helper()
+
+	file, err := os.OpenFile(os.DevNull, flag, 0)
+	if err != nil {
+		t.Fatalf("open terminal-like file: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := file.Close(); err != nil {
+			t.Fatalf("close terminal-like file: %v", err)
+		}
+	})
+
+	return file
 }
 
 func containsANSIStyling(value string) bool {

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -880,6 +881,52 @@ func TestUpdate_ProfileSearchFiltersCaseInsensitiveAndAcceptsFilter(t *testing.T
 	}
 }
 
+func TestUpdate_ProfileSearchSupportsMultiTermMatching(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Production", Value: stringPointer("production")},
+			{Name: "Development Local Copy", Value: stringPointer("development-local-copy")},
+			{Name: "Dev Local", Value: stringPointer("dev-local")},
+		},
+	))
+	updatedModel, command := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after window resize")
+	}
+
+	updatedModel, command = model.Update(runeKey('/'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening search")
+	}
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("dev local")})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after typing search")
+	}
+	selectedProfileName, ok := model.SelectedProfileName()
+	if !ok || selectedProfileName != "Dev Local" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want exact Dev Local match", selectedProfileName, ok)
+	}
+
+	searchView := model.View()
+	commandLine := visibleLines(searchView)[len(visibleLines(searchView))-1]
+	if !strings.Contains(commandLine, "/dev local_") {
+		t.Fatalf("View() = %q, want multi-term query in bottom command line", searchView)
+	}
+	if strings.Contains(searchView, "Production") {
+		t.Fatalf("View() = %q, want non-matching Production profile hidden", searchView)
+	}
+	if lineIndexContaining(searchView, "Dev Local") >= lineIndexContaining(searchView, "Development Local Copy") {
+		t.Fatalf("View() = %q, want exact phrase match before weaker term match", searchView)
+	}
+	if strings.Contains(searchView, `Search "dev local"`) || strings.Contains(searchView, `Filter "dev local"`) {
+		t.Fatalf("View() = %q, active query must not appear in profile panel title", searchView)
+	}
+}
+
 func TestView_ProfileSearchDoesNotMoveProfileRowsDown(t *testing.T) {
 	model := New(app.New(
 		config.Target{},
@@ -1069,8 +1116,12 @@ func TestUpdate_FilteredListApplyUsesHighlightedProfile(t *testing.T) {
 	if nextCommand == nil {
 		t.Fatal("nextCommand is nil, want current-profile refresh after Space apply")
 	}
-	if contents := string(readFile(t, targetPath)); !strings.Contains(contents, `"url": "staging"`) {
-		t.Fatalf("target contents = %q, want Staging value applied", contents)
+	var targetContents map[string]map[string]string
+	if err := json.Unmarshal(readFile(t, targetPath), &targetContents); err != nil {
+		t.Fatalf("decode target JSON: %v", err)
+	}
+	if targetContents["database"]["url"] != "staging" {
+		t.Fatalf("database.url = %q, want Staging value applied", targetContents["database"]["url"])
 	}
 }
 

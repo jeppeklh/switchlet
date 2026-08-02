@@ -27,15 +27,15 @@ func TestRunCommand_DiffPatchEmitsManagedPatchWithoutWriting(t *testing.T) {
 
 	for _, expected := range []string{
 		"# Switchlet managed patch: Staging",
-		"# values: shown for changed managed targets",
+		"# values: redacted",
 		"# protected: true",
 		"# complete: false",
 		"# targets: 4 included, 0 omitted, 4 configured",
 		"# read-only: true",
 		"diff --switchlet backend/appsettings.Development.json",
 		"@@ -1 +1 @@ database [json] jsonPath: database.url",
-		`- current: "postgres://local-secret"`,
-		`+ profile: "postgres://staging-secret"`,
+		"- current: redacted",
+		"+ profile: redacted",
 		"diff --switchlet worker/config.yaml",
 		"@@ -1 +1 @@ workerQueue [yaml] yamlPath: queue.endpoint",
 		" unavailable",
@@ -43,8 +43,8 @@ func TestRunCommand_DiffPatchEmitsManagedPatchWithoutWriting(t *testing.T) {
 		` reason: profile "Staging" value for target "workerQueue" environment variable "` + workerEnv + `" is empty: environment variable is empty`,
 		"diff --switchlet services/development.toml",
 		"@@ -1 +1 @@ serviceEndpoint [toml] tomlPath: services.api.endpoint",
-		`- current: "http://localhost:8080/secret"`,
-		`+ profile: "https://services.staging.example.test/secret"`,
+		"- current: redacted",
+		"+ profile: redacted",
 		"diff --switchlet frontend/.env.local",
 		"@@ -1 +1 @@ frontendApi [dotenv] key: VITE_API_URL",
 		" already matches",
@@ -54,7 +54,11 @@ func TestRunCommand_DiffPatchEmitsManagedPatchWithoutWriting(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"postgres://local-secret",
+		"postgres://staging-secret",
 		"http://localhost:4566/queue-secret",
+		"http://localhost:8080/secret",
+		"https://services.staging.example.test/secret",
 		"http://localhost:5173/secret",
 		"VITE_FEATURES=local",
 	} {
@@ -91,12 +95,12 @@ profiles:
 
 	for _, expected := range []string{
 		"# Switchlet managed patch: Database Only",
-		"# values: shown for changed managed targets",
+		"# values: redacted",
 		"# targets: 1 included, 1 omitted, 2 configured",
 		"diff --switchlet backend/appsettings.Development.json",
 		"@@ -1 +1 @@ database [json] jsonPath: database.url",
-		`- current: "postgres://old"`,
-		`+ profile: "postgres://staging"`,
+		"- current: redacted",
+		"+ profile: redacted",
 		"# Omitted targets",
 		"# frontendApi [dotenv]",
 		"# file: frontend/.env.local",
@@ -107,8 +111,10 @@ profiles:
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
 		}
 	}
-	if strings.Contains(result.stdout, "http://localhost:5173") {
-		t.Fatalf("stdout %q must not reveal omitted target value", result.stdout)
+	for _, forbidden := range []string{"postgres://old", "postgres://staging", "http://localhost:5173"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not reveal raw value %q", result.stdout, forbidden)
+		}
 	}
 	for _, absolutePath := range []string{databasePath, frontendPath} {
 		if strings.Contains(result.stdout, absolutePath) {

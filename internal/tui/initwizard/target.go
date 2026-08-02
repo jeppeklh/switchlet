@@ -3,6 +3,7 @@ package initwizard
 import (
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 )
@@ -37,26 +38,55 @@ func filterTargetFileCandidates(candidates []app.InitTargetFileCandidate, filter
 	if normalizedFilter == "" {
 		return candidates
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	basenameMatches := make([]app.InitTargetFileCandidate, 0)
-	pathMatches := make([]app.InitTargetFileCandidate, 0)
+	exactBasenameMatches := make([]app.InitTargetFileCandidate, 0)
+	exactPathMatches := make([]app.InitTargetFileCandidate, 0)
+	termBasenameMatches := make([]app.InitTargetFileCandidate, 0)
+	termPathMatches := make([]app.InitTargetFileCandidate, 0)
 	for _, candidate := range candidates {
 		relativePath := strings.ToLower(filepath.ToSlash(candidate.RelativePath))
 		basename := strings.ToLower(filepath.Base(candidate.RelativePath))
 
 		switch {
 		case strings.Contains(basename, normalizedFilter):
-			basenameMatches = append(basenameMatches, candidate)
+			exactBasenameMatches = append(exactBasenameMatches, candidate)
 		case strings.Contains(relativePath, normalizedFilter):
-			pathMatches = append(pathMatches, candidate)
+			exactPathMatches = append(exactPathMatches, candidate)
+		case searchTermsMatch(basename, filterTerms):
+			termBasenameMatches = append(termBasenameMatches, candidate)
+		case searchTermsMatch(relativePath, filterTerms):
+			termPathMatches = append(termPathMatches, candidate)
 		}
 	}
 
-	return append(basenameMatches, pathMatches...)
+	matches := append(exactBasenameMatches, exactPathMatches...)
+	matches = append(matches, termBasenameMatches...)
+	return append(matches, termPathMatches...)
 }
 
 func normalizeTargetFileFilter(filterValue string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filterValue), "\\", "/"))
+}
+
+func searchFilterTerms(normalizedFilter string) []string {
+	return strings.FieldsFunc(normalizedFilter, func(value rune) bool {
+		return unicode.IsSpace(value) || value == '/' || value == '\\'
+	})
+}
+
+func searchTermsMatch(value string, terms []string) bool {
+	if len(terms) == 0 {
+		return false
+	}
+
+	for _, term := range terms {
+		if !strings.Contains(value, term) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func filterDotenvKeys(keys []string, filterValue string) []string {
@@ -64,15 +94,21 @@ func filterDotenvKeys(keys []string, filterValue string) []string {
 	if normalizedFilter == "" {
 		return keys
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	matchingKeys := make([]string, 0)
+	exactMatches := make([]string, 0)
+	termMatches := make([]string, 0)
 	for _, key := range keys {
-		if strings.Contains(strings.ToLower(key), normalizedFilter) {
-			matchingKeys = append(matchingKeys, key)
+		normalizedKey := strings.ToLower(key)
+		switch {
+		case strings.Contains(normalizedKey, normalizedFilter):
+			exactMatches = append(exactMatches, key)
+		case searchTermsMatch(normalizedKey, filterTerms):
+			termMatches = append(termMatches, key)
 		}
 	}
 
-	return matchingKeys
+	return append(exactMatches, termMatches...)
 }
 
 func flattenSelectableTargetPaths(nodes []targetSelectorNode) []string {
@@ -94,11 +130,14 @@ func filterSelectableTargetPaths(selectablePaths []string, filterValue string) [
 	if normalizedFilter == "" {
 		return selectablePaths
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	leafMatches := make([]string, 0)
-	pathMatches := make([]string, 0)
+	exactLeafMatches := make([]string, 0)
+	exactPathMatches := make([]string, 0)
+	termLeafMatches := make([]string, 0)
+	termPathMatches := make([]string, 0)
 	for _, selectablePath := range selectablePaths {
-		normalizedPath := strings.ToLower(selectablePath)
+		normalizedPath := normalizeTargetFileFilter(selectablePath)
 		leafName := normalizedPath
 		if lastSeparatorIndex := strings.LastIndex(normalizedPath, "."); lastSeparatorIndex >= 0 {
 			leafName = normalizedPath[lastSeparatorIndex+1:]
@@ -106,13 +145,19 @@ func filterSelectableTargetPaths(selectablePaths []string, filterValue string) [
 
 		switch {
 		case strings.Contains(leafName, normalizedFilter):
-			leafMatches = append(leafMatches, selectablePath)
+			exactLeafMatches = append(exactLeafMatches, selectablePath)
 		case strings.Contains(normalizedPath, normalizedFilter):
-			pathMatches = append(pathMatches, selectablePath)
+			exactPathMatches = append(exactPathMatches, selectablePath)
+		case searchTermsMatch(leafName, filterTerms):
+			termLeafMatches = append(termLeafMatches, selectablePath)
+		case searchTermsMatch(normalizedPath, filterTerms):
+			termPathMatches = append(termPathMatches, selectablePath)
 		}
 	}
 
-	return append(leafMatches, pathMatches...)
+	matches := append(exactLeafMatches, exactPathMatches...)
+	matches = append(matches, termLeafMatches...)
+	return append(matches, termPathMatches...)
 }
 
 func targetNodeChoiceLabel(node targetSelectorNode) string {

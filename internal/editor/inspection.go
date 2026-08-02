@@ -12,10 +12,17 @@ import (
 )
 
 var skippedDiscoveryDirectoryNames = map[string]struct{}{
-	"node_modules": {},
-	"vendor":       {},
-	"bin":          {},
-	"obj":          {},
+	"bin":              {},
+	"bower_components": {},
+	"build":            {},
+	"coverage":         {},
+	"dist":             {},
+	"generated":        {},
+	"node_modules":     {},
+	"obj":              {},
+	"out":              {},
+	"target":           {},
+	"vendor":           {},
 }
 
 // DiscoverTargetFileCandidates returns the files under projectRoot that contain
@@ -55,7 +62,7 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 		if entry.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
-		targetType, ok := config.InferTargetType(path)
+		targetType, ok := inferDiscoveryTargetType(path)
 		if !ok {
 			return nil
 		}
@@ -87,6 +94,12 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 	}
 
 	sort.Slice(candidates, func(leftIndex int, rightIndex int) bool {
+		leftRank := discoveryCandidateRank(candidates[leftIndex])
+		rightRank := discoveryCandidateRank(candidates[rightIndex])
+		if leftRank != rightRank {
+			return leftRank < rightRank
+		}
+
 		leftPath := candidates[leftIndex].RelativePath
 		rightPath := candidates[rightIndex].RelativePath
 
@@ -100,6 +113,19 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 	})
 
 	return candidates, nil
+}
+
+func inferDiscoveryTargetType(path string) (config.TargetType, bool) {
+	if targetType, ok := config.InferTargetType(path); ok {
+		return targetType, true
+	}
+
+	fileName := strings.ToLower(filepath.Base(path))
+	if strings.HasSuffix(fileName, ".env") {
+		return config.TargetTypeDotenv, true
+	}
+
+	return "", false
 }
 
 // InspectStringTargets returns a hierarchical view of the selectable existing
@@ -212,6 +238,56 @@ func shouldSkipDiscoveryDirectory(entry fs.DirEntry) bool {
 
 	_, shouldSkip := skippedDiscoveryDirectoryNames[strings.ToLower(entry.Name())]
 	return shouldSkip
+}
+
+func discoveryCandidateRank(candidate TargetFileCandidate) int {
+	fileName := strings.ToLower(filepath.Base(candidate.RelativePath))
+	baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
+
+	if isLikelyEnvironmentFile(fileName, candidate.Type) || isLikelyAppSettingsFile(fileName, candidate.Type) {
+		return 0
+	}
+	if isCommonApplicationConfigName(baseName) {
+		return 1
+	}
+	if isInConfigDirectory(candidate.RelativePath) {
+		return 2
+	}
+
+	return 3
+}
+
+func isLikelyEnvironmentFile(fileName string, targetType config.TargetType) bool {
+	if targetType != config.TargetTypeDotenv {
+		return false
+	}
+
+	return fileName == ".env" || strings.HasPrefix(fileName, ".env.") || strings.HasSuffix(fileName, ".env")
+}
+
+func isLikelyAppSettingsFile(fileName string, targetType config.TargetType) bool {
+	return targetType == config.TargetTypeJSON && strings.HasPrefix(fileName, "appsettings") && strings.HasSuffix(fileName, ".json")
+}
+
+func isCommonApplicationConfigName(baseName string) bool {
+	commonNames := []string{"application", "config", "development", "local", "production", "settings", "staging", "test"}
+	for _, name := range commonNames {
+		if baseName == name || strings.HasPrefix(baseName, name+".") || strings.HasPrefix(baseName, name+"-") {
+			return true
+		}
+	}
+
+	return false
+}
+
+func isInConfigDirectory(path string) bool {
+	for _, segment := range strings.Split(filepath.ToSlash(path), "/") {
+		if strings.EqualFold(segment, "config") || strings.EqualFold(segment, "configs") || strings.EqualFold(segment, "configuration") {
+			return true
+		}
+	}
+
+	return false
 }
 
 func pathDepth(path string) int {

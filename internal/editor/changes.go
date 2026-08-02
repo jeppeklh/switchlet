@@ -54,6 +54,12 @@ type targetChangeGroup struct {
 	changes    []TargetChange
 }
 
+type targetReadGroup struct {
+	targetFile string
+	targetType config.TargetType
+	targets    []config.Target
+}
+
 // TargetError describes a failure for one configured target while preserving
 // the underlying reason for callers that need user-facing diagnostics.
 type TargetError struct {
@@ -118,22 +124,47 @@ func ValidateTargets(targets []config.Target) error {
 // ReadTargetValue reads the current string value for one configured target
 // without preparing or writing file changes.
 func ReadTargetValue(target config.Target) (string, error) {
-	normalizedTarget, _, err := normalizeTarget(target)
+	currentValues, err := ReadTargetValues([]config.Target{target})
 	if err != nil {
 		return "", err
 	}
 
-	contents, _, err := readTargetFile(normalizedTarget.File)
-	if err != nil {
-		return "", targetError(normalizedTarget, err)
+	for _, value := range currentValues {
+		return value, nil
 	}
 
-	value, err := readTargetValueFromContents(contents, normalizedTarget)
-	if err != nil {
-		return "", targetError(normalizedTarget, err)
+	return "", fmt.Errorf("current value for target %q was not read", target.Name)
+}
+
+// ReadTargetValues reads current string values for configured targets, grouping
+// reads by target file without preparing or writing file changes.
+func ReadTargetValues(targets []config.Target) (map[string]string, error) {
+	currentValues := make(map[string]string, len(targets))
+	if len(targets) == 0 {
+		return currentValues, nil
 	}
 
-	return value, nil
+	groups, err := groupTargetReads(targets)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, group := range groups {
+		contents, _, err := readTargetFile(group.targetFile)
+		if err != nil {
+			return nil, targetError(group.targets[0], err)
+		}
+
+		groupValues, err := readTargetValuesFromContents(contents, group.targetType, group.targets)
+		if err != nil {
+			return nil, err
+		}
+		for targetName, value := range groupValues {
+			currentValues[targetName] = value
+		}
+	}
+
+	return currentValues, nil
 }
 
 // PreviewTargetChanges validates and serializes target changes without writing
@@ -259,6 +290,45 @@ func groupTargetChanges(changes []TargetChange) ([]targetChangeGroup, error) {
 	return groups, nil
 }
 
+func groupTargetReads(targets []config.Target) ([]targetReadGroup, error) {
+	groupIndexesByFile := make(map[string]int)
+	groups := make([]targetReadGroup, 0)
+	seenLocations := make(map[string]string, len(targets))
+
+	for _, target := range targets {
+		normalizedTarget, selector, err := normalizeTarget(target)
+		if err != nil {
+			return nil, err
+		}
+
+		locationKey := targetLocationKey(normalizedTarget, selector)
+		if existingTargetName, exists := seenLocations[locationKey]; exists {
+			return nil, targetError(normalizedTarget, fmt.Errorf("duplicates target location used by target %q", existingTargetName))
+		}
+		seenLocations[locationKey] = normalizedTarget.Name
+
+		existingGroupIndex, exists := groupIndexesByFile[normalizedTarget.File]
+		if exists {
+			existingGroup := &groups[existingGroupIndex]
+			if existingGroup.targetType != normalizedTarget.Type {
+				return nil, targetError(normalizedTarget, fmt.Errorf("target file already has %q reads queued", existingGroup.targetType))
+			}
+
+			existingGroup.targets = append(existingGroup.targets, normalizedTarget)
+			continue
+		}
+
+		groups = append(groups, targetReadGroup{
+			targetFile: normalizedTarget.File,
+			targetType: normalizedTarget.Type,
+			targets:    []config.Target{normalizedTarget},
+		})
+		groupIndexesByFile[normalizedTarget.File] = len(groups) - 1
+	}
+
+	return groups, nil
+}
+
 func normalizeTargetChange(change TargetChange) (TargetChange, string, error) {
 	normalizedTarget, selector, err := normalizeTarget(change.Target)
 	if err != nil {
@@ -369,11 +439,16 @@ func prepareManagedPreviewFile(group targetChangeGroup) (ManagedPreviewFile, err
 }
 
 func managedPreviewHunks(contents []byte, group targetChangeGroup) ([]ManagedPreviewHunk, error) {
+	currentValues, err := readTargetValuesFromContents(contents, group.targetType, targetChangeTargets(group.changes))
+	if err != nil {
+		return nil, err
+	}
+
 	hunks := make([]ManagedPreviewHunk, 0, len(group.changes))
 	for _, change := range group.changes {
-		originalValue, err := readTargetValueFromContents(contents, change.Target)
-		if err != nil {
-			return nil, targetError(change.Target, err)
+		originalValue, ok := currentValues[change.Target.Name]
+		if !ok {
+			return nil, targetError(change.Target, fmt.Errorf("current value was not read"))
 		}
 
 		selectorName, selector := targetSelectorSummary(change.Target)
@@ -389,18 +464,27 @@ func managedPreviewHunks(contents []byte, group targetChangeGroup) ([]ManagedPre
 	return hunks, nil
 }
 
-func readTargetValueFromContents(contents []byte, target config.Target) (string, error) {
-	switch target.Type {
+func targetChangeTargets(changes []TargetChange) []config.Target {
+	targets := make([]config.Target, 0, len(changes))
+	for _, change := range changes {
+		targets = append(targets, change.Target)
+	}
+
+	return targets
+}
+
+func readTargetValuesFromContents(contents []byte, targetType config.TargetType, targets []config.Target) (map[string]string, error) {
+	switch targetType {
 	case config.TargetTypeJSON:
-		return readJSONStringTargetValue(contents, target.JSONPath)
+		return readJSONTargetValues(contents, targets)
 	case config.TargetTypeDotenv:
-		return readDotenvTargetValue(contents, target.Key)
+		return readDotenvTargetValues(contents, targets)
 	case config.TargetTypeYAML:
-		return readYAMLStringTargetValue(contents, target.YAMLPath)
+		return readYAMLTargetValues(contents, targets)
 	case config.TargetTypeTOML:
-		return readTOMLStringTargetValue(contents, target.TOMLPath)
+		return readTOMLTargetValues(contents, targets)
 	default:
-		return "", fmt.Errorf("target type %q is not supported", target.Type)
+		return nil, fmt.Errorf("target type %q is not supported", targetType)
 	}
 }
 

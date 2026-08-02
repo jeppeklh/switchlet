@@ -8,7 +8,7 @@ func usageText() string {
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
-	  switchlet status [--json]                      Compare current managed values with configured profiles
+	  switchlet status [--json|--short]              Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
 	  switchlet version                              Show version information
 	  switchlet completion <shell>                   Generate a shell completion script
@@ -20,6 +20,7 @@ func usageText() string {
 
 	Non-interactive flags:
 	  --json               Write machine-readable JSON for list, inspect, apply, status, or diff
+	  --short              Write concise text output for status
 	  --patch              Write read-only managed patch text for diff
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
@@ -34,6 +35,7 @@ func usageText() string {
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
 	  switchlet status
+	  switchlet status --short
 	  switchlet diff Local
 	  switchlet diff Local --patch
 	  switchlet version
@@ -98,16 +100,18 @@ func versionHelpText() string {
 
 func statusHelpText() string {
 	return `Usage:
-	  switchlet status [--json]
+	  switchlet status [--json|--short]
 
 	Compare current managed target values with configured profiles without writing files.
 
 	Flags:
 	  --json       Write machine-readable JSON output
+	  --short      Write a concise current-profile summary; cannot be combined with --json
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet status
+	  switchlet status --short
 	  switchlet status --json
 `
 }

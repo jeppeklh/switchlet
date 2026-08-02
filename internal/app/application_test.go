@@ -96,6 +96,50 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	}
 }
 
+func TestApplication_Profiles_UsesManagedValueMaskingContext(t *testing.T) {
+	t.Setenv("STAGING_SERVICE_API_KEY", "https://service.example.test/raw-value")
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "databasePassword", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "serviceEndpoint", Type: config.TargetTypeJSON, JSONPath: "services.apiToken"},
+			{Name: "frontendApi", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "workerEndpoint", Type: config.TargetTypeYAML, YAMLPath: "worker.endpoint"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "databasePassword", Value: stringPointer("postgres://database-value")},
+				{Target: "serviceEndpoint", Value: stringPointer("https://service.example.test/raw-value")},
+				{Target: "frontendApi", Value: stringPointer("https://api.staging.example.test")},
+				{Target: "workerEndpoint", ValueFromEnv: stringPointer("STAGING_SERVICE_API_KEY")},
+			},
+		}},
+	)
+
+	items := application.Profiles()
+	if len(items) != 1 {
+		t.Fatalf("len(Profiles()) = %d, want 1", len(items))
+	}
+	maskedValuesByTarget := make(map[string]string)
+	for _, valueItem := range items[0].Values {
+		maskedValuesByTarget[valueItem.TargetName] = valueItem.MaskedValue
+	}
+
+	if maskedValuesByTarget["databasePassword"] != "****" {
+		t.Fatalf("databasePassword masked value = %q, want full mask", maskedValuesByTarget["databasePassword"])
+	}
+	if maskedValuesByTarget["serviceEndpoint"] != "****" {
+		t.Fatalf("serviceEndpoint masked value = %q, want selector-based full mask", maskedValuesByTarget["serviceEndpoint"])
+	}
+	if maskedValuesByTarget["workerEndpoint"] != "****" {
+		t.Fatalf("workerEndpoint masked value = %q, want environment-based full mask", maskedValuesByTarget["workerEndpoint"])
+	}
+	if maskedValuesByTarget["frontendApi"] != "https://api.staging.example.test" {
+		t.Fatalf("frontendApi masked value = %q, want ordinary value", maskedValuesByTarget["frontendApi"])
+	}
+}
+
 func TestApplication_Profiles_ReturnsUnavailableResolutionError(t *testing.T) {
 	application := app.New(
 		config.Target{},

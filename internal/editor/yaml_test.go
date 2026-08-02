@@ -133,6 +133,37 @@ features:
 	}
 }
 
+func TestApplyTargetChanges_PreservesYAMLScalarStyleWherePractical(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+# worker settings
+queue:
+  endpoint: "http://old-queue.example.test" # keep endpoint quoted
+  mode: local
+`)+"\n")
+
+	if err := ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+		Value:  "http://new-queue.example.test",
+	}}); err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	updatedText := string(readFile(t, targetPath))
+	for _, expected := range []string{
+		"# worker settings",
+		`endpoint: "http://new-queue.example.test" # keep endpoint quoted`,
+		"mode: local",
+	} {
+		if !strings.Contains(updatedText, expected) {
+			t.Fatalf("updated YAML does not preserve %q:\n%s", expected, updatedText)
+		}
+	}
+	if strings.Index(updatedText, "endpoint:") > strings.Index(updatedText, "mode:") {
+		t.Fatalf("updated YAML does not preserve endpoint before mode:\n%s", updatedText)
+	}
+}
+
 func TestPreviewTargetChanges_ValidatesYAMLWithoutWriting(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`

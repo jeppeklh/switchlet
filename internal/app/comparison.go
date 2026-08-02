@@ -112,6 +112,8 @@ func (application Application) diffConfiguredProfile(configuredProfile config.Pr
 	resolvedProfile := profile.ResolveProfile(configuredProfile)
 	targetsByName := application.targetsByName()
 	includedTargets := make(map[string]struct{}, len(resolvedProfile.Values))
+	includedValues := make([]profileDiffValue, 0, len(resolvedProfile.Values))
+	targetsToRead := make([]config.Target, 0, len(resolvedProfile.Values))
 	diff := ProfileDiff{
 		ProfileName: resolvedProfile.Name,
 		Protected:   resolvedProfile.Protected,
@@ -128,18 +130,33 @@ func (application Application) diffConfiguredProfile(configuredProfile config.Pr
 		}
 		includedTargets[target.Name] = struct{}{}
 
-		currentValue, err := editor.ReadTargetValue(target)
-		if err != nil {
-			return ProfileDiff{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
-		}
+		includedValues = append(includedValues, profileDiffValue{
+			resolvedValue: resolvedValue,
+			target:        target,
+			descriptor:    targetDescriptor(target),
+		})
+		targetsToRead = append(targetsToRead, target)
+	}
 
-		descriptor := targetDescriptor(target)
+	currentValues, err := editor.ReadTargetValues(targetsToRead)
+	if err != nil {
+		return ProfileDiff{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
+	}
+
+	for _, includedValue := range includedValues {
+		resolvedValue := includedValue.resolvedValue
+		target := includedValue.target
+		descriptor := includedValue.descriptor
 		if resolvedValue.ResolutionError != nil {
 			diff.Complete = false
 			diff.Unavailable = append(diff.Unavailable, unavailableValue(descriptor, resolvedValue))
 			continue
 		}
 
+		currentValue, ok := currentValues[target.Name]
+		if !ok {
+			return ProfileDiff{}, fmt.Errorf("current value for target %q was not read", target.Name)
+		}
 		if resolvedValue.Value == currentValue {
 			diff.AlreadyMatches = append(diff.AlreadyMatches, descriptor)
 			continue
@@ -194,17 +211,13 @@ func (application Application) compareProfileWithCurrentValues(configuredProfile
 }
 
 func (application Application) readCurrentTargetValues(targets []config.Target) (map[string]string, error) {
-	currentValues := make(map[string]string, len(targets))
-	for _, target := range targets {
-		value, err := editor.ReadTargetValue(target)
-		if err != nil {
-			return nil, err
-		}
+	return editor.ReadTargetValues(targets)
+}
 
-		currentValues[target.Name] = value
-	}
-
-	return currentValues, nil
+type profileDiffValue struct {
+	resolvedValue profile.ResolvedValue
+	target        config.Target
+	descriptor    TargetDescriptor
 }
 
 func (application Application) omittedTargetDescriptors(includedTargets map[string]struct{}) []TargetDescriptor {

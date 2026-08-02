@@ -138,6 +138,39 @@ func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot 
 	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles, projectRoot)
 }
 
+func writeStatusShortText(output io.Writer, status app.StatusComparison) error {
+	switch status.Status {
+	case app.StatusComparisonMatched:
+		_, err := fmt.Fprintf(output, "Current profile: %s\n", status.CurrentProfile)
+		return err
+	case app.StatusComparisonAmbiguous:
+		names := profileMatchNames(status.Matches)
+		if len(names) == 0 {
+			_, err := fmt.Fprintln(output, "Current profile: ambiguous")
+			return err
+		}
+
+		_, err := fmt.Fprintf(output, "Current profile: ambiguous (%s)\n", strings.Join(names, ", "))
+		return err
+	default:
+		_, err := fmt.Fprintln(output, "Current profile: none")
+		return err
+	}
+}
+
+func profileMatchNames(matches []app.ProfileMatch) []string {
+	names := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if match.ProfileName == "" {
+			continue
+		}
+
+		names = append(names, match.ProfileName)
+	}
+
+	return names
+}
+
 func writeDiffText(output io.Writer, diff app.ProfileDiff, projectRoot string, outputOptions commandOutputOptions) error {
 	styles := defaultCommandOutputStyles(outputOptions)
 	if _, err := fmt.Fprintf(output, "%s  %s\n", styles.title.Render("Switchlet diff"), styles.heading.Render(diff.ProfileName)); err != nil {

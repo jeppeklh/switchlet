@@ -12,7 +12,7 @@ func writeManagedPatchText(output io.Writer, preview app.ManagedPatchPreview, pr
 	if _, err := fmt.Fprintf(output, "# Switchlet managed patch: %s\n", preview.ProfileName); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintln(output, "# values: shown for changed managed targets"); err != nil {
+	if _, err := fmt.Fprintln(output, "# values: redacted"); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintf(output, "# protected: %t\n", preview.Protected); err != nil {
@@ -145,7 +145,7 @@ func writeManagedPatchOmittedTargets(output io.Writer, omittedTargets []app.Targ
 
 func managedPatchValueLabel(label string, visible bool, value string) string {
 	if !visible {
-		return label + ": hidden"
+		return label + ": redacted"
 	}
 
 	return label + ": " + strconv.Quote(value)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"unicode"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -122,26 +123,55 @@ func filterTargetFileCandidates(candidates []editor.TargetFileCandidate, filterV
 	if normalizedFilter == "" {
 		return candidates
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	basenameMatches := make([]editor.TargetFileCandidate, 0)
-	pathMatches := make([]editor.TargetFileCandidate, 0)
+	exactBasenameMatches := make([]editor.TargetFileCandidate, 0)
+	exactPathMatches := make([]editor.TargetFileCandidate, 0)
+	termBasenameMatches := make([]editor.TargetFileCandidate, 0)
+	termPathMatches := make([]editor.TargetFileCandidate, 0)
 	for _, candidate := range candidates {
 		relativePath := strings.ToLower(filepath.ToSlash(candidate.RelativePath))
 		basename := strings.ToLower(filepath.Base(candidate.RelativePath))
 
 		switch {
 		case strings.Contains(basename, normalizedFilter):
-			basenameMatches = append(basenameMatches, candidate)
+			exactBasenameMatches = append(exactBasenameMatches, candidate)
 		case strings.Contains(relativePath, normalizedFilter):
-			pathMatches = append(pathMatches, candidate)
+			exactPathMatches = append(exactPathMatches, candidate)
+		case searchTermsMatch(basename, filterTerms):
+			termBasenameMatches = append(termBasenameMatches, candidate)
+		case searchTermsMatch(relativePath, filterTerms):
+			termPathMatches = append(termPathMatches, candidate)
 		}
 	}
 
-	return append(basenameMatches, pathMatches...)
+	matches := append(exactBasenameMatches, exactPathMatches...)
+	matches = append(matches, termBasenameMatches...)
+	return append(matches, termPathMatches...)
 }
 
 func normalizeTargetFileFilter(filterValue string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(filterValue), "\\", "/"))
+}
+
+func searchFilterTerms(normalizedFilter string) []string {
+	return strings.FieldsFunc(normalizedFilter, func(value rune) bool {
+		return unicode.IsSpace(value) || value == '/' || value == '\\'
+	})
+}
+
+func searchTermsMatch(value string, terms []string) bool {
+	if len(terms) == 0 {
+		return false
+	}
+
+	for _, term := range terms {
+		if !strings.Contains(value, term) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func targetFileSelectionPrompt(filterValue string, visibleCount int, matchingCount int, totalCount int, truncated bool) string {

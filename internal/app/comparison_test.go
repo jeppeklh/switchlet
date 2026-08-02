@@ -101,6 +101,64 @@ func TestApplication_CompareStatus_ReportsMultiTargetExactCompleteProfileMatch(t
 	}
 }
 
+func TestApplication_CompareStatus_ReportsSameFileMultiTargetMatch(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://local"},"redis":{"url":"redis://local"}}`)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "redis", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "redis.url"},
+		},
+		[]config.Profile{{
+			Name: "Local",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://local")},
+				{Target: "redis", Value: stringPointer("redis://local")},
+			},
+		}},
+	)
+
+	status, err := application.CompareStatus()
+	if err != nil {
+		t.Fatalf("CompareStatus returned error: %v", err)
+	}
+
+	if status.Status != app.StatusComparisonMatched || status.CurrentProfile != "Local" {
+		t.Fatalf("status = %#v, want Local exact same-file match", status)
+	}
+	if len(status.MatchedTargets) != 2 || status.MatchedTargets[0].TargetName != "database" || status.MatchedTargets[1].TargetName != "redis" {
+		t.Fatalf("MatchedTargets = %#v, want configured same-file target order", status.MatchedTargets)
+	}
+}
+
+func TestApplication_CompareStatus_RejectsMixedTargetTypesInOneFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://local"},"queue":{"endpoint":"local"}}`)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+		},
+		[]config.Profile{{
+			Name: "Local",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://local")},
+				{Target: "workerQueue", Value: stringPointer("local")},
+			},
+		}},
+	)
+
+	_, err := application.CompareStatus()
+	if err == nil {
+		t.Fatal("CompareStatus returned nil error, want mixed same-file target-type failure")
+	}
+	if !strings.Contains(err.Error(), `target "workerQueue"`) || !strings.Contains(err.Error(), `target file already has "json" reads queued`) {
+		t.Fatalf("CompareStatus returned error %q, want grouped read mixed-type context", err)
+	}
+}
+
 func TestApplication_CompareStatus_ReportsClosestProfilesWhenNoCompleteProfileMatches(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://current"}}`)
@@ -316,6 +374,64 @@ func TestApplication_DiffProfileByName_GroupsAlreadyMatchingAndWouldUpdateTarget
 	}
 	if len(diff.Unavailable) != 0 || len(diff.OmittedTargets) != 0 {
 		t.Fatalf("Unavailable/OmittedTargets = %#v/%#v, want none", diff.Unavailable, diff.OmittedTargets)
+	}
+}
+
+func TestApplication_DiffProfileByName_UsesGroupedReadsForSameFileTargets(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://old"},"redis":{"url":"redis://staging"}}`)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "redis", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "redis.url"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://staging")},
+				{Target: "redis", Value: stringPointer("redis://staging")},
+			},
+		}},
+	)
+
+	diff, err := application.DiffProfileByName("Staging")
+	if err != nil {
+		t.Fatalf("DiffProfileByName returned error: %v", err)
+	}
+
+	if len(diff.WouldUpdate) != 1 || diff.WouldUpdate[0].TargetName != "database" {
+		t.Fatalf("WouldUpdate = %#v, want database", diff.WouldUpdate)
+	}
+	if len(diff.AlreadyMatches) != 1 || diff.AlreadyMatches[0].TargetName != "redis" {
+		t.Fatalf("AlreadyMatches = %#v, want redis", diff.AlreadyMatches)
+	}
+}
+
+func TestApplication_DiffProfileByName_RejectsMixedTargetTypesInOneFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://old"},"queue":{"endpoint":"old"}}`)
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+		},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://staging")},
+				{Target: "workerQueue", Value: stringPointer("staging")},
+			},
+		}},
+	)
+
+	_, err := application.DiffProfileByName("Staging")
+	if err == nil {
+		t.Fatal("DiffProfileByName returned nil error, want mixed same-file target-type failure")
+	}
+	if !strings.Contains(err.Error(), `target "workerQueue"`) || !strings.Contains(err.Error(), `target file already has "json" reads queued`) {
+		t.Fatalf("DiffProfileByName returned error %q, want grouped read mixed-type context", err)
 	}
 }
 

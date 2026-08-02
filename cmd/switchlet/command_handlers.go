@@ -130,10 +130,14 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	shortOutput := false
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions)
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--short": &shortOutput}, &outputOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "status: %v\n\n%s", err, statusHelpText())
+	}
+	if jsonOutput && shortOutput {
+		return usageCommandError(outputOptions, jsonOutput, "status --short cannot be combined with --json\n\n%s", statusHelpText())
 	}
 	if len(positionals) != 0 {
 		return usageCommandError(outputOptions, jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
@@ -151,6 +155,9 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 
 	if jsonOutput {
 		return writeStatusJSON(output, status)
+	}
+	if shortOutput {
+		return writeStatusShortText(output, status)
 	}
 
 	return writeStatusText(output, status, project.ProjectRoot, outputOptions)
@@ -186,7 +193,7 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 
 	profileName := positionals[0]
 	if patchOutput {
-		preview, err := project.Application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityShown})
+		preview, err := project.Application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{})
 		if err != nil {
 			return diffCommandError(outputOptions, false, project.Application, profileName, err, project.ProjectRoot)
 		}

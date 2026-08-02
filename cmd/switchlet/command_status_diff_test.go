@@ -68,6 +68,37 @@ profiles:
 	}
 }
 
+func TestRunCommand_StatusShortReportsExactMatch(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--short"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.stdout != "Current profile: Local\n" {
+		t.Fatalf("stdout = %q, want concise current profile", result.stdout)
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173", "postgres://staging", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+}
+
 func TestRunCommand_StatusReportsNoCompleteMatchWithPartialAndClosestProfiles(t *testing.T) {
 	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -115,6 +146,35 @@ profiles:
 	}
 }
 
+func TestRunCommand_StatusShortReportsNoCompleteMatch(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Database Only
+    values:
+      - target: database
+        value: postgres://old
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: https://api.local.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--short"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.stdout != "Current profile: none\n" {
+		t.Fatalf("stdout = %q, want concise unmatched output", result.stdout)
+	}
+	for _, forbidden := range []string{"postgres://old", "https://api.local.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+}
+
 func TestRunCommand_StatusReportsAmbiguousCompleteMatches(t *testing.T) {
 	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -147,6 +207,37 @@ profiles:
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+}
+
+func TestRunCommand_StatusShortReportsAmbiguousCompleteMatches(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Local Copy
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--short"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.stdout != "Current profile: ambiguous (Local, Local Copy)\n" {
+		t.Fatalf("stdout = %q, want concise ambiguous output", result.stdout)
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
 		}
 	}
 }
@@ -256,6 +347,38 @@ profiles:
 		if strings.Contains(result.stdout, forbidden) {
 			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
 		}
+	}
+}
+
+func TestRunCommand_StatusShortCannotBeCombinedWithJSON(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--short", "--json"}, projectRoot)
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, usageExitCode, result.stdout, result.stderr)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want JSON usage error on stdout", result.stderr)
+	}
+	var payload struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal status JSON usage error: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Error.Kind != "usage" || !strings.Contains(payload.Error.Message, "status --short cannot be combined with --json") {
+		t.Fatalf("error = %#v, want status --short usage error", payload.Error)
 	}
 }
 

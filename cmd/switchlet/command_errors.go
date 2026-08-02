@@ -67,6 +67,14 @@ func runtimeCommandErrorWithMessage(outputOptions commandOutputOptions, jsonOutp
 	return commandFailure(outputOptions, true, runtimeExitCode, runtimeErrorKind(err), message)
 }
 
+func mainPickerRequiresTerminalError(outputOptions commandOutputOptions) error {
+	return commandError{message: mainPickerRequiresTerminalMessage(), exitCode: runtimeExitCode, outputOptions: outputOptions}
+}
+
+func mainPickerRequiresTerminalMessage() string {
+	return "`switchlet` without a command launches the interactive profile picker.\n\nstdin and stdout must be interactive terminals.\n\nFor non-interactive use, run:\n  switchlet list\n  switchlet status\n  switchlet apply <profile-name>"
+}
+
 func applyCommandError(outputOptions commandOutputOptions, jsonOutput bool, application app.Application, profileName string, err error, projectRoot string) error {
 	if errors.Is(err, app.ErrProfileNotFound) {
 		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatMissingProfileMessage(profileName, application.Profiles()))

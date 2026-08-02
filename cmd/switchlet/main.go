@@ -64,6 +64,10 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 	args = parseLeadingCommandOutputOptions(args, &outputOptions)
 
 	if len(args) == 0 {
+		if !terminalInteractionAvailable(input, output) {
+			return mainPickerRequiresTerminalError(outputOptions)
+		}
+
 		return runInteractiveCommandWithTerminalRunner(workingDirectory, runProgram, input, output)
 	}
 

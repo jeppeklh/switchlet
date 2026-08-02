@@ -74,6 +74,10 @@ func initWorkflowFromDependencies(dependencies initDependencies) app.InitWorkflo
 }
 
 func shouldUseInitWizard(input io.Reader, output io.Writer) bool {
+	return terminalInteractionAvailable(input, output)
+}
+
+func terminalInteractionAvailable(input io.Reader, output io.Writer) bool {
 	inputFile, ok := input.(*os.File)
 	if !ok {
 		return false

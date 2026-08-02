@@ -124,6 +124,15 @@ func TestPreviewManagedTargetChanges_MergesSameFileTargetsIntoOnePreviewFile(t *
 }
 `)+"\n")
 	originalContents := readFile(t, targetPath)
+	readCount := 0
+	originalReadTargetFile := readTargetFile
+	readTargetFile = func(targetPath string) ([]byte, fs.FileInfo, error) {
+		readCount++
+		return originalReadTargetFile(targetPath)
+	}
+	t.Cleanup(func() {
+		readTargetFile = originalReadTargetFile
+	})
 
 	preview, err := PreviewManagedTargetChanges([]TargetChange{
 		{
@@ -141,6 +150,9 @@ func TestPreviewManagedTargetChanges_MergesSameFileTargetsIntoOnePreviewFile(t *
 
 	if len(preview.Files) != 1 {
 		t.Fatalf("len(Files) = %d, want one same-file preview", len(preview.Files))
+	}
+	if readCount != 1 {
+		t.Fatalf("readCount = %d, want one grouped file read", readCount)
 	}
 	filePreview := preview.Files[0]
 	if filePreview.TargetFile != targetPath || filePreview.TargetType != config.TargetTypeJSON || len(filePreview.Hunks) != 2 {

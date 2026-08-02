@@ -84,6 +84,7 @@ func (application Application) managedPatchPreviewForConfiguredProfile(configure
 	}
 
 	availableChanges := make([]editor.TargetChange, 0, len(includedTargets))
+	unavailableTargets := make([]config.Target, 0)
 	unavailableHunks := make(map[string]ManagedPatchHunk)
 	for _, target := range application.targets {
 		resolvedValue, included := valuesByTarget[target.Name]
@@ -92,11 +93,8 @@ func (application Application) managedPatchPreviewForConfiguredProfile(configure
 		}
 
 		if resolvedValue.ResolutionError != nil {
-			if _, err := editor.ReadTargetValue(target); err != nil {
-				return ManagedPatchPreview{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
-			}
-
 			preview.Complete = false
+			unavailableTargets = append(unavailableTargets, target)
 			unavailableHunks[target.Name] = unavailableManagedPatchHunk(targetDescriptor(target), resolvedValue)
 			continue
 		}
@@ -105,6 +103,12 @@ func (application Application) managedPatchPreviewForConfiguredProfile(configure
 			Target: target,
 			Value:  resolvedValue.Value,
 		})
+	}
+
+	if len(unavailableTargets) > 0 {
+		if _, err := editor.ReadTargetValues(unavailableTargets); err != nil {
+			return ManagedPatchPreview{}, fmt.Errorf("read current target value for profile %q: %w", resolvedProfile.Name, err)
+		}
 	}
 
 	availableHunks := make(map[string]ManagedPatchHunk)

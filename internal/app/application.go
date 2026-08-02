@@ -197,7 +197,6 @@ func (application Application) profileValueItems(resolvedValues []profile.Resolv
 			TargetName:              resolvedValue.Target,
 			Source:                  profileSource(resolvedValue.Source),
 			EnvironmentVariableName: resolvedValue.EnvironmentVariableName,
-			MaskedValue:             resolvedValue.MaskedValue,
 			Available:               resolvedValue.ResolutionError == nil,
 		}
 		if target, ok := application.targetForValue(resolvedValue.Target, targetsByName); ok {
@@ -207,6 +206,13 @@ func (application Application) profileValueItems(resolvedValues []profile.Resolv
 			item.TargetType = target.Type
 			item.SelectorName = selectorName
 			item.Selector = selector
+		}
+		if resolvedValue.ResolutionError == nil {
+			item.MaskedValue = profile.MaskManagedValue(resolvedValue.Value, profile.ManagedValueMaskContext{
+				TargetName:              item.TargetName,
+				Selector:                item.Selector,
+				EnvironmentVariableName: item.EnvironmentVariableName,
+			})
 		}
 		if resolvedValue.ResolutionError != nil {
 			item.UnavailableReason = resolvedValue.ResolutionError.Error()

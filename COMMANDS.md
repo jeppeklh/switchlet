@@ -12,7 +12,7 @@ Command-only reference for the `switchlet` CLI.
 | `switchlet list [--json]` | List configured profiles. |
 | `switchlet inspect <profile-name> [--json]` | Inspect one profile and its planned target changes. |
 | `switchlet apply <profile-name> [flags]` | Apply one configured profile. |
-| `switchlet status [--json]` | Compare current managed values with configured profiles. |
+| `switchlet status [--json\|--short]` | Compare current managed values with configured profiles. |
 | `switchlet diff <profile-name> [--json\|--patch]` | Compare one profile with current managed values. |
 | `switchlet version` / `switchlet --version` | Show version information. |
 | `switchlet completion <shell>` | Generate a shell completion script. |
@@ -32,6 +32,10 @@ configuration.
 ```bash
 switchlet
 ```
+
+This command requires stdin and stdout to be interactive terminals. In scripts,
+CI jobs, or redirected shells, use non-interactive commands such as
+`switchlet list`, `switchlet status`, or `switchlet apply <profile-name>`.
 
 ### `switchlet init`
 
@@ -112,6 +116,7 @@ files.
 
 ```bash
 switchlet status
+switchlet status --short
 switchlet status --json
 switchlet status --no-color
 ```
@@ -120,6 +125,9 @@ A profile is reported as current only when it includes every configured target
 and every included resolved value matches the current target value. Partial
 profiles can be reported as partial matches, but they are not current-profile
 results when they omit configured targets.
+
+Use `--short` for a one-line human-readable current-state summary. It is
+value-safe and cannot be combined with `--json`.
 
 ### `switchlet diff`
 
@@ -169,6 +177,16 @@ JSON output includes profile names, target names, files, selectors,
 availability, and safe errors. It does not include raw current target values or
 raw resolved profile values.
 
+### Short Status
+
+Use `--short` with `status` for a concise text summary of the current profile:
+
+```bash
+switchlet status --short
+```
+
+Short status output is value-safe and cannot be combined with `--json`.
+
 ### Managed Patch
 
 Use `--patch` with `diff` when you want read-only managed patch text:
@@ -182,9 +200,10 @@ Patch output is limited to Switchlet-managed target locations. It is not a full
 source-control diff, does not invoke an external pager, and cannot be combined
 with `--json`.
 
-Patch output intentionally includes current and profile values for would-update
-managed targets. It does not print unrelated file contents, omitted target
-values, unavailable values, or unchanged already-matching values.
+Patch output redacts current and profile values by default. It shows which
+Switchlet-managed targets would change, but it does not print raw managed values,
+unrelated file contents, omitted target values, unavailable values, or unchanged
+already-matching values.
 
 ## Utility Commands
 

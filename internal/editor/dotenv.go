@@ -3,6 +3,8 @@ package editor
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 // ValidateDotenvTarget verifies that a dotenv file contains exactly one
@@ -46,16 +48,34 @@ func replaceDotenvTargetValues(contents []byte, changes []TargetChange) ([]byte,
 	return serializeDotenvLines(lines), nil
 }
 
-func readDotenvTargetValue(contents []byte, key string) (string, error) {
-	if err := validateDotenvKey(key); err != nil {
-		return "", fmt.Errorf("dotenv key is invalid: %w", err)
+func readDotenvTargetValues(contents []byte, targets []config.Target) (map[string]string, error) {
+	values := make(map[string]string, len(targets))
+	if len(targets) == 0 {
+		return values, nil
 	}
 
 	lines := splitDotenvLines(contents)
 	assignments, err := parseDotenvAssignments(lines)
 	if err != nil {
-		return "", err
+		return nil, targetError(targets[0], err)
 	}
+
+	for _, target := range targets {
+		if err := validateDotenvKey(target.Key); err != nil {
+			return nil, targetError(target, fmt.Errorf("dotenv key is invalid: %w", err))
+		}
+
+		value, err := readDotenvTargetValueFromAssignments(lines, assignments, target.Key)
+		if err != nil {
+			return nil, targetError(target, err)
+		}
+		values[target.Name] = value
+	}
+
+	return values, nil
+}
+
+func readDotenvTargetValueFromAssignments(lines []dotenvLine, assignments map[string][]int, key string) (string, error) {
 	if err := validateDotenvKeyExistsOnce(assignments, key); err != nil {
 		return "", err
 	}

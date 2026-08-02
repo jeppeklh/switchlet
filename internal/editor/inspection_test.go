@@ -15,6 +15,7 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableTargetFiles(t *tes
 	writeTargetFile(t, projectRoot, "root.json", `{"serviceUrl":"https://old.example.test"}`)
 	writeTargetFile(t, projectRoot, "worker.yaml", "queue:\n  endpoint: https://old.example.test\n")
 	writeTargetFile(t, projectRoot, ".env.local", "VITE_API_URL=http://localhost:5173\n")
+	writeTargetFile(t, projectRoot, "services/prod.env", "SERVICE_URL=https://old.example.test\n")
 	writeTargetFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
 	writeTargetFile(t, projectRoot, "src/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=localhost;Database=App;"}}`)
 	writeTargetFile(t, projectRoot, "invalid.json", `{`)
@@ -39,10 +40,11 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableTargetFiles(t *tes
 
 	wantRelativePaths := []string{
 		".env.local",
+		filepath.Join("services", "prod.env"),
+		filepath.Join("src", "appsettings.Development.json"),
+		filepath.Join("config", "runtime.json"),
 		"root.json",
 		"worker.yaml",
-		filepath.Join("config", "runtime.json"),
-		filepath.Join("src", "appsettings.Development.json"),
 	}
 	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
 		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
@@ -50,6 +52,9 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableTargetFiles(t *tes
 	for _, candidate := range candidates {
 		if candidate.RelativePath == "worker.yaml" && candidate.Type != config.TargetTypeYAML {
 			t.Fatalf("worker.yaml candidate type = %q, want %q", candidate.Type, config.TargetTypeYAML)
+		}
+		if candidate.RelativePath == filepath.Join("services", "prod.env") && candidate.Type != config.TargetTypeDotenv {
+			t.Fatalf("services/prod.env candidate type = %q, want %q", candidate.Type, config.TargetTypeDotenv)
 		}
 	}
 }
@@ -59,7 +64,14 @@ func TestDiscoverTargetFileCandidates_SkipsObviousDependencyAndBuildDirectories(
 
 	writeTargetFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://runtime.example.test"}`)
 	writeTargetFile(t, projectRoot, "src/MyApplication/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=localhost;Database=App;"}}`)
+	writeTargetFile(t, projectRoot, "bower_components/pkg/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "build/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "coverage/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "dist/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "generated/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
 	writeTargetFile(t, projectRoot, "node_modules/pkg/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "out/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
+	writeTargetFile(t, projectRoot, "target/classes/application.yaml", "serviceUrl: https://ignored.example.test\n")
 	writeTargetFile(t, projectRoot, "vendor/pkg/config.json", `{"serviceUrl":"https://ignored.example.test"}`)
 	writeTargetFile(t, projectRoot, "src/MyApplication/bin/Debug/net8.0/appsettings.json", `{"ConnectionStrings":{"DefaultConnection":"Server=ignored;Database=Bin;"}}`)
 	writeTargetFile(t, projectRoot, "src/MyApplication/obj/Debug/net8.0/appsettings.json", `{"ConnectionStrings":{"DefaultConnection":"Server=ignored;Database=Obj;"}}`)
@@ -75,8 +87,8 @@ func TestDiscoverTargetFileCandidates_SkipsObviousDependencyAndBuildDirectories(
 	}
 
 	wantRelativePaths := []string{
-		filepath.Join("config", "runtime.json"),
 		filepath.Join("src", "MyApplication", "appsettings.Development.json"),
+		filepath.Join("config", "runtime.json"),
 	}
 	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
 		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)

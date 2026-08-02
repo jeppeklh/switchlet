@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/bubbletea"
 
@@ -221,14 +222,31 @@ func (model Model) hasActiveProfileFilter() bool {
 
 func (model Model) filteredProfileIndices() []int {
 	filter := normalizeProfileFilter(model.activeProfileFilter())
-	indices := make([]int, 0, len(model.profiles))
-	for index, profile := range model.profiles {
-		if filter == "" || profileNameMatchesFilter(profile.Name, filter) {
+	if filter == "" {
+		indices := make([]int, 0, len(model.profiles))
+		for index := range model.profiles {
 			indices = append(indices, index)
+		}
+
+		return indices
+	}
+
+	exactIndices := make([]int, 0, len(model.profiles))
+	termIndices := make([]int, 0, len(model.profiles))
+	filterTerms := profileFilterTerms(filter)
+	for index, profile := range model.profiles {
+		matchRank, matches := profileNameFilterRank(profile.Name, filter, filterTerms)
+		if !matches {
+			continue
+		}
+		if matchRank == 0 {
+			exactIndices = append(exactIndices, index)
+		} else {
+			termIndices = append(termIndices, index)
 		}
 	}
 
-	return indices
+	return append(exactIndices, termIndices...)
 }
 
 func (model Model) profileMatchesActiveFilter(profile app.ProfileItem) bool {
@@ -237,9 +255,42 @@ func (model Model) profileMatchesActiveFilter(profile app.ProfileItem) bool {
 }
 
 func normalizeProfileFilter(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"))
 }
 
 func profileNameMatchesFilter(profileName string, normalizedFilter string) bool {
-	return strings.Contains(strings.ToLower(profileName), normalizedFilter)
+	_, matches := profileNameFilterRank(profileName, normalizedFilter, profileFilterTerms(normalizedFilter))
+	return matches
+}
+
+func profileNameFilterRank(profileName string, normalizedFilter string, filterTerms []string) (int, bool) {
+	normalizedName := strings.ToLower(profileName)
+	if strings.Contains(normalizedName, normalizedFilter) {
+		return 0, true
+	}
+	if searchTermsMatch(normalizedName, filterTerms) {
+		return 1, true
+	}
+
+	return 0, false
+}
+
+func profileFilterTerms(normalizedFilter string) []string {
+	return strings.FieldsFunc(normalizedFilter, func(value rune) bool {
+		return unicode.IsSpace(value) || value == '/' || value == '\\'
+	})
+}
+
+func searchTermsMatch(value string, terms []string) bool {
+	if len(terms) == 0 {
+		return false
+	}
+
+	for _, term := range terms {
+		if !strings.Contains(value, term) {
+			return false
+		}
+	}
+
+	return true
 }

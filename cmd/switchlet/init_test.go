@@ -762,21 +762,65 @@ retries = 3
 	}
 }
 
-func TestFilterTargetFileCandidates_FiltersTOMLFilesByBasenameAndPath(t *testing.T) {
+func TestFilterTargetFileCandidates_FiltersByMultiTermBasenameAndPath(t *testing.T) {
 	candidates := []editor.TargetFileCandidate{
 		{RelativePath: filepath.Join("backend", "settings.json"), Type: config.TargetTypeJSON},
 		{RelativePath: filepath.Join("services", "development.toml"), Type: config.TargetTypeTOML},
 		{RelativePath: filepath.Join("workers", "queue.toml"), Type: config.TargetTypeTOML},
+		{RelativePath: filepath.Join("frontend", ".env.local"), Type: config.TargetTypeDotenv},
 	}
 
-	basenameMatches := filterTargetFileCandidates(candidates, "develop")
+	basenameMatches := filterTargetFileCandidates(candidates, "dev toml")
 	if len(basenameMatches) != 1 || basenameMatches[0].RelativePath != filepath.Join("services", "development.toml") {
 		t.Fatalf("basename matches = %#v, want development.toml", basenameMatches)
 	}
 
-	pathMatches := filterTargetFileCandidates(candidates, "workers")
+	pathMatches := filterTargetFileCandidates(candidates, "workers queue")
 	if len(pathMatches) != 1 || pathMatches[0].RelativePath != filepath.Join("workers", "queue.toml") {
 		t.Fatalf("path matches = %#v, want workers/queue.toml", pathMatches)
+	}
+
+	separatorMatches := filterTargetFileCandidates(candidates, `frontend\.env`)
+	if len(separatorMatches) != 1 || separatorMatches[0].RelativePath != filepath.Join("frontend", ".env.local") {
+		t.Fatalf("separator matches = %#v, want frontend/.env.local", separatorMatches)
+	}
+}
+
+func TestFilterSelectableTargetPaths_FiltersByMultiTermLeafAndPath(t *testing.T) {
+	selectablePaths := []string{
+		"storage.replica.url",
+		"storage.primary.url",
+		"services.worker.baseUrl",
+		"services.api.timeout",
+	}
+
+	leafMatches := filterSelectableTargetPaths(selectablePaths, "base url")
+	if len(leafMatches) != 1 || leafMatches[0] != "services.worker.baseUrl" {
+		t.Fatalf("leaf matches = %#v, want services.worker.baseUrl", leafMatches)
+	}
+
+	pathMatches := filterSelectableTargetPaths(selectablePaths, "storage primary")
+	if len(pathMatches) != 1 || pathMatches[0] != "storage.primary.url" {
+		t.Fatalf("path matches = %#v, want storage.primary.url", pathMatches)
+	}
+
+	separatorMatches := filterSelectableTargetPaths(selectablePaths, `storage\replica`)
+	if len(separatorMatches) != 1 || separatorMatches[0] != "storage.replica.url" {
+		t.Fatalf("separator matches = %#v, want storage.replica.url", separatorMatches)
+	}
+}
+
+func TestFilterDotenvKeys_FiltersCaseInsensitiveMultiTermQueries(t *testing.T) {
+	keys := []string{"DATABASE_URL", "VITE_API_URL", "VITE_FEATURES"}
+
+	matches := filterDotenvKeys(keys, "api url")
+	if len(matches) != 1 || matches[0] != "VITE_API_URL" {
+		t.Fatalf("matches = %#v, want VITE_API_URL", matches)
+	}
+
+	matches = filterDotenvKeys(keys, "database")
+	if len(matches) != 1 || matches[0] != "DATABASE_URL" {
+		t.Fatalf("case-insensitive matches = %#v, want DATABASE_URL", matches)
 	}
 }
 
@@ -1236,12 +1280,12 @@ VITE_FEATURES=local
 `)+"\n")
 
 	input := strings.NewReader(strings.Join([]string{
-		"1",
+		"2",
 		"1",
 		"1",
 		"database",
 		"y",
-		"2",
+		"1",
 		"1",
 		"frontendApi",
 		"n",

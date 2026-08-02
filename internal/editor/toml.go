@@ -58,19 +58,41 @@ func replaceTOMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 	return replaceTOMLValueRanges(contents, updates)
 }
 
-func readTOMLStringTargetValue(contents []byte, tomlPath string) (string, error) {
-	if _, err := parseTOMLStringTarget(contents, tomlPath); err != nil {
-		return "", err
+func readTOMLTargetValues(contents []byte, targets []config.Target) (map[string]string, error) {
+	values := make(map[string]string, len(targets))
+	if len(targets) == 0 {
+		return values, nil
 	}
 
+	document, err := parseTOMLDocument(contents)
+	if err != nil {
+		return nil, targetError(targets[0], err)
+	}
+
+	decodedDocument, err := decodeTOMLDocument(contents)
+	if err != nil {
+		return nil, targetError(targets[0], err)
+	}
+
+	for _, target := range targets {
+		if _, err := document.findStringTarget(target.TOMLPath); err != nil {
+			return nil, targetError(target, err)
+		}
+
+		value, err := readDecodedTOMLStringTargetValue(decodedDocument, target.TOMLPath)
+		if err != nil {
+			return nil, targetError(target, err)
+		}
+		values[target.Name] = value
+	}
+
+	return values, nil
+}
+
+func readDecodedTOMLStringTargetValue(decodedDocument map[string]any, tomlPath string) (string, error) {
 	pathSegments, err := config.ParseTOMLPath(tomlPath)
 	if err != nil {
 		return "", fmt.Errorf("invalid TOML path %q: %w", tomlPath, err)
-	}
-
-	var decodedDocument map[string]any
-	if err := toml.Unmarshal(contents, &decodedDocument); err != nil {
-		return "", fmt.Errorf("contains invalid TOML: %w", err)
 	}
 
 	currentValue := any(decodedDocument)
@@ -93,6 +115,15 @@ func readTOMLStringTargetValue(contents []byte, tomlPath string) (string, error)
 	}
 
 	return stringValue, nil
+}
+
+func decodeTOMLDocument(contents []byte) (map[string]any, error) {
+	var decodedDocument map[string]any
+	if err := toml.Unmarshal(contents, &decodedDocument); err != nil {
+		return nil, fmt.Errorf("contains invalid TOML: %w", err)
+	}
+
+	return decodedDocument, nil
 }
 
 type tomlStringValueUpdate struct {

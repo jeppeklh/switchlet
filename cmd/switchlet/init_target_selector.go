@@ -139,15 +139,21 @@ func filterDotenvKeys(keys []string, filterValue string) []string {
 	if normalizedFilter == "" {
 		return keys
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	matchingKeys := make([]string, 0)
+	exactMatches := make([]string, 0)
+	termMatches := make([]string, 0)
 	for _, key := range keys {
-		if strings.Contains(strings.ToLower(key), normalizedFilter) {
-			matchingKeys = append(matchingKeys, key)
+		normalizedKey := strings.ToLower(key)
+		switch {
+		case strings.Contains(normalizedKey, normalizedFilter):
+			exactMatches = append(exactMatches, key)
+		case searchTermsMatch(normalizedKey, filterTerms):
+			termMatches = append(termMatches, key)
 		}
 	}
 
-	return matchingKeys
+	return append(exactMatches, termMatches...)
 }
 
 func targetDotenvKeyPrompt(displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {
@@ -367,11 +373,14 @@ func filterSelectableTargetPaths(selectablePaths []string, filterValue string) [
 	if normalizedFilter == "" {
 		return selectablePaths
 	}
+	filterTerms := searchFilterTerms(normalizedFilter)
 
-	leafMatches := make([]string, 0)
-	pathMatches := make([]string, 0)
+	exactLeafMatches := make([]string, 0)
+	exactPathMatches := make([]string, 0)
+	termLeafMatches := make([]string, 0)
+	termPathMatches := make([]string, 0)
 	for _, selectablePath := range selectablePaths {
-		normalizedPath := strings.ToLower(selectablePath)
+		normalizedPath := normalizeTargetFileFilter(selectablePath)
 		leafName := normalizedPath
 		if lastSeparatorIndex := strings.LastIndex(normalizedPath, "."); lastSeparatorIndex >= 0 {
 			leafName = normalizedPath[lastSeparatorIndex+1:]
@@ -379,13 +388,19 @@ func filterSelectableTargetPaths(selectablePaths []string, filterValue string) [
 
 		switch {
 		case strings.Contains(leafName, normalizedFilter):
-			leafMatches = append(leafMatches, selectablePath)
+			exactLeafMatches = append(exactLeafMatches, selectablePath)
 		case strings.Contains(normalizedPath, normalizedFilter):
-			pathMatches = append(pathMatches, selectablePath)
+			exactPathMatches = append(exactPathMatches, selectablePath)
+		case searchTermsMatch(leafName, filterTerms):
+			termLeafMatches = append(termLeafMatches, selectablePath)
+		case searchTermsMatch(normalizedPath, filterTerms):
+			termPathMatches = append(termPathMatches, selectablePath)
 		}
 	}
 
-	return append(leafMatches, pathMatches...)
+	matches := append(exactLeafMatches, exactPathMatches...)
+	matches = append(matches, termLeafMatches...)
+	return append(matches, termPathMatches...)
 }
 
 func targetStructuredPathSearchPrompt(formatName string, displayPath string, filterValue string, visibleCount int, matchingCount int, truncated bool) string {

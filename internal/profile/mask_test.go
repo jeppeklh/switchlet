@@ -52,6 +52,16 @@ func TestMaskConnectionString(t *testing.T) {
 			input: "Server=localhost;Password=secret;;",
 			want:  "Server=localhost;Password=****;;",
 		},
+		{
+			name:  "token key",
+			input: "AuthToken=secret;User Id=app",
+			want:  "AuthToken=****;User Id=app",
+		},
+		{
+			name:  "access key",
+			input: "AccessKey=secret;Endpoint=https://example.test",
+			want:  "AccessKey=****;Endpoint=https://example.test",
+		},
 	}
 
 	for _, testCase := range tests {
@@ -65,6 +75,89 @@ func TestMaskConnectionString(t *testing.T) {
 			}
 			if testCase.input != originalInput {
 				t.Fatalf("input changed from %q to %q", originalInput, testCase.input)
+			}
+		})
+	}
+}
+
+func TestMaskManagedValue(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   string
+		context profile.ManagedValueMaskContext
+		want    string
+	}{
+		{
+			name:  "ordinary value remains useful",
+			value: "https://api.staging.example.test",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "frontendApi",
+				Selector:   "VITE_API_URL",
+			},
+			want: "https://api.staging.example.test",
+		},
+		{
+			name:  "target name masks full value",
+			value: "https://example.test/plain-value",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "apiKey",
+				Selector:   "services.api.url",
+			},
+			want: "****",
+		},
+		{
+			name:  "empty value remains empty",
+			value: "",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "apiKey",
+			},
+			want: "",
+		},
+		{
+			name:  "selector masks full value",
+			value: "postgres://plain-value",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "database",
+				Selector:   "database.password",
+			},
+			want: "****",
+		},
+		{
+			name:  "environment variable masks full value",
+			value: "https://example.test/plain-value",
+			context: profile.ManagedValueMaskContext{
+				TargetName:              "serviceEndpoint",
+				Selector:                "services.api.url",
+				EnvironmentVariableName: "STAGING_SERVICE_API_KEY",
+			},
+			want: "****",
+		},
+		{
+			name:  "embedded key letters do not mask unrelated words",
+			value: "banana",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "monkeyMode",
+				Selector:   "settings.monkeyMode",
+			},
+			want: "banana",
+		},
+		{
+			name:  "connection string masking still applies without sensitive context",
+			value: "Server=db;Database=App;Pwd=secret;",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "database",
+				Selector:   "ConnectionStrings.DefaultConnection",
+			},
+			want: "Server=db;Database=App;Pwd=****;",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			maskedValue := profile.MaskManagedValue(testCase.value, testCase.context)
+
+			if maskedValue != testCase.want {
+				t.Fatalf("MaskManagedValue(%q, %#v) = %q, want %q", testCase.value, testCase.context, maskedValue, testCase.want)
 			}
 		})
 	}

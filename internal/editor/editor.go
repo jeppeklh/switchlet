@@ -113,7 +113,9 @@ func prepareStringValueUpdate(targetPath string, jsonPath string, replacementVal
 	return updatedContents, targetInfo.Mode().Perm(), nil
 }
 
-func readTargetFile(targetPath string) ([]byte, fs.FileInfo, error) {
+var readTargetFile = readTargetFileFromDisk
+
+func readTargetFileFromDisk(targetPath string) ([]byte, fs.FileInfo, error) {
 	if targetPath == "" {
 		return nil, nil, fmt.Errorf("target path must be set")
 	}

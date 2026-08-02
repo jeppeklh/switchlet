@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -323,6 +324,93 @@ func TestReadTargetValue_ReturnsContextualErrorsWithoutLeakingCurrentValuesOrWri
 				}
 			}
 		})
+	}
+}
+
+func TestReadTargetValues_ReadsSameFileGroupOnce(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "url": "postgres://current",
+    "replica": "postgres://replica"
+  }
+}
+`)+"\n")
+	originalContents := readFile(t, targetPath)
+
+	readCount := 0
+	originalReadTargetFile := readTargetFile
+	readTargetFile = func(targetPath string) ([]byte, fs.FileInfo, error) {
+		readCount++
+		return originalReadTargetFile(targetPath)
+	}
+	t.Cleanup(func() {
+		readTargetFile = originalReadTargetFile
+	})
+
+	values, err := ReadTargetValues([]config.Target{
+		{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		{Name: "replica", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.replica"},
+	})
+	if err != nil {
+		t.Fatalf("ReadTargetValues returned error: %v", err)
+	}
+
+	if readCount != 1 {
+		t.Fatalf("readCount = %d, want one grouped file read", readCount)
+	}
+	if values["database"] != "postgres://current" || values["replica"] != "postgres://replica" {
+		t.Fatalf("values = %#v, want both current values", values)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("target file changed during grouped current-value read")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("grouped current-value read created a temporary file")
+	}
+}
+
+func TestReadTargetValues_ReturnsTargetSpecificErrorsWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://current","secret":"current-secret"}}`)
+	originalContents := readFile(t, targetPath)
+
+	_, err := ReadTargetValues([]config.Target{
+		{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		{Name: "missing", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.missing"},
+	})
+	if err == nil {
+		t.Fatal("ReadTargetValues returned nil error, want target-specific failure")
+	}
+	if !strings.Contains(err.Error(), `target "missing"`) || !strings.Contains(err.Error(), `jsonPath "database.missing"`) || !strings.Contains(err.Error(), `missing segment "missing"`) {
+		t.Fatalf("ReadTargetValues returned error %q, want missing target context", err)
+	}
+	if strings.Contains(err.Error(), "current-secret") {
+		t.Fatalf("ReadTargetValues leaked current value in error %q", err)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("target file changed during failed grouped current-value read")
+	}
+}
+
+func TestReadTargetValues_RejectsMixedTargetTypesInOneFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://current"},"queue":{"endpoint":"current"}}`)
+	originalContents := readFile(t, targetPath)
+
+	_, err := ReadTargetValues([]config.Target{
+		{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+	})
+	if err == nil {
+		t.Fatal("ReadTargetValues returned nil error, want mixed target-type failure")
+	}
+	if !strings.Contains(err.Error(), `target "workerQueue"`) || !strings.Contains(err.Error(), `target file already has "json" reads queued`) {
+		t.Fatalf("ReadTargetValues returned error %q, want mixed target-type context", err)
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("target file changed after mixed target-type read failure")
 	}
 }
 

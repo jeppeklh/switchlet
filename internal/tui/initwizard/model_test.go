@@ -1233,6 +1233,38 @@ func TestInitWizardModel_PathSearchDoesNotMovePathRowsDown(t *testing.T) {
 	assertWizardCommandBarAtBottom(t, searchView, "/_")
 }
 
+func TestInitWizardFiltersSupportMultiTermSearches(t *testing.T) {
+	fileCandidates := []app.InitTargetFileCandidate{
+		{RelativePath: filepath.Join("backend", "settings.json"), Type: app.InitTargetTypeJSON},
+		{RelativePath: filepath.Join("services", "development.toml"), Type: app.InitTargetTypeTOML},
+		{RelativePath: filepath.Join("frontend", ".env.local"), Type: app.InitTargetTypeDotenv},
+	}
+
+	fileMatches := filterTargetFileCandidates(fileCandidates, "dev toml")
+	if len(fileMatches) != 1 || fileMatches[0].RelativePath != filepath.Join("services", "development.toml") {
+		t.Fatalf("file matches = %#v, want services/development.toml", fileMatches)
+	}
+	separatorMatches := filterTargetFileCandidates(fileCandidates, `frontend\.env`)
+	if len(separatorMatches) != 1 || separatorMatches[0].RelativePath != filepath.Join("frontend", ".env.local") {
+		t.Fatalf("separator file matches = %#v, want frontend/.env.local", separatorMatches)
+	}
+
+	selectablePaths := []string{"storage.replica.url", "storage.primary.url", "services.worker.baseUrl"}
+	pathMatches := filterSelectableTargetPaths(selectablePaths, "storage primary")
+	if len(pathMatches) != 1 || pathMatches[0] != "storage.primary.url" {
+		t.Fatalf("path matches = %#v, want storage.primary.url", pathMatches)
+	}
+	pathSeparatorMatches := filterSelectableTargetPaths(selectablePaths, `storage\replica`)
+	if len(pathSeparatorMatches) != 1 || pathSeparatorMatches[0] != "storage.replica.url" {
+		t.Fatalf("path separator matches = %#v, want storage.replica.url", pathSeparatorMatches)
+	}
+
+	keyMatches := filterDotenvKeys([]string{"DATABASE_URL", "VITE_API_URL", "VITE_FEATURES"}, "api url")
+	if len(keyMatches) != 1 || keyMatches[0] != "VITE_API_URL" {
+		t.Fatalf("key matches = %#v, want VITE_API_URL", keyMatches)
+	}
+}
+
 func TestInitWizardModel_CommandBarsDescribeActualEscDestinations(t *testing.T) {
 	projectRoot := t.TempDir()
 	literalValue := "postgres://local"

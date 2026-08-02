@@ -31,7 +31,7 @@ var completionCommands = []completionCommandSpec{
 		{Name: "--allow-protected", Description: "Allow non-interactive apply for a protected profile"},
 		{Name: "--no-color", Description: "Disable styled command output"},
 	}},
-	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--short", Description: "Write a concise current-profile summary"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "diff", Description: "Compare one profile with current managed values", Flags: []completionFlagSpec{
 		{Name: "--json", Description: "Write machine-readable JSON output"},
 		{Name: "--patch", Description: "Write read-only managed patch text"},

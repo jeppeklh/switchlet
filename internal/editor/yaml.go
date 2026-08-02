@@ -72,13 +72,26 @@ func replaceYAMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 	return serializeYAMLDocument(document)
 }
 
-func readYAMLStringTargetValue(contents []byte, yamlPath string) (string, error) {
-	targetNode, err := parseYAMLStringTarget(contents, yamlPath)
-	if err != nil {
-		return "", err
+func readYAMLTargetValues(contents []byte, targets []config.Target) (map[string]string, error) {
+	values := make(map[string]string, len(targets))
+	if len(targets) == 0 {
+		return values, nil
 	}
 
-	return targetNode.Value, nil
+	document, err := parseYAMLDocument(contents)
+	if err != nil {
+		return nil, targetError(targets[0], err)
+	}
+
+	for _, target := range targets {
+		targetNode, err := findYAMLStringTarget(document, target.YAMLPath)
+		if err != nil {
+			return nil, targetError(target, err)
+		}
+		values[target.Name] = targetNode.Value
+	}
+
+	return values, nil
 }
 
 type yamlStringValueUpdate struct {

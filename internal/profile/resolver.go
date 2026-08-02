@@ -72,7 +72,7 @@ func resolveProfileValue(profileName string, configuredValue config.ProfileValue
 			break
 		}
 
-		resolvedValue.MaskedValue = MaskConnectionString(resolvedValue.Value)
+		resolvedValue.MaskedValue = MaskManagedValue(resolvedValue.Value, ManagedValueMaskContext{TargetName: configuredValue.Target})
 	case configuredValue.ValueFromEnv != nil:
 		resolvedValue.Source = ValueSourceEnvironment
 		resolvedValue.EnvironmentVariableName = *configuredValue.ValueFromEnv
@@ -82,7 +82,10 @@ func resolveProfileValue(profileName string, configuredValue config.ProfileValue
 			resolvedValue.EnvironmentVariableName,
 		)
 		if resolvedValue.ResolutionError == nil {
-			resolvedValue.MaskedValue = MaskConnectionString(resolvedValue.Value)
+			resolvedValue.MaskedValue = MaskManagedValue(resolvedValue.Value, ManagedValueMaskContext{
+				TargetName:              configuredValue.Target,
+				EnvironmentVariableName: resolvedValue.EnvironmentVariableName,
+			})
 		}
 	default:
 		resolvedValue.ResolutionError = fmt.Errorf("%s does not define a value", profileValueDescription(profileName, configuredValue.Target))
