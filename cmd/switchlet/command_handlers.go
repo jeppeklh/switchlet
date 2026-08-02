@@ -2,10 +2,34 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/config"
 )
+
+type statusCommandOptions struct {
+	jsonOutput      bool
+	shortOutput     bool
+	expectedProfile string
+}
+
+type statusExpectationResult struct {
+	ExpectedProfile  string
+	Matched          bool
+	ObservedStatus   app.StatusComparisonStatus
+	ObservedProfiles []string
+	Message          string
+}
+
+type doctorReport struct {
+	ConfigPath  string
+	ProjectRoot string
+	Checks      []app.HealthCheck
+}
 
 func runListCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
 	if wantsHelpFlag(args) {
@@ -129,38 +153,61 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 		return err
 	}
 
-	jsonOutput := containsJSONFlag(args)
-	shortOutput := false
-
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--short": &shortOutput}, &outputOptions)
+	options, positionals, err := parseStatusCommandArguments(args, &outputOptions)
 	if err != nil {
-		return usageCommandError(outputOptions, jsonOutput, "status: %v\n\n%s", err, statusHelpText())
+		return usageCommandError(outputOptions, options.jsonOutput, "status: %v\n\n%s", err, statusHelpText())
 	}
-	if jsonOutput && shortOutput {
-		return usageCommandError(outputOptions, jsonOutput, "status --short cannot be combined with --json\n\n%s", statusHelpText())
+	if options.jsonOutput && options.shortOutput {
+		return usageCommandError(outputOptions, options.jsonOutput, "status --short cannot be combined with --json\n\n%s", statusHelpText())
+	}
+	if options.expectedProfile != "" && options.shortOutput {
+		return usageCommandError(outputOptions, options.jsonOutput, "status --expect cannot be combined with --short\n\n%s", statusHelpText())
 	}
 	if len(positionals) != 0 {
-		return usageCommandError(outputOptions, jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
+		return usageCommandError(outputOptions, options.jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
 	}
 
 	project, err := loadProject(workingDirectory)
 	if err != nil {
-		return runtimeCommandError(outputOptions, jsonOutput, err)
+		return runtimeCommandError(outputOptions, options.jsonOutput, err)
 	}
 
 	status, err := project.Application.CompareStatus()
 	if err != nil {
-		return comparisonCommandError(outputOptions, jsonOutput, "status", err, project.ProjectRoot)
+		return comparisonCommandError(outputOptions, options.jsonOutput, "status", err, project.ProjectRoot)
+	}
+	expectation := statusExpectationResult{}
+	if options.expectedProfile != "" {
+		expectation = evaluateStatusExpectation(status, project.Application.Profiles(), options.expectedProfile)
 	}
 
-	if jsonOutput {
-		return writeStatusJSON(output, status)
+	if options.jsonOutput {
+		if err := writeStatusJSONWithExpectation(output, status, expectation); err != nil {
+			return err
+		}
+		if options.expectedProfile != "" && !expectation.Matched {
+			return silentCommandError(runtimeExitCode, outputOptions, true)
+		}
+
+		return nil
 	}
-	if shortOutput {
+	if options.shortOutput {
 		return writeStatusShortText(output, status)
 	}
 
-	return writeStatusText(output, status, project.ProjectRoot, outputOptions)
+	if err := writeStatusText(output, status, project.ProjectRoot, outputOptions); err != nil {
+		return err
+	}
+	if options.expectedProfile != "" {
+		if err := writeStatusExpectationText(output, expectation, outputOptions); err != nil {
+			return err
+		}
+		if !expectation.Matched {
+			return silentCommandError(runtimeExitCode, outputOptions, false)
+		}
+	}
+
+	return nil
 }
 
 func runDiffCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
@@ -171,8 +218,9 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 
 	jsonOutput := containsJSONFlag(args)
 	patchOutput := false
+	exitCode := false
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--patch": &patchOutput}, &outputOptions)
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--patch": &patchOutput, "--exit-code": &exitCode}, &outputOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "diff: %v\n\n%s", err, diffHelpText())
 	}
@@ -198,7 +246,14 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 			return diffCommandError(outputOptions, false, project.Application, profileName, err, project.ProjectRoot)
 		}
 
-		return writeManagedPatchText(output, preview, project.ProjectRoot)
+		if err := writeManagedPatchText(output, preview, project.ProjectRoot); err != nil {
+			return err
+		}
+		if exitCode && managedPatchPreviewHasDiffExitFailure(preview) {
+			return silentCommandError(runtimeExitCode, outputOptions, false)
+		}
+
+		return nil
 	}
 
 	diff, err := project.Application.DiffProfileByName(profileName)
@@ -207,8 +262,233 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 	}
 
 	if jsonOutput {
-		return writeDiffJSON(output, diff)
+		if err := writeDiffJSON(output, diff); err != nil {
+			return err
+		}
+		if exitCode && diffHasExitFailure(diff) {
+			return silentCommandError(runtimeExitCode, outputOptions, true)
+		}
+
+		return nil
 	}
 
-	return writeDiffText(output, diff, project.ProjectRoot, outputOptions)
+	if err := writeDiffText(output, diff, project.ProjectRoot, outputOptions); err != nil {
+		return err
+	}
+	if exitCode && diffHasExitFailure(diff) {
+		return silentCommandError(runtimeExitCode, outputOptions, false)
+	}
+
+	return nil
+}
+
+func runDoctorCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, doctorHelpText())
+		return err
+	}
+
+	jsonOutput := containsJSONFlag(args)
+	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions)
+	if err != nil {
+		return usageCommandError(outputOptions, jsonOutput, "doctor: %v\n\n%s", err, doctorHelpText())
+	}
+	if len(positionals) != 0 {
+		return usageCommandError(outputOptions, jsonOutput, "doctor does not accept a positional argument\n\n%s", doctorHelpText())
+	}
+
+	report := buildDoctorReport(workingDirectory)
+	if jsonOutput {
+		if err := writeDoctorJSON(output, report); err != nil {
+			return err
+		}
+		if doctorReportHasFailures(report) {
+			return silentCommandError(runtimeExitCode, outputOptions, true)
+		}
+
+		return nil
+	}
+
+	if err := writeDoctorText(output, report, outputOptions); err != nil {
+		return err
+	}
+	if doctorReportHasFailures(report) {
+		return silentCommandError(runtimeExitCode, outputOptions, false)
+	}
+
+	return nil
+}
+
+func parseStatusCommandArguments(args []string, outputOptions *commandOutputOptions) (statusCommandOptions, []string, error) {
+	args = parseCommandOutputOptions(args, outputOptions)
+	options := statusCommandOptions{jsonOutput: containsJSONFlag(args)}
+	positionals := make([]string, 0, len(args))
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--json" {
+			options.jsonOutput = true
+			continue
+		}
+		if arg == "--short" {
+			options.shortOutput = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, "--expect="); ok {
+			if options.expectedProfile != "" {
+				return options, nil, fmt.Errorf("--expect can be provided only once")
+			}
+			if value == "" {
+				return options, nil, fmt.Errorf("--expect requires a profile name")
+			}
+			options.expectedProfile = value
+			continue
+		}
+		if arg == "--expect" {
+			if options.expectedProfile != "" {
+				return options, nil, fmt.Errorf("--expect can be provided only once")
+			}
+			if index+1 >= len(args) || args[index+1] == "" {
+				return options, nil, fmt.Errorf("--expect requires a profile name")
+			}
+			options.expectedProfile = args[index+1]
+			index++
+			continue
+		}
+		if len(arg) > 0 && arg[0] == '-' {
+			return options, nil, unsupportedFlagError(arg, []string{"--expect", "--json", "--no-color", "--short"})
+		}
+
+		positionals = append(positionals, arg)
+	}
+
+	return options, positionals, nil
+}
+
+func evaluateStatusExpectation(status app.StatusComparison, profiles []app.ProfileItem, expectedProfile string) statusExpectationResult {
+	expectation := statusExpectationResult{
+		ExpectedProfile:  expectedProfile,
+		ObservedStatus:   status.Status,
+		ObservedProfiles: statusCompleteProfileNames(status),
+	}
+
+	if !profileNameExists(profiles, expectedProfile) {
+		expectation.Message = fmt.Sprintf("expected profile %q is not configured", expectedProfile)
+		return expectation
+	}
+
+	switch status.Status {
+	case app.StatusComparisonMatched:
+		if status.CurrentProfile == expectedProfile {
+			expectation.Matched = true
+			expectation.Message = fmt.Sprintf("current complete profile is %q", expectedProfile)
+			return expectation
+		}
+
+		expectation.Message = fmt.Sprintf("expected profile %q, but current complete profile is %q", expectedProfile, status.CurrentProfile)
+	case app.StatusComparisonAmbiguous:
+		expectation.Message = fmt.Sprintf("expected profile %q, but current state is ambiguous", expectedProfile)
+	default:
+		expectation.Message = fmt.Sprintf("expected profile %q, but no complete profile matches current managed values", expectedProfile)
+	}
+
+	return expectation
+}
+
+func profileNameExists(profiles []app.ProfileItem, profileName string) bool {
+	for _, profileItem := range profiles {
+		if profileItem.Name == profileName {
+			return true
+		}
+	}
+
+	return false
+}
+
+func statusCompleteProfileNames(status app.StatusComparison) []string {
+	names := make([]string, 0, len(status.Matches))
+	for _, match := range status.Matches {
+		names = append(names, match.ProfileName)
+	}
+
+	return names
+}
+
+func diffHasExitFailure(diff app.ProfileDiff) bool {
+	return len(diff.WouldUpdate) > 0 || len(diff.Unavailable) > 0
+}
+
+func managedPatchPreviewHasDiffExitFailure(preview app.ManagedPatchPreview) bool {
+	for _, fileGroup := range preview.Files {
+		for _, hunk := range fileGroup.Hunks {
+			if hunk.Status == app.ManagedPatchStatusWouldUpdate || hunk.Status == app.ManagedPatchStatusUnavailable {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func buildDoctorReport(workingDirectory string) doctorReport {
+	report := doctorReport{}
+
+	configPath, err := config.Discover(workingDirectory)
+	if err != nil {
+		report.Checks = append(report.Checks, app.HealthCheck{
+			Name:    "configuration_discovery",
+			Status:  app.HealthCheckFailed,
+			Message: formatRuntimeErrorMessage(err, err.Error()),
+		})
+		return report
+	}
+
+	report.ConfigPath = configPath
+	report.ProjectRoot = filepath.Dir(configPath)
+	report.Checks = append(report.Checks, app.HealthCheck{
+		Name:    "configuration_discovery",
+		Status:  app.HealthCheckOK,
+		Message: "found .switchlet.yaml",
+	})
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		report.Checks = append(report.Checks, app.HealthCheck{
+			Name:    "configuration_loading",
+			Status:  app.HealthCheckFailed,
+			Message: err.Error(),
+		})
+		return report
+	}
+
+	report.Checks = append(report.Checks, app.HealthCheck{
+		Name:    "configuration_loading",
+		Status:  app.HealthCheckOK,
+		Message: fmt.Sprintf("loaded version %d configuration with %d target(s) and %d profile(s)", loadedConfig.Version, len(loadedConfig.Targets), len(loadedConfig.Profiles)),
+	})
+
+	application := app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles)
+	report.Checks = append(report.Checks, application.HealthChecks()...)
+
+	return report
+}
+
+func doctorReportHasFailures(report doctorReport) bool {
+	for _, check := range report.Checks {
+		if check.Status == app.HealthCheckFailed {
+			return true
+		}
+	}
+
+	return false
+}
+
+func doctorReportHasWarnings(report doctorReport) bool {
+	for _, check := range report.Checks {
+		if check.Status == app.HealthCheckWarning {
+			return true
+		}
+	}
+
+	return false
 }

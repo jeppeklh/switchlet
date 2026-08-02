@@ -576,6 +576,103 @@ profiles:
 	}
 }
 
+func TestRunCommand_ProfileCommandsAcceptDashPrefixedProfileAfterDelimiter(t *testing.T) {
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: "-Local"
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+
+	for _, testCase := range []struct {
+		name string
+		args []string
+	}{
+		{name: "inspect", args: []string{"inspect", "--", "-Local"}},
+		{name: "apply dry-run", args: []string{"apply", "--dry-run", "--", "-Local"}},
+		{name: "diff", args: []string{"diff", "--", "-Local"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want empty", result.stderr)
+			}
+			if !strings.Contains(result.stdout, "-Local") {
+				t.Fatalf("stdout %q does not contain dash-prefixed profile name", result.stdout)
+			}
+		})
+	}
+
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database file changed during dash-prefixed profile command test")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend file changed during dash-prefixed profile command test")
+	}
+}
+
+func TestRunCommand_ProfileCommandsTreatDelimiterProtectedFlagNamesAsProfiles(t *testing.T) {
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: "--help"
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: "--json"
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+
+	for _, testCase := range []struct {
+		name        string
+		args        []string
+		profileName string
+	}{
+		{name: "inspect help profile", args: []string{"inspect", "--", "--help"}, profileName: "--help"},
+		{name: "inspect json profile", args: []string{"inspect", "--", "--json"}, profileName: "--json"},
+		{name: "apply dry-run json profile", args: []string{"apply", "--dry-run", "--", "--json"}, profileName: "--json"},
+		{name: "diff json profile", args: []string{"diff", "--", "--json"}, profileName: "--json"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want empty", result.stderr)
+			}
+			if !strings.Contains(result.stdout, testCase.profileName) {
+				t.Fatalf("stdout %q does not contain profile name %q", result.stdout, testCase.profileName)
+			}
+			if strings.HasPrefix(strings.TrimSpace(result.stdout), "{") {
+				t.Fatalf("stdout %q is JSON output, want delimiter-protected profile name", result.stdout)
+			}
+		})
+	}
+
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database file changed during delimiter-protected profile command test")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend file changed during delimiter-protected profile command test")
+	}
+}
+
 func writeVersionThreeCommandProject(t *testing.T, profilesYAML string) (string, string, string) {
 	t.Helper()
 

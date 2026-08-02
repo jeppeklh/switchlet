@@ -257,6 +257,42 @@ type ProfileDiff struct {
 	OmittedTargets []TargetDescriptor
 }
 
+// HealthCheckStatus identifies the result of one doctor health check.
+type HealthCheckStatus string
+
+const (
+	// HealthCheckOK indicates that a doctor check passed.
+	HealthCheckOK HealthCheckStatus = "ok"
+	// HealthCheckWarning indicates that a doctor check found a non-fatal issue.
+	HealthCheckWarning HealthCheckStatus = "warning"
+	// HealthCheckFailed indicates that a doctor check found a health failure.
+	HealthCheckFailed HealthCheckStatus = "failed"
+	// HealthCheckSkipped indicates that a doctor check could not run safely.
+	HealthCheckSkipped HealthCheckStatus = "skipped"
+)
+
+// HealthCheck describes one value-safe project health check.
+type HealthCheck struct {
+	Name                string
+	Status              HealthCheckStatus
+	Message             string
+	Targets             []TargetDescriptor
+	Profiles            []HealthProfile
+	UnavailableProfiles []UnavailableProfile
+	TargetFailure       TargetFailure
+	HasTargetFailure    bool
+}
+
+// HealthProfile describes a configured profile without exposing managed values.
+type HealthProfile struct {
+	Name         string
+	Protected    bool
+	Available    bool
+	TargetCount  int
+	TotalTargets int
+	Partial      bool
+}
+
 // TargetFailure describes a target-specific application failure in a
 // presentation-neutral form.
 type TargetFailure struct {

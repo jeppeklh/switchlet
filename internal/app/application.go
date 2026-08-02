@@ -82,6 +82,50 @@ func (application Application) ValidateStartup() error {
 	return nil
 }
 
+// HealthChecks returns value-safe project health checks that require application
+// coordination across target validation, profile availability, and current state.
+func (application Application) HealthChecks() []HealthCheck {
+	checks := make([]HealthCheck, 0, 3)
+
+	startupErr := application.ValidateStartup()
+	if startupErr != nil {
+		checks = append(checks, failedHealthCheck("startup_target_validation", "configured target validation failed", startupErr))
+	} else {
+		checks = append(checks, HealthCheck{
+			Name:    "startup_target_validation",
+			Status:  HealthCheckOK,
+			Message: fmt.Sprintf("validated %d configured target(s)", len(application.targets)),
+			Targets: targetDescriptors(application.targets),
+		})
+	}
+
+	profileCheck := application.profileAvailabilityHealthCheck()
+	checks = append(checks, profileCheck)
+
+	if startupErr != nil {
+		checks = append(checks, HealthCheck{
+			Name:    "current_state_comparison",
+			Status:  HealthCheckSkipped,
+			Message: "skipped because startup target validation failed",
+		})
+		return checks
+	}
+
+	status, err := application.CompareStatus()
+	if err != nil {
+		checks = append(checks, failedHealthCheck("current_state_comparison", "current-state comparison failed", err))
+		return checks
+	}
+
+	checks = append(checks, HealthCheck{
+		Name:    "current_state_comparison",
+		Status:  HealthCheckOK,
+		Message: currentStateHealthMessage(status),
+	})
+
+	return checks
+}
+
 // ApplyProfileByName resolves and applies one configured profile owned by the application.
 func (application Application) ApplyProfileByName(profileName string) (Result, error) {
 	return application.ApplyProfileByNameWithOptions(profileName, ApplyOptions{AllowProtected: true})
@@ -188,6 +232,103 @@ func (application Application) profileItem(configuredProfile config.Profile, tar
 	}
 
 	return item
+}
+
+func (application Application) profileAvailabilityHealthCheck() HealthCheck {
+	profileItems := application.Profiles()
+	profiles := make([]HealthProfile, 0, len(profileItems))
+	unavailableProfiles := make([]UnavailableProfile, 0)
+
+	for _, profileItem := range profileItems {
+		profiles = append(profiles, HealthProfile{
+			Name:         profileItem.Name,
+			Protected:    profileItem.Protected,
+			Available:    profileItem.Available,
+			TargetCount:  profileItem.TargetCount,
+			TotalTargets: profileItem.TotalTargets,
+			Partial:      profileItem.Partial,
+		})
+
+		if profileItem.Available {
+			continue
+		}
+
+		unavailableProfiles = append(unavailableProfiles, unavailableProfileFromProfileItem(profileItem))
+	}
+
+	if len(unavailableProfiles) == 0 {
+		return HealthCheck{
+			Name:     "profile_availability",
+			Status:   HealthCheckOK,
+			Message:  fmt.Sprintf("all %d configured profile(s) are available", len(profileItems)),
+			Profiles: profiles,
+		}
+	}
+
+	return HealthCheck{
+		Name:                "profile_availability",
+		Status:              HealthCheckWarning,
+		Message:             fmt.Sprintf("%d configured profile(s) are unavailable in the current environment", len(unavailableProfiles)),
+		Profiles:            profiles,
+		UnavailableProfiles: unavailableProfiles,
+	}
+}
+
+func unavailableProfileFromProfileItem(profileItem ProfileItem) UnavailableProfile {
+	unavailableValues := make([]UnavailableValue, 0)
+	for _, valueItem := range profileItem.Values {
+		if valueItem.Available {
+			continue
+		}
+
+		unavailableValues = append(unavailableValues, UnavailableValue{
+			TargetDescriptor: TargetDescriptor{
+				TargetName:   valueItem.TargetName,
+				TargetFile:   valueItem.TargetFile,
+				TargetType:   valueItem.TargetType,
+				SelectorName: valueItem.SelectorName,
+				Selector:     valueItem.Selector,
+			},
+			EnvironmentVariableName: valueItem.EnvironmentVariableName,
+			Reason:                  valueItem.UnavailableReason,
+		})
+	}
+
+	return UnavailableProfile{
+		ProfileName: profileItem.Name,
+		Protected:   profileItem.Protected,
+		Reason:      profileItem.UnavailableReason,
+		Values:      unavailableValues,
+	}
+}
+
+func failedHealthCheck(name string, message string, err error) HealthCheck {
+	check := HealthCheck{
+		Name:    name,
+		Status:  HealthCheckFailed,
+		Message: message,
+	}
+	if targetFailure, ok := TargetFailureFromError(err); ok {
+		check.TargetFailure = targetFailure
+		check.HasTargetFailure = true
+		return check
+	}
+	if err != nil {
+		check.Message = fmt.Sprintf("%s: %v", message, err)
+	}
+
+	return check
+}
+
+func currentStateHealthMessage(status StatusComparison) string {
+	switch status.Status {
+	case StatusComparisonMatched:
+		return fmt.Sprintf("current managed values match profile %q", status.CurrentProfile)
+	case StatusComparisonAmbiguous:
+		return "current managed values match multiple complete profiles"
+	default:
+		return "current managed values do not exactly match a complete profile"
+	}
 }
 
 func (application Application) profileValueItems(resolvedValues []profile.ResolvedValue, targetsByName map[string]config.Target) []ProfileValueItem {

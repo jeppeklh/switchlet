@@ -102,96 +102,6 @@ func writeApplyText(output io.Writer, result app.Result, projectRoot string) err
 	return nil
 }
 
-func writeStatusText(output io.Writer, status app.StatusComparison, projectRoot string, outputOptions commandOutputOptions) error {
-	styles := defaultCommandOutputStyles(outputOptions)
-	if _, err := fmt.Fprintln(output, styles.title.Render("Switchlet status")); err != nil {
-		return err
-	}
-
-	switch status.Status {
-	case app.StatusComparisonMatched:
-		if err := writeCommandDetail(output, styles, "Current profile", styles.success.Render(status.CurrentProfile)); err != nil {
-			return err
-		}
-		if err := writeTargetDescriptorSection(output, styles, "Matched targets", status.MatchedTargets, projectRoot); err != nil {
-			return err
-		}
-	case app.StatusComparisonAmbiguous:
-		if err := writeCommandDetail(output, styles, "State", styles.warning.Render("multiple complete profiles match")); err != nil {
-			return err
-		}
-		if err := writeProfileMatchSection(output, styles, "Matches", status.Matches); err != nil {
-			return err
-		}
-	default:
-		if err := writeCommandDetail(output, styles, "State", styles.warning.Render("no complete profile match")); err != nil {
-			return err
-		}
-		if err := writePartialMatchSection(output, styles, status.PartialMatches); err != nil {
-			return err
-		}
-		if err := writeClosestProfileSection(output, styles, status.ClosestProfiles); err != nil {
-			return err
-		}
-	}
-
-	return writeUnavailableProfileSection(output, styles, status.UnavailableProfiles, projectRoot)
-}
-
-func writeStatusShortText(output io.Writer, status app.StatusComparison) error {
-	switch status.Status {
-	case app.StatusComparisonMatched:
-		_, err := fmt.Fprintf(output, "Current profile: %s\n", status.CurrentProfile)
-		return err
-	case app.StatusComparisonAmbiguous:
-		names := profileMatchNames(status.Matches)
-		if len(names) == 0 {
-			_, err := fmt.Fprintln(output, "Current profile: ambiguous")
-			return err
-		}
-
-		_, err := fmt.Fprintf(output, "Current profile: ambiguous (%s)\n", strings.Join(names, ", "))
-		return err
-	default:
-		_, err := fmt.Fprintln(output, "Current profile: none")
-		return err
-	}
-}
-
-func profileMatchNames(matches []app.ProfileMatch) []string {
-	names := make([]string, 0, len(matches))
-	for _, match := range matches {
-		if match.ProfileName == "" {
-			continue
-		}
-
-		names = append(names, match.ProfileName)
-	}
-
-	return names
-}
-
-func writeDiffText(output io.Writer, diff app.ProfileDiff, projectRoot string, outputOptions commandOutputOptions) error {
-	styles := defaultCommandOutputStyles(outputOptions)
-	if _, err := fmt.Fprintf(output, "%s  %s\n", styles.title.Render("Switchlet diff"), styles.heading.Render(diff.ProfileName)); err != nil {
-		return err
-	}
-	if err := writeCommandDetail(output, styles, "Protection", styledDiffProtectionLabel(styles, diff)); err != nil {
-		return err
-	}
-
-	if err := writeTargetDescriptorSection(output, styles, "Would update", diff.WouldUpdate, projectRoot); err != nil {
-		return err
-	}
-	if err := writeTargetDescriptorSection(output, styles, "Already matches", diff.AlreadyMatches, projectRoot); err != nil {
-		return err
-	}
-	if err := writeUnavailableValueSection(output, styles, "Unavailable", diff.Unavailable, projectRoot); err != nil {
-		return err
-	}
-	return writeTargetDescriptorSection(output, styles, "Omitted targets", diff.OmittedTargets, projectRoot)
-}
-
 func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(valueItem.TargetName), targetTypeBadge(string(valueItem.TargetType))); err != nil {
 		return err
@@ -300,68 +210,6 @@ func writeTargetDescriptorText(output io.Writer, styles commandOutputStyles, des
 	return nil
 }
 
-func writeProfileMatchSection(output io.Writer, styles commandOutputStyles, heading string, matches []app.ProfileMatch) error {
-	if len(matches) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, heading)); err != nil {
-		return err
-	}
-	for _, match := range matches {
-		if _, err := fmt.Fprintf(output, "%s %s\n", styles.marker.Render(">"), styledProfileLabel(styles, match.ProfileName, match.Protected)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func writePartialMatchSection(output io.Writer, styles commandOutputStyles, matches []app.PartialProfileMatch) error {
-	if len(matches) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, "Partial matches")); err != nil {
-		return err
-	}
-	for _, match := range matches {
-		if _, err := fmt.Fprintf(
-			output,
-			"%s %s  %s\n",
-			styles.marker.Render(">"),
-			styledProfileLabel(styles, match.ProfileName, match.Protected),
-			styles.muted.Render(fmt.Sprintf("%d/%d included match; %d omitted", match.MatchedTargets, match.IncludedTargets, match.OmittedTargets)),
-		); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func writeClosestProfileSection(output io.Writer, styles commandOutputStyles, matches []app.ClosestProfileMatch) error {
-	if len(matches) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, "Closest profiles")); err != nil {
-		return err
-	}
-	for _, match := range matches {
-		line := fmt.Sprintf(
-			"%d/%d targets match",
-			match.MatchedTargets,
-			match.TargetCount,
-		)
-		if match.UnavailableTargets > 0 {
-			line += fmt.Sprintf("; %d unavailable", match.UnavailableTargets)
-		}
-		if _, err := fmt.Fprintf(output, "%s %s  %s\n", styles.marker.Render(">"), styledProfileLabel(styles, match.ProfileName, match.Protected), styles.muted.Render(line)); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles, profiles []app.UnavailableProfile, projectRoot string) error {
 	if len(profiles) == 0 {
 		return nil
@@ -389,25 +237,6 @@ func writeUnavailableProfileSection(output io.Writer, styles commandOutputStyles
 			if err := writeUnavailableValueDetails(output, styles, value, projectRoot); err != nil {
 				return err
 			}
-		}
-	}
-
-	return nil
-}
-
-func writeUnavailableValueSection(output io.Writer, styles commandOutputStyles, heading string, values []app.UnavailableValue, projectRoot string) error {
-	if len(values) == 0 {
-		return nil
-	}
-	if _, err := fmt.Fprintf(output, "\n%s\n", styledSectionHeading(styles, heading)); err != nil {
-		return err
-	}
-	for _, value := range values {
-		if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(value.TargetName)), styledTargetTypeBadge(styles, string(value.TargetType))); err != nil {
-			return err
-		}
-		if err := writeUnavailableValueDetails(output, styles, value, projectRoot); err != nil {
-			return err
 		}
 	}
 
@@ -445,9 +274,9 @@ func styledSectionHeading(styles commandOutputStyles, heading string) string {
 	}
 
 	switch heading {
-	case "Matched targets", "Matches", "Already matches":
+	case "Matched targets", "Matches", "Already matches", "Targets":
 		return styles.success.Bold(true).Render(heading)
-	case "Would update", "Partial matches", "Closest profiles", "Omitted targets":
+	case "Would update", "Partial matches", "Closest profiles", "Omitted targets", "Expectation":
 		return styles.warning.Bold(true).Render(heading)
 	case "Unavailable", "Unavailable profiles":
 		return styles.error.Bold(true).Render(heading)
@@ -471,14 +300,6 @@ func styledProfileLabel(styles commandOutputStyles, profileName string, protecte
 	}
 
 	return label
-}
-
-func styledDiffProtectionLabel(styles commandOutputStyles, diff app.ProfileDiff) string {
-	if diff.Protected {
-		return styles.warning.Render("protected")
-	}
-
-	return styles.muted.Render("not protected")
 }
 
 func targetListHeading(singular string, changes []app.PlannedChange) string {

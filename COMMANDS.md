@@ -12,8 +12,9 @@ Command-only reference for the `switchlet` CLI.
 | `switchlet list [--json]` | List configured profiles. |
 | `switchlet inspect <profile-name> [--json]` | Inspect one profile and its planned target changes. |
 | `switchlet apply <profile-name> [flags]` | Apply one configured profile. |
-| `switchlet status [--json\|--short]` | Compare current managed values with configured profiles. |
-| `switchlet diff <profile-name> [--json\|--patch]` | Compare one profile with current managed values. |
+| `switchlet status [flags]` | Compare current managed values with configured profiles. |
+| `switchlet diff <profile-name> [flags]` | Compare one profile with current managed values. |
+| `switchlet doctor [--json]` | Check project health without writing files. |
 | `switchlet version` / `switchlet --version` | Show version information. |
 | `switchlet completion <shell>` | Generate a shell completion script. |
 | `switchlet help [command]` | Show general or command-specific help. |
@@ -82,6 +83,7 @@ Shows one profile's planned target changes without writing files.
 
 ```bash
 switchlet inspect Local
+switchlet inspect -- -Local
 switchlet inspect Local --json
 switchlet inspect Local --no-color
 ```
@@ -93,6 +95,7 @@ Applies one configured profile by name.
 ```bash
 switchlet apply Local
 switchlet apply Local --dry-run
+switchlet apply --dry-run -- -Local
 switchlet apply Production --allow-protected
 switchlet apply Local --dry-run --json
 ```
@@ -107,6 +110,9 @@ switchlet apply Local --dry-run --json
 Protected profiles are never applied silently. Non-interactive apply requires
 `--allow-protected` for protected profiles.
 
+Use `--` before a positional profile name that starts with `-`. For `apply`, put
+flags before `--`, for example `switchlet apply --dry-run -- -Local`.
+
 ## Current-State Commands
 
 ### `switchlet status`
@@ -118,6 +124,9 @@ files.
 switchlet status
 switchlet status --short
 switchlet status --json
+switchlet status --expect Local
+switchlet status --expect=Local
+switchlet status --expect=-Local
 switchlet status --no-color
 ```
 
@@ -129,6 +138,12 @@ results when they omit configured targets.
 Use `--short` for a one-line human-readable current-state summary. It is
 value-safe and cannot be combined with `--json`.
 
+Use `--expect <profile-name>` or `--expect=<profile-name>` for scripts that
+need to assert the current complete profile. It exits `0` only when exactly the
+expected complete profile matches current managed values. It exits non-zero for
+no match, a different match, ambiguous matches, a missing expected profile, or
+target-read failures. `--expect` cannot be combined with `--short`.
+
 ### `switchlet diff`
 
 Compares one configured profile with current managed target values without
@@ -136,7 +151,9 @@ writing files.
 
 ```bash
 switchlet diff Staging
+switchlet diff -- -Staging
 switchlet diff Staging --json
+switchlet diff Staging --exit-code
 switchlet diff Staging --patch
 switchlet diff Staging --no-color
 switchlet diff Staging --patch | delta
@@ -145,6 +162,28 @@ switchlet diff Staging --patch | delta
 Diff compares only targets included by the selected profile. Omitted targets are
 unchanged by that profile. Protected profiles can be diffed without
 `--allow-protected` because the command is read-only.
+
+Use `--exit-code` when scripts need change detection. The command exits `0` when
+every included target already matches and no included value is unavailable. It
+exits non-zero when any included target would update or any included value is
+unavailable. Omitted targets in partial profiles do not by themselves make the
+command non-zero.
+
+### `switchlet doctor`
+
+Runs read-only project health checks without writing target files, temporary
+target files, or `.switchlet.yaml`.
+
+```bash
+switchlet doctor
+switchlet doctor --json
+```
+
+Doctor checks configuration discovery, configuration loading and schema
+validation, startup target validation, profile availability, and current-state
+comparison availability. Missing or invalid configuration and target-read
+failures return non-zero. Unavailable environment-backed profile values are
+reported as warnings.
 
 ## Output Modes
 
@@ -159,7 +198,8 @@ switchlet diff Local --no-color
 ```
 
 Switchlet also honors `NO_COLOR` when the environment variable is present and
-not empty. JSON output and managed patch output remain plain and unstyled.
+not empty. Command output is plain by default when stdout is not an interactive
+terminal. JSON output and managed patch output remain plain and unstyled.
 
 ### JSON
 
@@ -171,6 +211,7 @@ switchlet inspect Local --json
 switchlet apply Local --dry-run --json
 switchlet status --json
 switchlet diff Local --json
+switchlet doctor --json
 ```
 
 JSON output includes profile names, target names, files, selectors,
@@ -227,11 +268,11 @@ switchlet completion zsh
 switchlet completion fish
 ```
 
-Completion includes static commands and flags. For `inspect`, `apply`, and
-`diff`, the generated scripts dynamically complete profile names from the
-discovered `.switchlet.yaml` when one is available. Dynamic profile completion
-loads configuration schema only; it does not read target files, resolve
-environment variables, or inspect current managed values.
+Completion includes static commands and flags. For `inspect`, `apply`, `diff`,
+and `status --expect`, the generated scripts dynamically complete profile names
+from the discovered `.switchlet.yaml` when one is available. Dynamic profile
+completion loads configuration schema only; it does not read target files,
+resolve environment variables, or inspect current managed values.
 
 ## Examples
 
@@ -242,6 +283,7 @@ switchlet inspect Local
 switchlet apply Local --dry-run
 switchlet apply Local
 switchlet status
+switchlet doctor
 switchlet diff Local
 switchlet version
 switchlet completion bash
@@ -253,5 +295,5 @@ switchlet help apply
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Runtime, configuration, validation, or target-read failure. |
+| `1` | Runtime, configuration, validation, or target-read failure; failed `status --expect`; or `diff --exit-code` detected changes or unavailable values. |
 | `2` | Command-usage failure. |

@@ -88,14 +88,5 @@ func terminalInteractionAvailable(input io.Reader, output io.Writer) bool {
 		return false
 	}
 
-	return isCharacterDevice(inputFile) && isCharacterDevice(outputFile)
-}
-
-func isCharacterDevice(file *os.File) bool {
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return false
-	}
-
-	return fileInfo.Mode()&os.ModeCharDevice != 0
+	return isTerminalFile(inputFile) && isTerminalFile(outputFile)
 }

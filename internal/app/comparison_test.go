@@ -339,6 +339,82 @@ func TestApplication_CompareStatus_ReportsUnavailableProfilesWithoutBlockingComp
 	}
 }
 
+func TestApplication_HealthChecks_ReportHealthyProject(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://local"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		[]config.Profile{{
+			Name: "Local",
+			Values: []config.ProfileValue{
+				{Target: "database", Value: stringPointer("postgres://local")},
+				{Target: "frontendApi", Value: stringPointer("http://localhost:5173")},
+			},
+		}},
+	)
+
+	checks := application.HealthChecks()
+	if len(checks) != 3 {
+		t.Fatalf("len(checks) = %d, want 3", len(checks))
+	}
+	for _, check := range checks {
+		if check.Status != app.HealthCheckOK {
+			t.Fatalf("check %#v status = %q, want ok", check, check.Status)
+		}
+	}
+	if checks[0].Name != "startup_target_validation" || len(checks[0].Targets) != 2 {
+		t.Fatalf("startup check = %#v, want two target descriptors", checks[0])
+	}
+	if checks[1].Name != "profile_availability" || len(checks[1].Profiles) != 1 || checks[1].Profiles[0].Name != "Local" {
+		t.Fatalf("profile check = %#v, want Local profile", checks[1])
+	}
+	if checks[2].Name != "current_state_comparison" || !strings.Contains(checks[2].Message, `"Local"`) {
+		t.Fatalf("current-state check = %#v, want Local match message", checks[2])
+	}
+}
+
+func TestApplication_HealthChecks_WarnForUnavailableProfilesAndSkipComparisonAfterTargetFailure(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"password":"current-secret"}}`)
+	originalContents := readFile(t, targetPath)
+
+	application := app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{
+			Name: "Staging",
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("SWITCHLET_TEST_MISSING_DATABASE_URL")},
+			},
+		}},
+	)
+
+	checks := application.HealthChecks()
+	if len(checks) != 3 {
+		t.Fatalf("len(checks) = %d, want 3", len(checks))
+	}
+	if checks[0].Status != app.HealthCheckFailed || !checks[0].HasTargetFailure || checks[0].TargetFailure.TargetName != "database" || !strings.Contains(checks[0].TargetFailure.Reason, `missing segment "url"`) {
+		t.Fatalf("startup check = %#v, want target validation failure", checks[0])
+	}
+	if checks[1].Status != app.HealthCheckWarning || len(checks[1].UnavailableProfiles) != 1 || checks[1].UnavailableProfiles[0].ProfileName != "Staging" {
+		t.Fatalf("profile check = %#v, want unavailable Staging warning", checks[1])
+	}
+	unavailableValues := checks[1].UnavailableProfiles[0].Values
+	if len(unavailableValues) != 1 || unavailableValues[0].TargetName != "database" || unavailableValues[0].EnvironmentVariableName != "SWITCHLET_TEST_MISSING_DATABASE_URL" {
+		t.Fatalf("unavailable values = %#v, want database environment value", unavailableValues)
+	}
+	if checks[2].Status != app.HealthCheckSkipped || checks[2].Name != "current_state_comparison" {
+		t.Fatalf("current-state check = %#v, want skipped comparison", checks[2])
+	}
+	if !bytes.Equal(readFile(t, targetPath), originalContents) {
+		t.Fatal("target file changed during health checks")
+	}
+}
+
 func TestApplication_DiffProfileByName_GroupsAlreadyMatchingAndWouldUpdateTargets(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://old"}}`)

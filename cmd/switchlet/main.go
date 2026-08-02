@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/mattn/go-isatty"
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
@@ -24,9 +25,10 @@ const (
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
 
 var (
-	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "version", "completion"}
-	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "version", "completion"}
+	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "version", "completion"}
+	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "version", "completion"}
 	buildVersion   = ""
+	isTerminalFile = func(file *os.File) bool { return isatty.IsTerminal(file.Fd()) }
 )
 
 type loadedProject struct {
@@ -60,7 +62,7 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 }
 
 func runCommandWithTerminalRunner(args []string, workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
-	outputOptions := defaultCommandOutputOptions()
+	outputOptions := defaultCommandOutputOptions(output)
 	args = parseLeadingCommandOutputOptions(args, &outputOptions)
 
 	if len(args) == 0 {
@@ -156,13 +158,24 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 		return runStatusCommand(workingDirectory, args[1:], output, outputOptions)
 	case "diff":
 		return runDiffCommand(workingDirectory, args[1:], output, outputOptions)
+	case "doctor":
+		return runDoctorCommand(workingDirectory, args[1:], output, outputOptions)
 	default:
 		return usageCommandError(outputOptions, false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
 }
 
-func defaultCommandOutputOptions() commandOutputOptions {
-	return commandOutputOptions{NoColor: os.Getenv("NO_COLOR") != ""}
+func defaultCommandOutputOptions(output io.Writer) commandOutputOptions {
+	return commandOutputOptions{NoColor: os.Getenv("NO_COLOR") != "" || !commandOutputSupportsStyling(output)}
+}
+
+func commandOutputSupportsStyling(output io.Writer) bool {
+	outputFile, ok := output.(*os.File)
+	if !ok {
+		return false
+	}
+
+	return isTerminalFile(outputFile)
 }
 
 func parseLeadingCommandOutputOptions(args []string, outputOptions *commandOutputOptions) []string {
@@ -214,6 +227,8 @@ func helpTextForTopic(topic string, outputOptions commandOutputOptions) (string,
 		return statusHelpText(), nil
 	case "diff":
 		return diffHelpText(), nil
+	case "doctor":
+		return doctorHelpText(), nil
 	case "version":
 		return versionHelpText(), nil
 	case "completion":
@@ -321,7 +336,12 @@ func parseArguments(args []string, allowedFlags map[string]*bool, outputOptions 
 	args = parseCommandOutputOptions(args, outputOptions)
 
 	positionals := make([]string, 0, len(args))
-	for _, arg := range args {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			positionals = append(positionals, args[index+1:]...)
+			break
+		}
 		if !strings.HasPrefix(arg, "-") {
 			positionals = append(positionals, arg)
 			continue
@@ -344,7 +364,11 @@ func parseCommandOutputOptions(args []string, outputOptions *commandOutputOption
 	}
 
 	parsedArgs := make([]string, 0, len(args))
-	for _, arg := range args {
+	for index, arg := range args {
+		if arg == "--" {
+			parsedArgs = append(parsedArgs, args[index:]...)
+			return parsedArgs
+		}
 		if arg == noColorFlag {
 			outputOptions.NoColor = true
 			continue
@@ -370,7 +394,15 @@ func allowedFlagNames(allowedFlags map[string]*bool, outputOptions *commandOutpu
 }
 
 func containsJSONFlag(args []string) bool {
-	for _, arg := range args {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			return false
+		}
+		if arg == "--expect" {
+			index++
+			continue
+		}
 		if arg == "--json" {
 			return true
 		}
@@ -380,7 +412,15 @@ func containsJSONFlag(args []string) bool {
 }
 
 func wantsHelpFlag(args []string) bool {
-	for _, arg := range args {
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			return false
+		}
+		if arg == "--expect" {
+			index++
+			continue
+		}
 		if arg == "-h" || arg == "--help" {
 			return true
 		}

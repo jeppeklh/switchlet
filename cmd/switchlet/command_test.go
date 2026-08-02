@@ -33,6 +33,8 @@ func TestRunCommand_NoArgumentsRequiresInteractiveTerminal(t *testing.T) {
 }
 
 func TestRunCommand_NoArgumentsRejectsNonTerminalOutput(t *testing.T) {
+	forceTerminalFileDetection(t, true)
+
 	projectRoot := writeMinimalCommandProject(t)
 	input := openTerminalLikeFile(t, os.O_RDONLY)
 
@@ -62,6 +64,8 @@ func TestRunCommand_NoArgumentsRejectsNonTerminalOutput(t *testing.T) {
 }
 
 func TestRunCommand_NoArgumentsRejectsNonTerminalInput(t *testing.T) {
+	forceTerminalFileDetection(t, true)
+
 	projectRoot := writeMinimalCommandProject(t)
 	output := openTerminalLikeFile(t, os.O_WRONLY)
 
@@ -91,6 +95,8 @@ func TestRunCommand_NoArgumentsRejectsNonTerminalInput(t *testing.T) {
 }
 
 func TestRunCommand_NoArgumentsStartsProgramWithInteractiveTerminals(t *testing.T) {
+	forceTerminalFileDetection(t, true)
+
 	projectRoot := t.TempDir()
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
 version: 2
@@ -680,9 +686,69 @@ func TestRunCommand_HelpAlignsStatusUsageRow(t *testing.T) {
 		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
 	}
 
-	expected := "switchlet status [--json|--short]              Compare current managed values with configured profiles"
+	expected := "switchlet status [flags]                       Compare current managed values with configured profiles"
 	if !strings.Contains(result.stdout, expected) {
 		t.Fatalf("stdout %q does not contain aligned status usage row %q", result.stdout, expected)
+	}
+}
+
+func TestRunCommand_HelpListsDoctorCommand(t *testing.T) {
+	result := runCommandForTest(t, []string{"help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "switchlet doctor [--json]") {
+		t.Fatalf("stdout %q does not list doctor command", result.stdout)
+	}
+}
+
+func TestRunCommand_DoctorHelpDoesNotLoadConfiguration(t *testing.T) {
+	result := runCommandForTest(t, []string{"doctor", "--help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.programStarted {
+		t.Fatal("doctor help started the terminal program")
+	}
+	if !strings.Contains(result.stdout, "switchlet doctor [--json]") || !strings.Contains(result.stdout, "project health checks") {
+		t.Fatalf("stdout %q does not contain doctor help", result.stdout)
+	}
+}
+
+func TestDefaultCommandOutputOptionsUsePlainOutputWhenOutputIsRedirected(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	var redirectedOutput bytes.Buffer
+	redirectedOptions := defaultCommandOutputOptions(&redirectedOutput)
+	if !redirectedOptions.NoColor {
+		t.Fatal("NoColor = false for redirected output, want plain command output")
+	}
+
+	characterDeviceOutput := openTerminalLikeFile(t, os.O_WRONLY)
+	characterDeviceOptions := defaultCommandOutputOptions(characterDeviceOutput)
+	if !characterDeviceOptions.NoColor {
+		t.Fatal("NoColor = false for non-terminal character device output, want plain command output")
+	}
+
+	forceTerminalFileDetection(t, true)
+	terminalOutput := openTerminalLikeFile(t, os.O_WRONLY)
+	terminalOptions := defaultCommandOutputOptions(terminalOutput)
+	if terminalOptions.NoColor {
+		t.Fatal("NoColor = true for terminal output without NO_COLOR, want styled output allowed")
+	}
+}
+
+func TestParseArgumentsSupportsDashPrefixedPositionalsAfterDelimiter(t *testing.T) {
+	jsonOutput := false
+	positionals, err := parseArguments([]string{"--json", "--", "-Local"}, map[string]*bool{"--json": &jsonOutput}, nil)
+	if err != nil {
+		t.Fatalf("parseArguments returned error: %v", err)
+	}
+	if !jsonOutput {
+		t.Fatal("jsonOutput = false, want true")
+	}
+	if len(positionals) != 1 || positionals[0] != "-Local" {
+		t.Fatalf("positionals = %#v, want [-Local]", positionals)
 	}
 }
 
@@ -736,7 +802,7 @@ func TestRunCommand_UnsupportedFlagSuggestsNoColorFlag(t *testing.T) {
 	if result.exitCode != usageExitCode {
 		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
 	}
-	for _, expected := range []string{`status: unsupported flag "--no-colr"`, `Did you mean "--no-color"`, "switchlet status [--json|--short]"} {
+	for _, expected := range []string{`status: unsupported flag "--no-colr"`, `Did you mean "--no-color"`, "switchlet status [--json] [--short] [--expect <profile-name>]"} {
 		if !strings.Contains(result.stderr, expected) {
 			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
 		}
@@ -1198,6 +1264,16 @@ func openTerminalLikeFile(t *testing.T, flag int) *os.File {
 	})
 
 	return file
+}
+
+func forceTerminalFileDetection(t *testing.T, terminal bool) {
+	t.Helper()
+
+	original := isTerminalFile
+	isTerminalFile = func(file *os.File) bool { return terminal }
+	t.Cleanup(func() {
+		isTerminalFile = original
+	})
 }
 
 func containsANSIStyling(value string) bool {

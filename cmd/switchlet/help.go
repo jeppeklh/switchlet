@@ -8,8 +8,9 @@ func usageText() string {
 	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
-	  switchlet status [--json|--short]              Compare current managed values with configured profiles
-	  switchlet diff <profile-name> [--json|--patch] Compare one profile with current managed values
+	  switchlet status [flags]                       Compare current managed values with configured profiles
+	  switchlet diff <profile-name> [flags]          Compare one profile with current managed values
+	  switchlet doctor [--json]                      Check project health without writing files
 	  switchlet version                              Show version information
 	  switchlet completion <shell>                   Generate a shell completion script
 	  switchlet help [command]                       Show help text
@@ -19,9 +20,11 @@ func usageText() string {
 	  Protected profiles show Continue first, then require Enter/y to confirm and n/Esc/q to cancel.
 
 	Non-interactive flags:
-	  --json               Write machine-readable JSON for list, inspect, apply, status, or diff
+	  --json               Write machine-readable JSON for list, inspect, apply, status, diff, or doctor
 	  --short              Write concise text output for status
 	  --patch              Write read-only managed patch text for diff
+	  --expect             Assert that status matches one expected profile
+	  --exit-code          Return non-zero from diff when the selected profile would change files
 	  --dry-run            Validate apply without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 	  --no-color           Disable styled command output; also honored through NO_COLOR
@@ -36,15 +39,18 @@ func usageText() string {
 	  switchlet apply Local --dry-run
 	  switchlet status
 	  switchlet status --short
+	  switchlet status --expect Local
 	  switchlet diff Local
+	  switchlet diff Local --exit-code
 	  switchlet diff Local --patch
+	  switchlet doctor
 	  switchlet version
 	  switchlet completion bash
 	  switchlet help apply
 
 	Exit codes:
 	  0 success
-	  1 runtime or validation failure
+	  1 runtime failure, failed expectation, or detected diff
 	  2 command-usage failure
 `
 }
@@ -55,7 +61,7 @@ func completionHelpText() string {
 
 	Generate a shell completion script. The generated script completes commands and
 	flags statically, and completes profile names dynamically for inspect, apply,
-	and diff when a .switchlet.yaml can be discovered.
+	diff, and status --expect when a .switchlet.yaml can be discovered.
 
 	Dynamic profile completion loads configuration schema only. It does not read
 	target files, resolve environment variables, or inspect current managed values.
@@ -100,39 +106,71 @@ func versionHelpText() string {
 
 func statusHelpText() string {
 	return `Usage:
-	  switchlet status [--json|--short]
+	  switchlet status [--json] [--short] [--expect <profile-name>]
 
 	Compare current managed target values with configured profiles without writing files.
+	Use --expect to return success only when exactly that profile is the current
+	complete profile.
 
 	Flags:
 	  --json       Write machine-readable JSON output
-	  --short      Write a concise current-profile summary; cannot be combined with --json
+	  --short      Write a concise current-profile summary; cannot be combined with --json or --expect
+	  --expect     Assert that the current complete profile matches the named profile
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet status
 	  switchlet status --short
+	  switchlet status --expect Local
+	  switchlet status --expect=-Local
 	  switchlet status --json
 `
 }
 
 func diffHelpText() string {
 	return `Usage:
-	  switchlet diff <profile-name> [--json|--patch]
+	  switchlet diff <profile-name> [--json] [--patch] [--exit-code]
 
 	Compare one configured profile with current managed target values without writing files.
 	Diff is read-only and does not require --allow-protected for protected profiles.
 	Patch output is read-only managed patch text for piping to tools such as delta.
+	Use --exit-code to return non-zero when included targets would update or any
+	included profile value is unavailable.
 
 	Flags:
 	  --json       Write machine-readable JSON output
 	  --patch      Write managed patch text; cannot be combined with --json
+	  --exit-code  Return non-zero when the selected profile differs from current managed values
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet diff Local
+	  switchlet diff -- -Local
 	  switchlet diff Local --json
+	  switchlet diff Local --exit-code
 	  switchlet diff Local --patch
+`
+}
+
+func doctorHelpText() string {
+	return `Usage:
+	  switchlet doctor [--json]
+
+	Run read-only project health checks without writing target files, temporary
+	target files, or .switchlet.yaml.
+
+	Doctor checks configuration discovery, configuration loading, startup target
+	validation, profile availability, and current-state comparison availability.
+	Missing or invalid configuration and target-read failures return a non-zero exit
+	code. Unavailable environment-backed profile values are reported as warnings.
+
+	Flags:
+	  --json       Write machine-readable JSON output
+	  --no-color   Disable styled command output
+
+	Examples:
+	  switchlet doctor
+	  switchlet doctor --json
 `
 }
 
@@ -197,6 +235,7 @@ func inspectHelpText() string {
 
 	Examples:
 	  switchlet inspect Local
+	  switchlet inspect -- -Local
 	  switchlet inspect Local --json
 `
 }
@@ -218,6 +257,7 @@ func applyHelpText() string {
 
 	Examples:
 	  switchlet apply Local --dry-run
+	  switchlet apply --dry-run -- -Local
 	  switchlet apply Production --dry-run --allow-protected
 	  switchlet apply Local --dry-run --json
 `

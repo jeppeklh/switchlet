@@ -31,12 +31,14 @@ var completionCommands = []completionCommandSpec{
 		{Name: "--allow-protected", Description: "Allow non-interactive apply for a protected profile"},
 		{Name: "--no-color", Description: "Disable styled command output"},
 	}},
-	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--short", Description: "Write a concise current-profile summary"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--short", Description: "Write a concise current-profile summary"}, {Name: "--expect", Description: "Assert the current complete profile"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "diff", Description: "Compare one profile with current managed values", Flags: []completionFlagSpec{
 		{Name: "--json", Description: "Write machine-readable JSON output"},
 		{Name: "--patch", Description: "Write read-only managed patch text"},
+		{Name: "--exit-code", Description: "Return non-zero when the profile would change files"},
 		{Name: "--no-color", Description: "Disable styled command output"},
 	}},
+	{Name: "doctor", Description: "Check project health", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "version", Description: "Show version information"},
 	{Name: "completion", Description: "Generate a shell completion script"},
 }
@@ -68,8 +70,13 @@ func bashCompletionScript() string {
 	builder.WriteString("__switchlet_needs_profile_completion() {\n")
 	builder.WriteString("    case \"$command\" in\n")
 	fmt.Fprintf(&builder, "        %s) ;;\n", strings.Join(profileCompletionCommands, "|"))
+	builder.WriteString("        status)\n")
+	builder.WriteString("            [[ ${COMP_CWORD} -gt 2 && \"${COMP_WORDS[COMP_CWORD-1]}\" == \"--expect\" ]] && return 0\n")
+	builder.WriteString("            return 1\n")
+	builder.WriteString("            ;;\n")
 	builder.WriteString("        *) return 1 ;;\n")
 	builder.WriteString("    esac\n")
+	builder.WriteString("    [[ \"$cur\" == -* ]] && return 1\n")
 	builder.WriteString("\n")
 	builder.WriteString("    local index word\n")
 	builder.WriteString("    for (( index = 2; index < COMP_CWORD; index++ )); do\n")
@@ -103,7 +110,7 @@ func bashCompletionScript() string {
 	builder.WriteString("    fi\n")
 	builder.WriteString("\n")
 	builder.WriteString("    command=\"${COMP_WORDS[1]}\"\n")
-	builder.WriteString("    if [[ \"$cur\" != -* ]] && __switchlet_needs_profile_completion; then\n")
+	builder.WriteString("    if __switchlet_needs_profile_completion; then\n")
 	builder.WriteString("        __switchlet_complete_profiles \"$cur\"\n")
 	builder.WriteString("        if [[ ${#COMPREPLY[@]} -gt 0 || -n \"$cur\" ]]; then\n")
 	builder.WriteString("            return 0\n")
@@ -153,6 +160,10 @@ func zshCompletionScript() string {
 	builder.WriteString("  return 1\n")
 	builder.WriteString("}\n\n")
 	builder.WriteString("_switchlet_needs_profile_completion() {\n")
+	builder.WriteString("  if [[ \"${words[2]}\" == status ]]; then\n")
+	builder.WriteString("    [[ $CURRENT -gt 3 && \"${words[CURRENT-1]}\" == \"--expect\" ]] && return 0\n")
+	builder.WriteString("    return 1\n")
+	builder.WriteString("  fi\n")
 	builder.WriteString("  case \"${words[2]}\" in\n")
 	fmt.Fprintf(&builder, "    %s) ;;\n", strings.Join(profileCompletionCommands, "|"))
 	builder.WriteString("    *) return 1 ;;\n")
@@ -234,7 +245,23 @@ func fishCompletionScript() string {
 	builder.WriteString("    switch $tokens[2]\n")
 	fmt.Fprintf(&builder, "        case %s\n", strings.Join(profileCompletionCommands, " "))
 	builder.WriteString("        case '*'\n")
-	builder.WriteString("            return 1\n")
+	builder.WriteString("            if test \"$tokens[2]\" != status\n")
+	builder.WriteString("                return 1\n")
+	builder.WriteString("            end\n")
+	builder.WriteString("    end\n")
+	builder.WriteString("\n")
+	builder.WriteString("    if test \"$tokens[2]\" = status\n")
+	builder.WriteString("        set -l previous\n")
+	builder.WriteString("        if test (count $tokens) -ge 3\n")
+	builder.WriteString("            set previous $tokens[-1]\n")
+	builder.WriteString("            if test \"$previous\" = \"$current\"; and test (count $tokens) -ge 4\n")
+	builder.WriteString("                set previous $tokens[-2]\n")
+	builder.WriteString("            end\n")
+	builder.WriteString("        end\n")
+	builder.WriteString("        if test \"$previous\" = \"--expect\"\n")
+	builder.WriteString("            return 0\n")
+	builder.WriteString("        end\n")
+	builder.WriteString("        return 1\n")
 	builder.WriteString("    end\n")
 	builder.WriteString("\n")
 	builder.WriteString("    if string match -q -- '-*' \"$current\"\n")

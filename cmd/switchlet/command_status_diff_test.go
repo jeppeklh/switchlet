@@ -418,6 +418,28 @@ profiles:
 	}
 }
 
+func TestRunCommand_RedirectedCommandOutputIsPlainByDefault(t *testing.T) {
+	t.Setenv("NO_COLOR", "")
+
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if containsANSIStyling(result.stdout) {
+		t.Fatalf("stdout %q contains ANSI styling despite redirected command output", result.stdout)
+	}
+}
+
 func TestRunCommand_NoColorEnvironmentRemovesANSIFromStatusAndDiffText(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 
@@ -737,6 +759,552 @@ func TestRunCommand_DiffJSONReportsMixedTargetCategoriesWithoutWritingOrLeakingV
 		}
 	}
 	assertTargetContentsUnchanged(t, targetPaths, originalContents)
+}
+
+func TestRunCommand_StatusExpectReturnsZeroForExpectedExactCurrentProfile(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--expect", "Local"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	for _, expected := range []string{"Switchlet status", "Expectation", "expected", "Local", "result", "matched"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty", result.stderr)
+	}
+}
+
+func TestRunCommand_StatusExpectAcceptsDashPrefixedProfileName(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: "-Local"
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	for _, args := range [][]string{
+		{"status", "--expect", "-Local"},
+		{"status", "--expect=-Local"},
+	} {
+		result := runCommandForTest(t, args, projectRoot)
+		if result.exitCode != 0 {
+			t.Fatalf("%v exitCode = %d, want 0 (stdout: %q, stderr: %q)", args, result.exitCode, result.stdout, result.stderr)
+		}
+		if !strings.Contains(result.stdout, "matched") || !strings.Contains(result.stdout, "-Local") {
+			t.Fatalf("%v stdout %q does not contain matched -Local expectation", args, result.stdout)
+		}
+		if result.stderr != "" {
+			t.Fatalf("%v stderr = %q, want empty", args, result.stderr)
+		}
+	}
+}
+
+func TestRunCommand_StatusExpectTreatsFlagNamesAsExpectedProfiles(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		profileName string
+		args        []string
+	}{
+		{name: "help", profileName: "--help", args: []string{"status", "--expect", "--help"}},
+		{name: "json", profileName: "--json", args: []string{"status", "--expect", "--json"}},
+		{name: "json equals", profileName: "--json", args: []string{"status", "--expect=--json"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: "`+testCase.profileName+`"
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want empty", result.stderr)
+			}
+			if !strings.Contains(result.stdout, "matched") || !strings.Contains(result.stdout, testCase.profileName) {
+				t.Fatalf("stdout %q does not contain matched %s expectation", result.stdout, testCase.profileName)
+			}
+			if strings.HasPrefix(strings.TrimSpace(result.stdout), "{") {
+				t.Fatalf("stdout %q is JSON output, want text expectation report", result.stdout)
+			}
+		})
+	}
+}
+
+func TestRunCommand_StatusExpectReturnsNonZeroForUnexpectedStates(t *testing.T) {
+	tests := []struct {
+		name         string
+		profilesYAML string
+		expected     string
+		wantText     string
+	}{
+		{
+			name: "no complete match",
+			profilesYAML: strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: https://api.local.example.test
+`) + "\n",
+			expected: "Local",
+			wantText: "no complete profile matches",
+		},
+		{
+			name: "different complete match",
+			profilesYAML: strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: https://api.staging.example.test
+`) + "\n",
+			expected: "Staging",
+			wantText: "current complete profile is \"Local\"",
+		},
+		{
+			name: "ambiguous complete match",
+			profilesYAML: strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Local Copy
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`) + "\n",
+			expected: "Local",
+			wantText: "current state is ambiguous",
+		},
+		{
+			name: "missing expected profile",
+			profilesYAML: strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`) + "\n",
+			expected: "Missing",
+			wantText: "expected profile \"Missing\" is not configured",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot, _, _ := writeVersionThreeCommandProject(t, testCase.profilesYAML)
+			result := runCommandForTest(t, []string{"status", "--expect", testCase.expected}, projectRoot)
+			if result.exitCode != runtimeExitCode {
+				t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want empty assertion stderr", result.stderr)
+			}
+			for _, expected := range []string{"Expectation", "not matched", testCase.wantText} {
+				if !strings.Contains(result.stdout, expected) {
+					t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+				}
+			}
+			for _, forbidden := range []string{"postgres://old", "postgres://staging", "https://api.staging.example.test", "https://api.local.example.test"} {
+				if strings.Contains(result.stdout, forbidden) {
+					t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+				}
+			}
+		})
+	}
+}
+
+func TestRunCommand_StatusExpectJSONIncludesAssertionResult(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"status", "--expect", "Missing", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty string for JSON assertion result", result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Assertion struct {
+				ExpectedProfile  string   `json:"expectedProfile"`
+				Matched          bool     `json:"matched"`
+				ObservedStatus   string   `json:"observedStatus"`
+				ObservedProfiles []string `json:"observedProfiles"`
+				Message          string   `json:"message"`
+			} `json:"assertion"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal status expectation JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.Assertion.ExpectedProfile != "Missing" || payload.Result.Assertion.Matched || payload.Result.Assertion.ObservedStatus != "matched" || !strings.Contains(payload.Result.Assertion.Message, "not configured") {
+		t.Fatalf("assertion = %#v, want missing-profile assertion failure", payload.Result.Assertion)
+	}
+	if len(payload.Result.Assertion.ObservedProfiles) != 1 || payload.Result.Assertion.ObservedProfiles[0] != "Local" {
+		t.Fatalf("observed profiles = %#v, want Local", payload.Result.Assertion.ObservedProfiles)
+	}
+}
+
+func TestRunCommand_StatusExpectRejectsShortOutput(t *testing.T) {
+	result := runCommandForTest(t, []string{"status", "--expect", "Local", "--short"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	if !strings.Contains(result.stderr, "status --expect cannot be combined with --short") {
+		t.Fatalf("stderr %q does not contain --expect/--short usage error", result.stderr)
+	}
+}
+
+func TestRunCommand_DiffExitCodeReportsChangeStatusWithoutWriting(t *testing.T) {
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Env Missing
+    values:
+      - target: database
+        valueFromEnv: MISSING_DATABASE_URL
+`)+"\n")
+	originalDatabaseContents := readFileBytes(t, databasePath)
+	originalFrontendContents := readFileBytes(t, frontendPath)
+
+	alreadyMatching := runCommandForTest(t, []string{"diff", "Local", "--exit-code"}, projectRoot)
+	if alreadyMatching.exitCode != 0 {
+		t.Fatalf("already matching exitCode = %d, want 0 (stdout: %q, stderr: %q)", alreadyMatching.exitCode, alreadyMatching.stdout, alreadyMatching.stderr)
+	}
+	if !strings.Contains(alreadyMatching.stdout, "Already matches") {
+		t.Fatalf("already matching stdout %q does not contain diff report", alreadyMatching.stdout)
+	}
+
+	wouldUpdate := runCommandForTest(t, []string{"diff", "Staging", "--exit-code"}, projectRoot)
+	if wouldUpdate.exitCode != runtimeExitCode {
+		t.Fatalf("would update exitCode = %d, want %d (stdout: %q, stderr: %q)", wouldUpdate.exitCode, runtimeExitCode, wouldUpdate.stdout, wouldUpdate.stderr)
+	}
+	if wouldUpdate.stderr != "" || !strings.Contains(wouldUpdate.stdout, "Would update") {
+		t.Fatalf("would update stdout/stderr = %q/%q, want report on stdout only", wouldUpdate.stdout, wouldUpdate.stderr)
+	}
+
+	unavailable := runCommandForTest(t, []string{"diff", "Env Missing", "--exit-code"}, projectRoot)
+	if unavailable.exitCode != runtimeExitCode {
+		t.Fatalf("unavailable exitCode = %d, want %d (stdout: %q, stderr: %q)", unavailable.exitCode, runtimeExitCode, unavailable.stdout, unavailable.stderr)
+	}
+	if unavailable.stderr != "" || !strings.Contains(unavailable.stdout, "Unavailable") || !strings.Contains(unavailable.stdout, "MISSING_DATABASE_URL") {
+		t.Fatalf("unavailable stdout/stderr = %q/%q, want unavailable report on stdout only", unavailable.stdout, unavailable.stderr)
+	}
+
+	if !bytes.Equal(readFileBytes(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed during diff --exit-code")
+	}
+	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed during diff --exit-code")
+	}
+}
+
+func TestRunCommand_DiffExitCodeAppliesToJSONAndPatchOutput(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://staging
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	jsonResult := runCommandForTest(t, []string{"diff", "Staging", "--exit-code", "--json"}, projectRoot)
+	if jsonResult.exitCode != runtimeExitCode {
+		t.Fatalf("json exitCode = %d, want %d", jsonResult.exitCode, runtimeExitCode)
+	}
+	if jsonResult.stderr != "" {
+		t.Fatalf("json stderr = %q, want empty", jsonResult.stderr)
+	}
+	var payload struct {
+		Result struct {
+			WouldUpdate []targetDescriptorTestJSON `json:"wouldUpdate"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal diff --exit-code JSON: %v\noutput: %q", err, jsonResult.stdout)
+	}
+	if len(payload.Result.WouldUpdate) != 1 || payload.Result.WouldUpdate[0].TargetName != "database" {
+		t.Fatalf("wouldUpdate = %#v, want database", payload.Result.WouldUpdate)
+	}
+
+	patchResult := runCommandForTest(t, []string{"diff", "Staging", "--patch", "--exit-code"}, projectRoot)
+	if patchResult.exitCode != runtimeExitCode {
+		t.Fatalf("patch exitCode = %d, want %d", patchResult.exitCode, runtimeExitCode)
+	}
+	if patchResult.stderr != "" || !strings.Contains(patchResult.stdout, "# Switchlet managed patch: Staging") || !strings.Contains(patchResult.stdout, "- current: redacted") {
+		t.Fatalf("patch stdout/stderr = %q/%q, want patch report only", patchResult.stdout, patchResult.stderr)
+	}
+}
+
+func TestRunCommand_DoctorReportsHealthyProject(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"doctor"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.programStarted {
+		t.Fatal("runProgram was called for doctor command")
+	}
+	for _, expected := range []string{
+		"Switchlet doctor",
+		"[ok] configuration_discovery",
+		"[ok] configuration_loading",
+		"[ok] startup_target_validation",
+		"[ok] profile_availability",
+		"[ok] current_state_comparison",
+	} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+}
+
+func TestRunCommand_DoctorReportsMissingConfigAsFailure(t *testing.T) {
+	result := runCommandForTest(t, []string{"doctor"}, t.TempDir())
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want doctor report on stdout only", result.stderr)
+	}
+	for _, expected := range []string{"Switchlet doctor", "[failed] configuration_discovery", "No .switchlet.yaml found.", "Run `switchlet init`"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+}
+
+func TestRunCommand_DoctorReportsInvalidConfigAsJSONFailure(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, ".switchlet.yaml", "version: 3\nprofiles: [\n")
+
+	result := runCommandForTest(t, []string{"doctor", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty", result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Command string `json:"command"`
+			Status  string `json:"status"`
+			Healthy bool   `json:"healthy"`
+			Checks  []struct {
+				Name    string `json:"name"`
+				Status  string `json:"status"`
+				Message string `json:"message"`
+			} `json:"checks"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal doctor JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.Command != "doctor" || payload.Result.Status != "failed" || payload.Result.Healthy || len(payload.Result.Checks) != 2 {
+		t.Fatalf("doctor result = %#v, want failed doctor result with discovery and loading checks", payload.Result)
+	}
+	loadingCheck := payload.Result.Checks[1]
+	if loadingCheck.Name != "configuration_loading" || loadingCheck.Status != "failed" || !strings.Contains(loadingCheck.Message, "parse configuration file") {
+		t.Fatalf("loading check = %#v, want parse failure", loadingCheck)
+	}
+}
+
+func TestRunCommand_DoctorReportsTargetValidationFailureWithoutLeakingValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"password":"current-secret"}}`)
+	originalContents := readFileBytes(t, targetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: backend/appsettings.Development.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://resolved-secret
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"doctor"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+	}
+	for _, expected := range []string{"[failed] startup_target_validation", "database [json]", "backend/appsettings.Development.json", "database.url", "missing segment \"url\"", "[skipped] current_state_comparison"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"current-secret", "resolved-secret"} {
+		if strings.Contains(result.stdout, forbidden) || strings.Contains(result.stderr, forbidden) {
+			t.Fatalf("doctor output must not contain raw value %q (stdout: %q, stderr: %q)", forbidden, result.stdout, result.stderr)
+		}
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed during doctor target validation")
+	}
+}
+
+func TestRunCommand_DoctorReportsUnavailableEnvironmentProfilesAsWarning(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    protected: true
+    values:
+      - target: database
+        valueFromEnv: SWITCHLET_TEST_MISSING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"doctor", "--json"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 for warnings-only doctor result (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Healthy bool   `json:"healthy"`
+			Status  string `json:"status"`
+			Checks  []struct {
+				Name                string `json:"name"`
+				Status              string `json:"status"`
+				UnavailableProfiles []struct {
+					ProfileName string `json:"profileName"`
+					Protected   bool   `json:"protected"`
+					Values      []struct {
+						TargetName          string `json:"targetName"`
+						EnvironmentVariable string `json:"environmentVariable"`
+						Reason              string `json:"reason"`
+					} `json:"values"`
+				} `json:"unavailableProfiles"`
+			} `json:"checks"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal doctor warning JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.Status != "warning" {
+		t.Fatalf("status = %q, want warning", payload.Result.Status)
+	}
+	if payload.Result.Healthy {
+		t.Fatal("healthy = true, want false for warning doctor result")
+	}
+	foundAvailabilityCheck := false
+	for _, check := range payload.Result.Checks {
+		if check.Name != "profile_availability" {
+			continue
+		}
+
+		foundAvailabilityCheck = true
+		if check.Status != "warning" || len(check.UnavailableProfiles) != 1 || check.UnavailableProfiles[0].ProfileName != "Staging" || !check.UnavailableProfiles[0].Protected {
+			t.Fatalf("availability check = %#v, want protected Staging warning", check)
+		}
+		unavailableValues := check.UnavailableProfiles[0].Values
+		if len(unavailableValues) != 1 || unavailableValues[0].TargetName != "database" || unavailableValues[0].EnvironmentVariable != "SWITCHLET_TEST_MISSING_DATABASE_URL" || !strings.Contains(unavailableValues[0].Reason, "SWITCHLET_TEST_MISSING_DATABASE_URL") {
+			t.Fatalf("unavailable values = %#v, want database environment value", unavailableValues)
+		}
+	}
+	if !foundAvailabilityCheck {
+		t.Fatalf("checks = %#v, want profile_availability warning", payload.Result.Checks)
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
 }
 
 func TestRunCommand_StatusTargetReadFailureReturnsSecretSafeJSONError(t *testing.T) {

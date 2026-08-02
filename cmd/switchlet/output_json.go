@@ -40,6 +40,21 @@ func writeApplyJSON(output io.Writer, result app.Result) error {
 }
 
 func writeStatusJSON(output io.Writer, status app.StatusComparison) error {
+	return writeStatusJSONWithExpectation(output, status, statusExpectationResult{})
+}
+
+func writeStatusJSONWithExpectation(output io.Writer, status app.StatusComparison, expectation statusExpectationResult) error {
+	var assertion *statusAssertionJSON
+	if expectation.ExpectedProfile != "" {
+		assertion = &statusAssertionJSON{
+			ExpectedProfile:  expectation.ExpectedProfile,
+			Matched:          expectation.Matched,
+			ObservedStatus:   string(expectation.ObservedStatus),
+			ObservedProfiles: expectation.ObservedProfiles,
+			Message:          expectation.Message,
+		}
+	}
+
 	return writeJSON(output, struct {
 		Result statusResultJSON `json:"result"`
 	}{Result: statusResultJSON{
@@ -53,6 +68,7 @@ func writeStatusJSON(output io.Writer, status app.StatusComparison) error {
 		UnavailableProfiles: unavailableProfileJSONFromProfiles(status.UnavailableProfiles),
 		TargetCount:         status.TargetCount,
 		Complete:            status.Complete,
+		Assertion:           assertion,
 	}})
 }
 
@@ -68,6 +84,21 @@ func writeDiffJSON(output io.Writer, diff app.ProfileDiff) error {
 		AlreadyMatches: targetDescriptorJSONFromDescriptors(diff.AlreadyMatches),
 		Unavailable:    unavailableValueJSONFromValues(diff.Unavailable),
 		OmittedTargets: targetDescriptorJSONFromDescriptors(diff.OmittedTargets),
+	}})
+}
+
+func writeDoctorJSON(output io.Writer, report doctorReport) error {
+	status := doctorReportStatus(report)
+
+	return writeJSON(output, struct {
+		Result doctorResultJSON `json:"result"`
+	}{Result: doctorResultJSON{
+		Command:     "doctor",
+		Status:      status,
+		Healthy:     status == "ok",
+		ConfigPath:  report.ConfigPath,
+		ProjectRoot: report.ProjectRoot,
+		Checks:      healthCheckJSONFromChecks(report.Checks),
 	}})
 }
 
@@ -114,6 +145,15 @@ type statusResultJSON struct {
 	UnavailableProfiles []unavailableProfileJSON  `json:"unavailableProfiles"`
 	TargetCount         int                       `json:"targetCount"`
 	Complete            bool                      `json:"complete"`
+	Assertion           *statusAssertionJSON      `json:"assertion,omitempty"`
+}
+
+type statusAssertionJSON struct {
+	ExpectedProfile  string   `json:"expectedProfile"`
+	Matched          bool     `json:"matched"`
+	ObservedStatus   string   `json:"observedStatus"`
+	ObservedProfiles []string `json:"observedProfiles"`
+	Message          string   `json:"message"`
 }
 
 type diffResultJSON struct {
@@ -187,6 +227,43 @@ type unavailableValueJSON struct {
 	Selector                string `json:"selector"`
 	EnvironmentVariableName string `json:"environmentVariable"`
 	Reason                  string `json:"reason"`
+}
+
+type doctorResultJSON struct {
+	Command     string            `json:"command"`
+	Status      string            `json:"status"`
+	Healthy     bool              `json:"healthy"`
+	ConfigPath  string            `json:"configPath"`
+	ProjectRoot string            `json:"projectRoot"`
+	Checks      []healthCheckJSON `json:"checks"`
+}
+
+type healthCheckJSON struct {
+	Name                string                   `json:"name"`
+	Status              string                   `json:"status"`
+	Message             string                   `json:"message"`
+	Targets             []targetDescriptorJSON   `json:"targets,omitempty"`
+	Profiles            []healthProfileJSON      `json:"profiles,omitempty"`
+	UnavailableProfiles []unavailableProfileJSON `json:"unavailableProfiles,omitempty"`
+	TargetFailure       *targetFailureJSON       `json:"targetFailure,omitempty"`
+}
+
+type healthProfileJSON struct {
+	Name         string `json:"name"`
+	Protected    bool   `json:"protected"`
+	Available    bool   `json:"available"`
+	TargetCount  int    `json:"targetCount"`
+	TotalTargets int    `json:"totalTargets"`
+	Partial      bool   `json:"partial"`
+}
+
+type targetFailureJSON struct {
+	TargetName   string `json:"targetName"`
+	TargetFile   string `json:"targetFile"`
+	TargetType   string `json:"targetType"`
+	SelectorName string `json:"selectorName"`
+	Selector     string `json:"selector"`
+	Reason       string `json:"reason"`
 }
 
 func profileJSONFromItem(profileItem app.ProfileItem) profileJSON {
@@ -320,4 +397,64 @@ func unavailableValueJSONFromValues(values []app.UnavailableValue) []unavailable
 	}
 
 	return encodedValues
+}
+
+func doctorReportStatus(report doctorReport) string {
+	if doctorReportHasFailures(report) {
+		return "failed"
+	}
+	if doctorReportHasWarnings(report) {
+		return "warning"
+	}
+
+	return "ok"
+}
+
+func healthCheckJSONFromChecks(checks []app.HealthCheck) []healthCheckJSON {
+	encodedChecks := make([]healthCheckJSON, 0, len(checks))
+	for _, check := range checks {
+		encodedCheck := healthCheckJSON{
+			Name:                check.Name,
+			Status:              string(check.Status),
+			Message:             check.Message,
+			Targets:             targetDescriptorJSONFromDescriptors(check.Targets),
+			Profiles:            healthProfileJSONFromProfiles(check.Profiles),
+			UnavailableProfiles: unavailableProfileJSONFromProfiles(check.UnavailableProfiles),
+		}
+		if check.HasTargetFailure {
+			targetFailure := targetFailureJSONFromFailure(check.TargetFailure)
+			encodedCheck.TargetFailure = &targetFailure
+		}
+
+		encodedChecks = append(encodedChecks, encodedCheck)
+	}
+
+	return encodedChecks
+}
+
+func healthProfileJSONFromProfiles(profiles []app.HealthProfile) []healthProfileJSON {
+	encodedProfiles := make([]healthProfileJSON, 0, len(profiles))
+	for _, profile := range profiles {
+		encodedProfiles = append(encodedProfiles, healthProfileJSON{
+			Name:         profile.Name,
+			Protected:    profile.Protected,
+			Available:    profile.Available,
+			TargetCount:  profile.TargetCount,
+			TotalTargets: profile.TotalTargets,
+			Partial:      profile.Partial,
+		})
+	}
+
+	return encodedProfiles
+}
+
+func targetFailureJSONFromFailure(failure app.TargetFailure) targetFailureJSON {
+	return targetFailureJSON{
+		TargetName:   failure.TargetName,
+		TargetFile:   failure.TargetFile,
+		TargetType:   string(failure.TargetType),
+		SelectorName: failure.SelectorName,
+		Selector:     failure.Selector,
+		Reason:       failure.Reason,
+	}
 }
