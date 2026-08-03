@@ -60,7 +60,7 @@ profiles:
 		"- serviceEndpoint [toml]",
 		"file: services/development.toml",
 		"tomlPath: services.api.endpoint",
-		"masked value: http://localhost:8080",
+		"masked value: ****",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -108,8 +108,8 @@ profiles:
 	if listPayload.Profiles[0].Name != "Local" || listValue.TargetName != "serviceEndpoint" || listValue.TargetFile != servicePath || listValue.TargetType != "toml" || listValue.SelectorName != "tomlPath" || listValue.Selector != "services.api.endpoint" {
 		t.Fatalf("list TOML value = %#v for profiles %#v, want TOML target context", listValue, listPayload.Profiles)
 	}
-	if listValue.MaskedValue != "http://localhost:8080" {
-		t.Fatalf("list masked value = %q, want display-safe literal value", listValue.MaskedValue)
+	if listValue.MaskedValue != "****" {
+		t.Fatalf("list masked value = %q, want redacted literal value", listValue.MaskedValue)
 	}
 
 	inspectResult := runCommandForTest(t, []string{"inspect", "Local", "--json"}, projectRoot)
@@ -158,7 +158,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
-		"Planned target:",
+		"Would update:",
 		"would update services/development.toml",
 		"  serviceEndpoint [toml]",
 		"  services.api.endpoint",
@@ -350,7 +350,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
-		"Planned targets:",
+		"Would update:",
 		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",

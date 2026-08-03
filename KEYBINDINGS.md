@@ -15,7 +15,7 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `j` / `k` | Move between profiles. |
 | `PgUp` / `PgDn` | Move one visible page in long profile lists. |
 | `Home` / `End` | Jump to the first or last profile. |
-| `/` | Search and filter profiles by name. |
+| `/` | Search and filter profiles by name or safe target metadata. |
 | `n` / `N` | Move to the next or previous match when a filter is active. |
 | `Esc` | Clear an active profile filter. |
 | `Enter` | Apply the selected profile and exit, or open protected confirmation. |
@@ -25,6 +25,7 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `s` | Open current status for managed configuration. |
 | `d` | Open read-only diff for the selected profile. |
 | `v` | Toggle managed value visibility where reveal is supported. |
+| `?` | Open contextual help for the active main-picker screen. |
 | `q` | Quit without applying changes. |
 | `Ctrl+C` | Exit immediately. |
 
@@ -97,6 +98,7 @@ The init wizard changes its command bar by step.
 | `Backspace` / `Delete` | Edit text-entry fields. |
 | `Esc` | Go back, return to the labeled step, or cancel pending work where shown. |
 | `q` | Cancel on non-text-entry screens. |
+| `?` | Open contextual help on non-text-entry screens. |
 | `Ctrl+C` | Cancel immediately. |
 
 On text-entry screens, `q` is literal input rather than cancel. Use `Esc` or
@@ -111,24 +113,26 @@ When init asks whether to replace an existing current-directory
 
 | Key | Action |
 |---|---|
-| `h` / `l` | Move between `Profiles`, `Targets`, and `Review` tabs. |
+| `h` / `l` | Move between `Profiles`, `Managed values`, and `Review` tabs. |
 | `Left` / `Right` | Move between tabs. |
 | `j` / `k` | Move through rows. |
 | `Up` / `Down` | Move through rows. |
 | `g` / `G` | Jump to the first or last row. |
 | `Home` / `End` | Jump to the first or last row. |
-| `/` | Filter profiles or targets. |
+| `/` | Filter profiles or managed values by name or safe managed-value metadata. |
 | `n` / `N` | Move between filtered matches when a filter is active. |
 | `Esc` / `h` | Clear an active filter or go back where shown. |
-| `a` | Add a profile or target for the selected section. |
-| `e` | Edit the selected profile or target location. |
-| `r` | Rename the selected profile or target. |
-| `d` | Delete the selected profile or target. |
+| `a` | Add a profile or managed value for the selected section. |
+| `e` | Edit the selected profile or managed-value location. |
+| `D` | Duplicate the selected profile. |
+| `r` | Rename the selected profile or managed value. |
+| `d` | Delete the selected profile or managed value. |
 | `Space` | Toggle protection for the selected profile. |
 | `s` | Save from the `Review` tab when the draft is saveable. |
 | `PgUp` / `PgDn` | Scroll long pending-change details on the `Review` tab. |
 | `Home` / `End` | Jump to the top or bottom of long pending-change details on the `Review` tab. |
 | `c` | Return to the profile picker when the editor was opened from the picker. |
+| `?` | Open contextual help on non-text-entry editor screens. |
 | `q` | Quit, with dirty-draft confirmation when needed. |
 | `Ctrl+C` | Exit immediately. |
 

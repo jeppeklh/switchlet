@@ -58,7 +58,7 @@ profiles:
 		"- workerQueue [yaml]",
 		"file: worker/config.yaml",
 		"yamlPath: queue.endpoint",
-		"masked value: local-queue",
+		"masked value: ****",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -86,7 +86,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
-		"Planned target:",
+		"Would update:",
 		"would update worker/config.yaml",
 		"  workerQueue [yaml]",
 		"  queue.endpoint",
@@ -267,7 +267,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
-		"Planned targets:",
+		"Would update:",
 		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",

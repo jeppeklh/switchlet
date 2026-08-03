@@ -11,6 +11,7 @@ type profileDraftMode int
 const (
 	profileDraftAdd profileDraftMode = iota
 	profileDraftUpdate
+	profileDraftDuplicate
 )
 
 type profileNameNextState int
@@ -58,6 +59,27 @@ func (model *Model) beginEditProfile(profileName string) {
 		draft:        draft,
 	}
 	model.state = editorStateProfileIncludeValues
+	model.inputValue = ""
+	model.inputCursor = 0
+	model.saveError = ""
+}
+
+func (model *Model) beginDuplicateProfile(profileName string) {
+	draft, err := model.workflow.ProfileDraft(model.document, profileName)
+	if err != nil {
+		model.saveError = err.Error()
+		model.selectReviewOverview()
+		return
+	}
+
+	draft.Name = ""
+	model.profileForm = profileDraftState{
+		mode:         profileDraftDuplicate,
+		originalName: profileName,
+		draft:        draft,
+		nameNext:     profileNameNextReview,
+	}
+	model.state = editorStateProfileNameInput
 	model.inputValue = ""
 	model.inputCursor = 0
 	model.saveError = ""
@@ -132,7 +154,16 @@ func (model *Model) applyProfileNameInput() {
 		return
 	}
 
-	model.profileForm.draft.Name = profileName
+	if model.profileForm.mode == profileDraftDuplicate {
+		draft, err := model.workflow.DuplicateProfileDraft(model.document, model.profileForm.originalName, profileName)
+		if err != nil {
+			model.profileForm.errorMessage = err.Error()
+			return
+		}
+		model.profileForm.draft = draft
+	} else {
+		model.profileForm.draft.Name = profileName
+	}
 	model.profileForm.errorMessage = ""
 	model.inputValue = ""
 	model.inputCursor = 0

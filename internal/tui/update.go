@@ -70,6 +70,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, nil
 		}
+		if model.helpOpen {
+			return model.handleHelpKey(message)
+		}
+		if model.canOpenHelp() && matchesKey(message, keyHelp) {
+			model.helpOpen = true
+			return model, nil
+		}
 
 		switch model.state {
 		case listState:
@@ -98,6 +105,27 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		return model, nil
+	}
+}
+
+func (model Model) handleHelpKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case matchesKey(message, keyEscape, keyHelp):
+		model.helpOpen = false
+		return model, nil
+	case matchesKey(message, keyQuit):
+		return model, tea.Quit
+	default:
+		return model, nil
+	}
+}
+
+func (model Model) canOpenHelp() bool {
+	switch model.state {
+	case listState, inspectState, confirmState, errorState, statusLoadingState, statusReadyState, diffLoadingState, diffReadyState, comparisonErrorState:
+		return true
+	default:
+		return false
 	}
 }
 

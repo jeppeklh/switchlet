@@ -37,8 +37,8 @@ func TestResolveProfile_ReturnsLiteralValue(t *testing.T) {
 	if resolvedProfile.Value != "Server=localhost;Database=MyApplication;Password=secret;" {
 		t.Fatalf("Value = %q, want literal connection string", resolvedProfile.Value)
 	}
-	if resolvedProfile.MaskedValue != "Server=localhost;Database=MyApplication;Password=****;" {
-		t.Fatalf("MaskedValue = %q, want masked literal connection string", resolvedProfile.MaskedValue)
+	if resolvedProfile.MaskedValue != "****" {
+		t.Fatalf("MaskedValue = %q, want redacted literal value", resolvedProfile.MaskedValue)
 	}
 	if resolvedProfile.ResolutionError != nil {
 		t.Fatalf("ResolutionError = %v, want nil", resolvedProfile.ResolutionError)
@@ -67,8 +67,8 @@ func TestResolveProfile_ResolvesEnvironmentVariable(t *testing.T) {
 	if resolvedProfile.Value != "Server=test;Database=MyApplication;Pwd=secret;" {
 		t.Fatalf("Value = %q, want resolved environment value", resolvedProfile.Value)
 	}
-	if resolvedProfile.MaskedValue != "Server=test;Database=MyApplication;Pwd=****;" {
-		t.Fatalf("MaskedValue = %q, want masked environment value", resolvedProfile.MaskedValue)
+	if resolvedProfile.MaskedValue != "****" {
+		t.Fatalf("MaskedValue = %q, want redacted environment value", resolvedProfile.MaskedValue)
 	}
 	if resolvedProfile.ResolutionError != nil {
 		t.Fatalf("ResolutionError = %v, want nil", resolvedProfile.ResolutionError)
@@ -109,8 +109,8 @@ func TestResolveProfile_ReturnsValuesForMultipleTargets(t *testing.T) {
 	if databaseValue.Source != profile.ValueSourceLiteral {
 		t.Fatalf("Values[0].Source = %q, want %q", databaseValue.Source, profile.ValueSourceLiteral)
 	}
-	if databaseValue.MaskedValue != "Server=db;Database=App;Password=****;" {
-		t.Fatalf("Values[0].MaskedValue = %q, want masked database value", databaseValue.MaskedValue)
+	if databaseValue.MaskedValue != "****" {
+		t.Fatalf("Values[0].MaskedValue = %q, want redacted database value", databaseValue.MaskedValue)
 	}
 
 	frontendValue := resolvedProfile.Values[1]

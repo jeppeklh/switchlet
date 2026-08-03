@@ -73,8 +73,8 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	if items[0].Source != app.ProfileSourceLiteral {
 		t.Fatalf("Profiles()[0].Source = %q, want %q", items[0].Source, app.ProfileSourceLiteral)
 	}
-	if items[0].MaskedValue != "Server=localhost;Database=App;Pwd=****;" {
-		t.Fatalf("Profiles()[0].MaskedValue = %q, want masked literal value", items[0].MaskedValue)
+	if items[0].MaskedValue != "****" {
+		t.Fatalf("Profiles()[0].MaskedValue = %q, want redacted literal value", items[0].MaskedValue)
 	}
 	if !items[1].Available {
 		t.Fatalf("Profiles()[1].Available = false, want true (reason: %q)", items[1].UnavailableReason)
@@ -88,8 +88,8 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	if items[1].EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
 		t.Fatalf("Profiles()[1].EnvironmentVariableName = %q, want %q", items[1].EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
 	}
-	if items[1].MaskedValue != "Server=test;Database=App;Password=****;" {
-		t.Fatalf("Profiles()[1].MaskedValue = %q, want masked environment value", items[1].MaskedValue)
+	if items[1].MaskedValue != "****" {
+		t.Fatalf("Profiles()[1].MaskedValue = %q, want redacted environment value", items[1].MaskedValue)
 	}
 	if items[1].UnavailableReason != "" {
 		t.Fatalf("Profiles()[1].UnavailableReason = %q, want empty string", items[1].UnavailableReason)
@@ -135,8 +135,8 @@ func TestApplication_Profiles_UsesManagedValueMaskingContext(t *testing.T) {
 	if maskedValuesByTarget["workerEndpoint"] != "****" {
 		t.Fatalf("workerEndpoint masked value = %q, want environment-based full mask", maskedValuesByTarget["workerEndpoint"])
 	}
-	if maskedValuesByTarget["frontendApi"] != "https://api.staging.example.test" {
-		t.Fatalf("frontendApi masked value = %q, want ordinary value", maskedValuesByTarget["frontendApi"])
+	if maskedValuesByTarget["frontendApi"] != "****" {
+		t.Fatalf("frontendApi masked value = %q, want full mask", maskedValuesByTarget["frontendApi"])
 	}
 }
 
@@ -203,8 +203,8 @@ func TestApplication_InspectProfileByName_ReturnsResolvedDisplayData(t *testing.
 	if item.EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
 		t.Fatalf("EnvironmentVariableName = %q, want %q", item.EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
 	}
-	if item.MaskedValue != "Server=test;Database=App;Password=****;" {
-		t.Fatalf("MaskedValue = %q, want masked value", item.MaskedValue)
+	if item.MaskedValue != "****" {
+		t.Fatalf("MaskedValue = %q, want redacted value", item.MaskedValue)
 	}
 	if item.UnavailableReason != "" {
 		t.Fatalf("UnavailableReason = %q, want empty string", item.UnavailableReason)
@@ -412,6 +412,22 @@ func TestApplication_ApplyProfileWithOptions_DryRunValidatesMultipleTargetsWitho
 	}
 	if len(result.Changes) != 2 {
 		t.Fatalf("len(Changes) = %d, want 2", len(result.Changes))
+	}
+	if result.DryRunPreview == nil {
+		t.Fatal("DryRunPreview = nil, want hidden managed patch preview")
+	}
+	if !result.DryRunPreview.Complete || result.DryRunPreview.IncludedTargetCount != 2 || result.DryRunPreview.OmittedTargetCount != 0 || result.DryRunPreview.TargetCount != 2 {
+		t.Fatalf("DryRunPreview counts = %#v, want complete two-target preview", result.DryRunPreview)
+	}
+	for _, fileGroup := range result.DryRunPreview.Files {
+		for _, hunk := range fileGroup.Hunks {
+			if hunk.Status != app.ManagedPatchStatusWouldUpdate {
+				t.Fatalf("dry-run hunk = %#v, want would-update status", hunk)
+			}
+			if hunk.CurrentValueVisible || hunk.CurrentValue != "" || hunk.ProfileValueVisible || hunk.ProfileValue != "" {
+				t.Fatalf("dry-run preview exposed values: %#v", hunk)
+			}
+		}
 	}
 	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
 		t.Fatal("database target changed during dry run")

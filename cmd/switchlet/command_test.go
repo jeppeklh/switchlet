@@ -270,8 +270,8 @@ profiles:
 	if !strings.Contains(result.stdout, "Environment variable: MYAPPLICATION_PRODUCTION_URL") {
 		t.Fatalf("stdout %q does not include environment variable name", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Password=****") {
-		t.Fatalf("stdout %q does not include masked value", result.stdout)
+	if !strings.Contains(result.stdout, "Masked value:\n****") {
+		t.Fatalf("stdout %q does not include redacted value", result.stdout)
 	}
 	if strings.Contains(result.stdout, "super-secret") {
 		t.Fatalf("stdout %q must not include the secret value", result.stdout)
@@ -324,8 +324,8 @@ profiles:
 	if payload.Profile.EnvironmentVariableName != "MYAPPLICATION_TEST_URL" {
 		t.Fatalf("profile.EnvironmentVariableName = %q, want %q", payload.Profile.EnvironmentVariableName, "MYAPPLICATION_TEST_URL")
 	}
-	if payload.Profile.MaskedValue != "Server=test;Database=App;Pwd=****;" {
-		t.Fatalf("profile.MaskedValue = %q, want masked value", payload.Profile.MaskedValue)
+	if payload.Profile.MaskedValue != "****" {
+		t.Fatalf("profile.MaskedValue = %q, want redacted value", payload.Profile.MaskedValue)
 	}
 }
 
@@ -1012,7 +1012,7 @@ profiles:
 	if !strings.Contains(allowed.stdout, `Dry run successful for profile "Production"`) {
 		t.Fatalf("stdout %q does not include dry-run success", allowed.stdout)
 	}
-	if !strings.Contains(allowed.stdout, "Planned target:") || !strings.Contains(allowed.stdout, "would update config/runtime.json") {
+	if !strings.Contains(allowed.stdout, "Would update:") || !strings.Contains(allowed.stdout, "would update config/runtime.json") {
 		t.Fatalf("stdout %q does not include planned target marker", allowed.stdout)
 	}
 	if !strings.Contains(allowed.stdout, "default [json]") {
@@ -1062,6 +1062,14 @@ profiles:
 			TargetPath  string `json:"targetPath"`
 			TargetFile  string `json:"targetFile"`
 			DryRun      bool   `json:"dryRun"`
+			Preview     struct {
+				Complete    bool `json:"complete"`
+				WouldUpdate []struct {
+					TargetName string `json:"targetName"`
+					TargetFile string `json:"targetFile"`
+					Selector   string `json:"selector"`
+				} `json:"wouldUpdate"`
+			} `json:"preview"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
@@ -1078,6 +1086,13 @@ profiles:
 	}
 	if !payload.Result.DryRun {
 		t.Fatal("result.DryRun = false, want true")
+	}
+	if !payload.Result.Preview.Complete || len(payload.Result.Preview.WouldUpdate) != 1 {
+		t.Fatalf("preview = %#v, want one complete would-update target", payload.Result.Preview)
+	}
+	previewTarget := payload.Result.Preview.WouldUpdate[0]
+	if previewTarget.TargetName != "default" || previewTarget.TargetFile != targetPath || previewTarget.Selector != "services.backend.baseUrl" {
+		t.Fatalf("preview wouldUpdate = %#v, want default target", previewTarget)
 	}
 	if strings.Contains(result.stdout, "http://localhost:8080") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)

@@ -161,6 +161,52 @@ func TestConfigEditWorkflow_ProfileDraftRejectsDuplicateEmptyAndMissingValues(t 
 	}
 }
 
+func TestConfigEditWorkflow_DuplicateProfileDraftCopiesValuesAndRequiresUniqueName(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := twoProfileConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	draft, err := workflow.DuplicateProfileDraft(document, "Test", "Test Copy")
+	if err != nil {
+		t.Fatalf("DuplicateProfileDraft returned error: %v", err)
+	}
+	if draft.Name != "Test Copy" || !draft.Protected {
+		t.Fatalf("draft = %#v, want copied protected profile with new name", draft)
+	}
+	if len(draft.Values) != 1 || !draft.Values[0].Included || draft.Values[0].Source != app.ProfileSourceEnvironment || draft.Values[0].EnvironmentVariableName != "TEST_SERVICE_URL" {
+		t.Fatalf("draft values = %#v, want copied environment-backed service value", draft.Values)
+	}
+	literalDraft, err := workflow.DuplicateProfileDraft(document, "Local", "Local Copy")
+	if err != nil {
+		t.Fatalf("DuplicateProfileDraft returned error for literal profile: %v", err)
+	}
+	if len(literalDraft.Values) != 1 || !literalDraft.Values[0].Included || literalDraft.Values[0].Source != app.ProfileSourceLiteral || literalDraft.Values[0].LiteralValue != "https://local.example.test" {
+		t.Fatalf("literal draft values = %#v, want copied literal service value", literalDraft.Values)
+	}
+
+	updatedDocument, err := workflow.AddProfileDraft(document, draft)
+	if err != nil {
+		t.Fatalf("AddProfileDraft returned error: %v", err)
+	}
+	if len(document.Profiles) != 2 {
+		t.Fatalf("original document profiles = %#v, want duplicate to leave source document unchanged", document.Profiles)
+	}
+	if len(updatedDocument.Profiles) != 3 {
+		t.Fatalf("updated profiles = %#v, want duplicated profile added to draft", updatedDocument.Profiles)
+	}
+	changes := workflow.SummarizeChanges(updatedDocument)
+	if !containsConfigEditChange(changes, app.ConfigEditChangeProfileAdded) {
+		t.Fatalf("changes = %#v, want profile added change", changes)
+	}
+	if strings.Contains(configEditChangesString(changes), "TEST_SERVICE_URL") {
+		t.Fatalf("changes = %#v, must not expose duplicated environment variable value in summary", changes)
+	}
+
+	if _, err := workflow.DuplicateProfileDraft(document, "Test", "Local"); err == nil || !strings.Contains(err.Error(), "duplicates existing profile") {
+		t.Fatalf("DuplicateProfileDraft duplicate name returned %v, want duplicate-name error", err)
+	}
+}
+
 func TestConfigEditWorkflow_RemoveLastProfileBlocksSave(t *testing.T) {
 	workflow := app.DefaultConfigEditWorkflow()
 	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
@@ -323,6 +369,68 @@ func TestConfigEditWorkflow_PrepareSavePropagatesStaleConfigError(t *testing.T) 
 	}
 	if !errors.Is(err, config.ErrConfigChanged) {
 		t.Fatalf("PrepareSave returned error %v, want ErrConfigChanged", err)
+	}
+}
+
+func TestConfigEditWorkflow_PrepareSavePreservesVersionThreeCommentsWhenSafe(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot := t.TempDir()
+	writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	configPath := writeConfigFile(t, projectRoot, strings.TrimSpace(`
+# Switchlet project
+version: 3
+
+# Managed targets
+targets:
+  # Service target
+  - name: service
+    file: config.json # keep file comment
+    type: json
+    jsonPath: service.baseUrl
+
+# Profiles
+profiles:
+  # Local profile
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test # keep local comment
+`)+"\n")
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	updatedDocument, err := workflow.UpdateProfile(document, "Local", config.Profile{
+		Name: "Local",
+		Values: []config.ProfileValue{{
+			Target: "service",
+			Value:  stringPointer("https://updated.example.test"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile returned error: %v", err)
+	}
+
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+	if !containsConfigEditChange(preparedSave.Changes, app.ConfigEditChangeFormattingNormalization) {
+		t.Fatalf("prepared changes = %#v, want formatting warning", preparedSave.Changes)
+	}
+	if !strings.Contains(configEditChangesString(preparedSave.Changes), "comments") {
+		t.Fatalf("prepared changes = %#v, want comment-preservation warning", preparedSave.Changes)
+	}
+	if err := preparedSave.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	contents := string(readAppTestFile(t, configPath))
+	for _, expected := range []string{"# Switchlet project", "# Managed targets", "# Service target", "# keep file comment", "# Profiles", "# Local profile", "# keep local comment"} {
+		if !strings.Contains(contents, expected) {
+			t.Fatalf("configuration contents = %q, want preserved comment %q", contents, expected)
+		}
+	}
+	if !strings.Contains(contents, "value: https://updated.example.test") || strings.Contains(contents, "value: https://local.example.test") {
+		t.Fatalf("configuration contents = %q, want committed profile update", contents)
 	}
 }
 

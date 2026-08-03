@@ -169,12 +169,13 @@ type ManagedPatchHunk struct {
 
 // Result describes a successful profile application or dry run.
 type Result struct {
-	ProfileName string
-	TargetPath  string
-	TargetFile  string
-	Protected   bool
-	DryRun      bool
-	Changes     []PlannedChange
+	ProfileName   string
+	TargetPath    string
+	TargetFile    string
+	Protected     bool
+	DryRun        bool
+	Changes       []PlannedChange
+	DryRunPreview *ManagedPatchPreview
 }
 
 // PlannedChange describes one target location included in a successful plan.

@@ -197,6 +197,85 @@ profiles:
 	}
 }
 
+func TestPrepareReplacementFromSnapshot_PreservesVersionThreeCommentsWhenSafe(t *testing.T) {
+	projectRoot := t.TempDir()
+	writeFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+# Switchlet project
+version: 3
+
+# Managed targets
+targets:
+  # Service target
+  - name: service
+    file: config.json # keep file comment
+    type: json
+    jsonPath: service.baseUrl
+
+# Profiles
+profiles:
+  # Local profile
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test # keep local comment
+  # Staging profile
+  - name: Staging
+    protected: true
+    values:
+      - target: service
+        valueFromEnv: STAGING_SERVICE_URL # keep env comment
+`)+"\n")
+
+	snapshot, err := config.LoadSnapshot(configPath)
+	if err != nil {
+		t.Fatalf("LoadSnapshot returned error: %v", err)
+	}
+
+	replacement, err := config.PrepareReplacementFromSnapshot(snapshot, snapshot.Config.Targets, []config.Profile{
+		{Name: "Local", Values: []config.ProfileValue{{Target: "service", Value: stringPointer("https://updated.example.test")}}},
+		{Name: "Staging", Protected: true, Values: []config.ProfileValue{{Target: "service", ValueFromEnv: stringPointer("STAGING_SERVICE_URL")}}},
+	})
+	if err != nil {
+		t.Fatalf("PrepareReplacementFromSnapshot returned error: %v", err)
+	}
+	if err := replacement.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	contents, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read replacement configuration: %v", err)
+	}
+	contentText := string(contents)
+	for _, expected := range []string{
+		"# Switchlet project",
+		"# Managed targets",
+		"# Service target",
+		"# keep file comment",
+		"# Profiles",
+		"# Local profile",
+		"# keep local comment",
+		"# Staging profile",
+		"# keep env comment",
+	} {
+		if !strings.Contains(contentText, expected) {
+			t.Fatalf("replacement configuration = %q, want preserved comment %q", contentText, expected)
+		}
+	}
+	if !strings.Contains(contentText, "value: https://updated.example.test") || strings.Contains(contentText, "value: https://local.example.test") {
+		t.Fatalf("replacement configuration = %q, want updated Local value", contentText)
+	}
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error after comment-preserving save: %v", err)
+	}
+	if len(loadedConfig.Profiles) != 2 || loadedConfig.Profiles[0].Values[0].Value == nil || *loadedConfig.Profiles[0].Values[0].Value != "https://updated.example.test" {
+		t.Fatalf("loaded profiles = %#v, want updated Local profile after save", loadedConfig.Profiles)
+	}
+}
+
 func TestPrepareReplacementFromSnapshot_NormalizesCompatibilityConfigurationToVersionThree(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`

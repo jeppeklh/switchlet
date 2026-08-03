@@ -29,6 +29,43 @@ type Action struct {
 	Priority ActionPriority
 }
 
+// AppendHelpAction adds the contextual help affordance to an action list.
+func AppendHelpAction(actions []Action) []Action {
+	for _, action := range actions {
+		if action.Key == "?" {
+			return actions
+		}
+	}
+
+	updatedActions := append([]Action(nil), actions...)
+	return append(updatedActions, Action{Key: "?", Label: "Help", Priority: ActionPrioritySecondary})
+}
+
+// HelpLines renders action-list help without duplicating command-bar copy.
+func HelpLines(actions []Action, maxLineWidth int) []string {
+	lines := []string{
+		"Available actions",
+		"These are the keys for the current screen.",
+		"",
+	}
+	for _, action := range actions {
+		if action.Key == "?" && action.Label == "Help" {
+			continue
+		}
+		lines = append(lines, fitLine(RenderKeyValue(action.Key, action.Label), maxLineWidth))
+	}
+
+	return lines
+}
+
+// HelpReturnActions keeps the help return and quit paths visible under height pressure.
+func HelpReturnActions(quitLabel string) []Action {
+	return []Action{
+		{Key: "Esc/?", Label: "Back", Priority: ActionPriorityPrimary},
+		{Key: "q", Label: quitLabel, Priority: ActionPriorityCritical},
+	}
+}
+
 // ActionPriority controls which command-bar actions survive width pressure.
 type ActionPriority int
 

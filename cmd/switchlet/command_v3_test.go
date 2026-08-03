@@ -155,18 +155,20 @@ profiles:
 		"file: backend/appsettings.Development.json",
 		"jsonPath: database.url",
 		"environment variable: STAGING_DATABASE_URL",
-		"Password=****",
+		"masked value: ****",
 		"- frontendApi [dotenv]",
 		"file: frontend/.env.local",
 		"key: VITE_API_URL",
-		"masked value: https://api.staging.example.test",
+		"masked value: ****",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
 		}
 	}
-	if strings.Contains(result.stdout, "super-secret") {
-		t.Fatalf("stdout %q must not include the resolved secret", result.stdout)
+	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not include resolved value %q", result.stdout, forbidden)
+		}
 	}
 	for _, absolutePath := range []string{databasePath, frontendPath} {
 		if strings.Contains(result.stdout, absolutePath) {
@@ -229,11 +231,13 @@ profiles:
 	if databaseValue.EnvironmentVariableName != "STAGING_DATABASE_URL" {
 		t.Fatalf("environmentVariableName = %q, want STAGING_DATABASE_URL", databaseValue.EnvironmentVariableName)
 	}
-	if databaseValue.MaskedValue != "Server=staging;Database=App;Pwd=****;" {
-		t.Fatalf("maskedValue = %q, want masked database value", databaseValue.MaskedValue)
+	if databaseValue.MaskedValue != "****" {
+		t.Fatalf("maskedValue = %q, want redacted database value", databaseValue.MaskedValue)
 	}
-	if strings.Contains(result.stdout, "super-secret") {
-		t.Fatalf("stdout %q must not include the resolved secret", result.stdout)
+	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not include resolved value %q", result.stdout, forbidden)
+		}
 	}
 }
 
@@ -306,7 +310,7 @@ profiles:
 
 	for _, expected := range []string{
 		`Dry run successful for profile "Staging"`,
-		"Planned targets:",
+		"Would update:",
 		"would update backend/appsettings.Development.json",
 		"  database [json]",
 		"  database.url",
@@ -335,6 +339,119 @@ profiles:
 	if !bytes.Equal(readFileBytes(t, frontendPath), originalFrontendContents) {
 		t.Fatal("frontend target changed during dry run")
 	}
+}
+
+func TestRunCommand_ApplyVersionThreeDryRunTextReportsPreviewCategories(t *testing.T) {
+	const workerEnv = "SWITCHLET_TEST_STAGING_WORKER_QUEUE_ENDPOINT"
+	t.Setenv(workerEnv, "")
+
+	projectRoot, targetPaths := writeMixedCurrentStateCommandProject(t, workerEnv)
+	originalContents := readTargetContents(t, targetPaths)
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--dry-run", "--allow-protected"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	for _, expected := range []string{
+		`Dry run completed for profile "Staging"`,
+		"Would update:",
+		"would update backend/appsettings.Development.json",
+		"  database [json]",
+		"  database.url",
+		"would update services/development.toml",
+		"  serviceEndpoint [toml]",
+		"  services.api.endpoint",
+		"Already matches:",
+		"already matches frontend/.env.local",
+		"  frontendApi [dotenv]",
+		"  VITE_API_URL",
+		"Unavailable:",
+		"unavailable worker/config.yaml",
+		"  workerQueue [yaml]",
+		"  queue.endpoint",
+		"  environment variable: " + workerEnv,
+		"No changes were written.",
+	} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{
+		"postgres://local-secret",
+		"http://localhost:4566/queue-secret",
+		"http://localhost:8080/secret",
+		"http://localhost:5173/secret",
+		"postgres://staging-secret",
+		"https://services.staging.example.test/secret",
+	} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+	assertTargetContentsUnchanged(t, targetPaths, originalContents)
+
+	jsonResult := runCommandForTest(t, []string{"apply", "Staging", "--dry-run", "--allow-protected", "--json"}, projectRoot)
+	if jsonResult.exitCode != 0 {
+		t.Fatalf("JSON exitCode = %d, want 0 (stdout: %q, stderr: %q)", jsonResult.exitCode, jsonResult.stdout, jsonResult.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Status  string `json:"status"`
+			DryRun  bool   `json:"dryRun"`
+			Preview struct {
+				Complete            bool                       `json:"complete"`
+				IncludedTargetCount int                        `json:"includedTargetCount"`
+				OmittedTargetCount  int                        `json:"omittedTargetCount"`
+				TargetCount         int                        `json:"targetCount"`
+				WouldUpdate         []targetDescriptorTestJSON `json:"wouldUpdate"`
+				AlreadyMatches      []targetDescriptorTestJSON `json:"alreadyMatches"`
+				Unavailable         []struct {
+					TargetName          string `json:"targetName"`
+					TargetFile          string `json:"targetFile"`
+					TargetType          string `json:"targetType"`
+					SelectorName        string `json:"selectorName"`
+					Selector            string `json:"selector"`
+					EnvironmentVariable string `json:"environmentVariable"`
+					Reason              string `json:"reason"`
+				} `json:"unavailable"`
+			} `json:"preview"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(jsonResult.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal dry-run preview JSON: %v\noutput: %q", err, jsonResult.stdout)
+	}
+	if payload.Result.Status != "dry_run" || !payload.Result.DryRun {
+		t.Fatalf("result = %#v, want dry_run", payload.Result)
+	}
+	preview := payload.Result.Preview
+	if preview.Complete || preview.IncludedTargetCount != 4 || preview.OmittedTargetCount != 0 || preview.TargetCount != 4 {
+		t.Fatalf("preview counts = %#v, want incomplete four-target preview", preview)
+	}
+	if len(preview.WouldUpdate) != 2 || len(preview.AlreadyMatches) != 1 || len(preview.Unavailable) != 1 {
+		t.Fatalf("preview categories = %#v, want 2 would-update, 1 already-match, 1 unavailable", preview)
+	}
+	assertTargetDescriptor(t, preview.WouldUpdate[0], "database", targetPaths["database"], "json", "jsonPath", "database.url")
+	assertTargetDescriptor(t, preview.WouldUpdate[1], "serviceEndpoint", targetPaths["serviceEndpoint"], "toml", "tomlPath", "services.api.endpoint")
+	assertTargetDescriptor(t, preview.AlreadyMatches[0], "frontendApi", targetPaths["frontendApi"], "dotenv", "key", "VITE_API_URL")
+	unavailable := preview.Unavailable[0]
+	if unavailable.TargetName != "workerQueue" || unavailable.TargetFile != targetPaths["workerQueue"] || unavailable.TargetType != "yaml" || unavailable.SelectorName != "yamlPath" || unavailable.Selector != "queue.endpoint" || unavailable.EnvironmentVariable != workerEnv || !strings.Contains(unavailable.Reason, workerEnv) {
+		t.Fatalf("unavailable = %#v, want workerQueue environment value", unavailable)
+	}
+	for _, forbidden := range []string{
+		"postgres://local-secret",
+		"http://localhost:4566/queue-secret",
+		"http://localhost:8080/secret",
+		"http://localhost:5173/secret",
+		"postgres://staging-secret",
+		"https://services.staging.example.test/secret",
+	} {
+		if strings.Contains(jsonResult.stdout, forbidden) {
+			t.Fatalf("JSON stdout %q must not contain raw value %q", jsonResult.stdout, forbidden)
+		}
+	}
+	assertTargetContentsUnchanged(t, targetPaths, originalContents)
 }
 
 func TestRunCommand_ApplyVersionThreeUnavailableProfileIdentifiesTargetAndEnvironmentVariable(t *testing.T) {
@@ -491,6 +608,24 @@ profiles:
 				SelectorName string `json:"selectorName"`
 				Selector     string `json:"selector"`
 			} `json:"changes"`
+			Preview struct {
+				Complete            bool `json:"complete"`
+				IncludedTargetCount int  `json:"includedTargetCount"`
+				OmittedTargetCount  int  `json:"omittedTargetCount"`
+				TargetCount         int  `json:"targetCount"`
+				WouldUpdate         []struct {
+					TargetName string `json:"targetName"`
+					TargetFile string `json:"targetFile"`
+					TargetType string `json:"targetType"`
+					Selector   string `json:"selector"`
+				} `json:"wouldUpdate"`
+				OmittedTargets []struct {
+					TargetName string `json:"targetName"`
+					TargetFile string `json:"targetFile"`
+					TargetType string `json:"targetType"`
+					Selector   string `json:"selector"`
+				} `json:"omittedTargets"`
+			} `json:"preview"`
 		} `json:"result"`
 	}
 	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
@@ -505,6 +640,15 @@ profiles:
 	change := payload.Result.Changes[0]
 	if change.TargetName != "database" || change.TargetFile != databasePath || change.TargetType != "json" || change.SelectorName != "jsonPath" || change.Selector != "database.url" {
 		t.Fatalf("change = %#v, want database JSON path change", change)
+	}
+	if !payload.Result.Preview.Complete || payload.Result.Preview.IncludedTargetCount != 1 || payload.Result.Preview.OmittedTargetCount != 1 || payload.Result.Preview.TargetCount != 2 {
+		t.Fatalf("preview counts = %#v, want one included and one omitted target", payload.Result.Preview)
+	}
+	if len(payload.Result.Preview.WouldUpdate) != 1 || payload.Result.Preview.WouldUpdate[0].TargetName != "database" || payload.Result.Preview.WouldUpdate[0].TargetFile != databasePath || payload.Result.Preview.WouldUpdate[0].TargetType != "json" || payload.Result.Preview.WouldUpdate[0].Selector != "database.url" {
+		t.Fatalf("preview wouldUpdate = %#v, want database", payload.Result.Preview.WouldUpdate)
+	}
+	if len(payload.Result.Preview.OmittedTargets) != 1 || payload.Result.Preview.OmittedTargets[0].TargetName != "frontendApi" || payload.Result.Preview.OmittedTargets[0].TargetFile != frontendPath || payload.Result.Preview.OmittedTargets[0].TargetType != "dotenv" || payload.Result.Preview.OmittedTargets[0].Selector != "VITE_API_URL" {
+		t.Fatalf("preview omittedTargets = %#v, want frontendApi", payload.Result.Preview.OmittedTargets)
 	}
 	if strings.Contains(result.stdout, "postgres://dry-run") {
 		t.Fatalf("stdout %q must not contain resolved replacement value", result.stdout)

@@ -25,7 +25,7 @@ func usageText() string {
 	  --patch              Write read-only managed patch text for diff
 	  --expect             Assert that status matches one expected profile
 	  --exit-code          Return non-zero from diff when the selected profile would change files
-	  --dry-run            Validate apply without writing target files
+	  --dry-run            Preview apply impact without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 	  --no-color           Disable styled command output; also honored through NO_COLOR
 
@@ -251,7 +251,7 @@ func applyHelpText() string {
 
 	Flags:
 	  --json               Write machine-readable JSON output
-	  --dry-run            Validate the apply operation without writing target files
+	  --dry-run            Preview would-update, already-matching, unavailable, and omitted targets without writing files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 	  --no-color           Disable styled command output
 

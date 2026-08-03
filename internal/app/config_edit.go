@@ -168,6 +168,25 @@ func (workflow ConfigEditWorkflow) ProfileDraft(document ConfigEditDocument, pro
 	return profileDraftFromProfile(document.Targets, document.Profiles[profileIndex]), nil
 }
 
+// DuplicateProfileDraft copies an existing profile into an app-owned draft with a new name.
+func (workflow ConfigEditWorkflow) DuplicateProfileDraft(document ConfigEditDocument, sourceName string, newName string) (ConfigEditProfileDraft, error) {
+	draft, err := workflow.ProfileDraft(document, sourceName)
+	if err != nil {
+		return ConfigEditProfileDraft{}, err
+	}
+
+	profileName := strings.TrimSpace(newName)
+	if profileName == "" {
+		return ConfigEditProfileDraft{}, fmt.Errorf("profile name must be set")
+	}
+	if profileIndexByName(document.Profiles, profileName) >= 0 {
+		return ConfigEditProfileDraft{}, fmt.Errorf("profile name %q duplicates existing profile", profileName)
+	}
+
+	draft.Name = profileName
+	return draft, nil
+}
+
 // AddProfileDraft appends an app-owned profile draft after schema validation.
 func (workflow ConfigEditWorkflow) AddProfileDraft(document ConfigEditDocument, draft ConfigEditProfileDraft) (ConfigEditDocument, error) {
 	profile, err := profileFromDraft(draft)
@@ -371,7 +390,7 @@ func (workflow ConfigEditWorkflow) SummarizeChanges(document ConfigEditDocument)
 	}
 	changes = append(changes, ConfigEditChange{
 		Kind:    ConfigEditChangeFormattingNormalization,
-		Summary: ".switchlet.yaml formatting may be normalized and comments may not be preserved.",
+		Summary: ".switchlet.yaml formatting may be normalized and some comments may still move or be dropped when exact preservation is not safe.",
 		Warning: true,
 	})
 	changes = append(changes, modelChanges...)

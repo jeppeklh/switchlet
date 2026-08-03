@@ -2,6 +2,7 @@ package configeditor
 
 import (
 	"strings"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -106,6 +107,7 @@ type Model struct {
 	savedChanges    []app.ConfigEditChange
 	result          *Result
 	returnToPicker  bool
+	helpOpen        bool
 }
 
 // NewModel creates the Bubble Tea model for the interactive config editor.
@@ -220,7 +222,7 @@ func (model *Model) nextRequestID() int {
 }
 
 func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationRow {
-	filter := strings.ToLower(model.activeFilter())
+	filter := normalizeOverviewFilter(model.activeFilter())
 	rows := make([]navigationRow, 0)
 
 	switch model.activeTab {
@@ -234,7 +236,7 @@ func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationR
 	case overviewTabReview:
 	default:
 		for index, profile := range overview.Profiles {
-			if filter != "" && !strings.Contains(strings.ToLower(profile.Name), filter) {
+			if filter != "" && !profileMatchesOverviewFilter(profile, filter) {
 				continue
 			}
 			rows = append(rows, navigationRow{Kind: navigationRowProfile, Label: profile.Name, ProfileIndex: index})
@@ -242,6 +244,34 @@ func (model Model) navigationRows(overview app.ConfigEditOverview) []navigationR
 	}
 
 	return rows
+}
+
+func normalizeOverviewFilter(value string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), "\\", "/"))
+}
+
+func profileMatchesOverviewFilter(profile app.ConfigEditProfileItem, filter string) bool {
+	if strings.Contains(normalizeOverviewFilter(profile.Name), filter) {
+		return true
+	}
+
+	fields := make([]string, 0, len(profile.Values)*6)
+	for _, value := range profile.Values {
+		for _, field := range []string{
+			value.TargetName,
+			value.TargetFile,
+			string(value.TargetType),
+			value.SelectorName,
+			value.Selector,
+			value.EnvironmentVariableName,
+		} {
+			if field != "" {
+				fields = append(fields, normalizeOverviewFilter(field))
+			}
+		}
+	}
+
+	return overviewFilterTermsMatch(fields, filter)
 }
 
 func (model *Model) selectOverviewTab(tab overviewTab) {
@@ -273,11 +303,43 @@ func (model *Model) selectNextOverviewTab() {
 }
 
 func managedValueMatchesFilter(managedValue app.ConfigEditManagedValueItem, filter string) bool {
-	for _, value := range []string{managedValue.TargetName, managedValue.TargetFile, string(managedValue.TargetType), managedValue.Selector} {
-		if strings.Contains(strings.ToLower(value), filter) {
+	fields := []string{managedValue.TargetName, managedValue.TargetFile, string(managedValue.TargetType), managedValue.SelectorName, managedValue.Selector}
+	for _, value := range fields {
+		if strings.Contains(normalizeOverviewFilter(value), filter) {
 			return true
 		}
 	}
 
-	return false
+	normalizedFields := make([]string, 0, len(fields))
+	for _, field := range fields {
+		if field != "" {
+			normalizedFields = append(normalizedFields, normalizeOverviewFilter(field))
+		}
+	}
+
+	return overviewFilterTermsMatch(normalizedFields, filter)
+}
+
+func overviewFilterTermsMatch(fields []string, filter string) bool {
+	terms := strings.FieldsFunc(filter, func(value rune) bool {
+		return unicode.IsSpace(value) || value == '/' || value == '\\'
+	})
+	if len(terms) == 0 {
+		return false
+	}
+
+	for _, term := range terms {
+		matchedTerm := false
+		for _, field := range fields {
+			if strings.Contains(field, term) {
+				matchedTerm = true
+				break
+			}
+		}
+		if !matchedTerm {
+			return false
+		}
+	}
+
+	return true
 }

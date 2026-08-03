@@ -88,13 +88,13 @@ func TestMaskManagedValue(t *testing.T) {
 		want    string
 	}{
 		{
-			name:  "ordinary value remains useful",
+			name:  "ordinary value masks full value",
 			value: "https://api.staging.example.test",
 			context: profile.ManagedValueMaskContext{
 				TargetName: "frontendApi",
 				Selector:   "VITE_API_URL",
 			},
-			want: "https://api.staging.example.test",
+			want: "****",
 		},
 		{
 			name:  "target name masks full value",
@@ -133,22 +133,22 @@ func TestMaskManagedValue(t *testing.T) {
 			want: "****",
 		},
 		{
-			name:  "embedded key letters do not mask unrelated words",
+			name:  "non-sensitive context still masks full value",
 			value: "banana",
 			context: profile.ManagedValueMaskContext{
 				TargetName: "monkeyMode",
 				Selector:   "settings.monkeyMode",
 			},
-			want: "banana",
+			want: "****",
 		},
 		{
-			name:  "connection string masking still applies without sensitive context",
+			name:  "connection string masks full value",
 			value: "Server=db;Database=App;Pwd=secret;",
 			context: profile.ManagedValueMaskContext{
 				TargetName: "database",
 				Selector:   "ConnectionStrings.DefaultConnection",
 			},
-			want: "Server=db;Database=App;Pwd=****;",
+			want: "****",
 		},
 	}
 

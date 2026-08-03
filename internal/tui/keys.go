@@ -19,6 +19,7 @@ const (
 	keyDiff    = "d"
 	keyReveal  = "v"
 	keySearch  = "/"
+	keyHelp    = "?"
 	keyRefresh = "r"
 	keyEscape  = "esc"
 	keyConfirm = "y"

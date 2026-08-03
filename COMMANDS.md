@@ -63,7 +63,9 @@ switchlet config
 ```
 
 The editor works on an in-memory draft and writes only from the save review.
-Saving may normalize `.switchlet.yaml` formatting.
+Saving preserves comments in unchanged sections where safe, but formatting may
+still normalize and some comments may move or be dropped when exact
+preservation is unsafe.
 
 ## Profile Commands
 
@@ -102,7 +104,7 @@ switchlet apply Local --dry-run --json
 
 | Flag | Description |
 |---|---|
-| `--dry-run` | Validate the apply operation without writing target files. |
+| `--dry-run` | Preview would-update, already-matching, unavailable, and omitted targets without writing target files. |
 | `--allow-protected` | Explicitly allow non-interactive apply for protected profiles. |
 | `--json` | Write machine-readable JSON output. |
 | `--no-color` | Disable styled command output. |
@@ -217,6 +219,9 @@ switchlet doctor --json
 JSON output includes profile names, target names, files, selectors,
 availability, and safe errors. It does not include raw current target values or
 raw resolved profile values.
+
+`apply --dry-run --json` also includes an additive `preview` object with
+would-update, already-matching, unavailable, and omitted target categories.
 
 ### Short Status
 

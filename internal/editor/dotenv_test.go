@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -55,6 +56,49 @@ VITE_FEATURES=local
 	}
 	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
 		t.Fatal("current-value read created a temporary file")
+	}
+}
+
+func TestReadTargetValue_ReturnsQuotedDotenvCurrentValueWithoutQuotes(t *testing.T) {
+	testCases := []struct {
+		name           string
+		targetContents string
+		wantValue      string
+	}{
+		{
+			name:           "single quoted",
+			targetContents: "VITE_API_URL='https://api.example.test'\n",
+			wantValue:      "https://api.example.test",
+		},
+		{
+			name:           "double quoted",
+			targetContents: "VITE_API_URL=\"https://api.example.test/path?mode=qa\" # keep\n",
+			wantValue:      "https://api.example.test/path?mode=qa",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", testCase.targetContents)
+			originalContents := readFile(t, targetPath)
+
+			value, err := ReadTargetValue(config.Target{
+				Name: "frontendApi",
+				File: targetPath,
+				Type: config.TargetTypeDotenv,
+				Key:  "VITE_API_URL",
+			})
+			if err != nil {
+				t.Fatalf("ReadTargetValue returned error: %v", err)
+			}
+			if value != testCase.wantValue {
+				t.Fatalf("value = %q, want %q", value, testCase.wantValue)
+			}
+			if !bytes.Equal(readFile(t, targetPath), originalContents) {
+				t.Fatal("dotenv target changed during quoted current-value read")
+			}
+		})
 	}
 }
 
@@ -125,6 +169,43 @@ VITE_FEATURES=local
 VITE_API_URL=https://api.example.test
 VITE_FEATURES=staging
 `) + "\n"
+	if string(readFile(t, targetPath)) != wantContents {
+		t.Fatalf("dotenv contents = %q, want %q", readFile(t, targetPath), wantContents)
+	}
+}
+
+func TestApplyTargetChanges_PreservesSingleQuotedDotenvStyleCommentsAndLineEndings(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "# local frontend settings\r\nVITE_API_URL='http://localhost:5173' # keep API quoted\r\nVITE_FEATURES=local\r\n")
+
+	err := ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "frontendApi", File: targetPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		Value:  "https://api.example.test",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	wantContents := "# local frontend settings\r\nVITE_API_URL='https://api.example.test' # keep API quoted\r\nVITE_FEATURES=local\r\n"
+	if string(readFile(t, targetPath)) != wantContents {
+		t.Fatalf("dotenv contents = %q, want %q", readFile(t, targetPath), wantContents)
+	}
+}
+
+func TestApplyTargetChanges_PreservesDoubleQuotedDotenvStyleAndEscapesReplacement(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=\"http://localhost:5173\" # keep API quoted\n")
+	replacement := `say "hello" \\ again`
+
+	err := ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "frontendApi", File: targetPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		Value:  replacement,
+	}})
+	if err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	wantContents := "VITE_API_URL=" + strconv.Quote(replacement) + " # keep API quoted\n"
 	if string(readFile(t, targetPath)) != wantContents {
 		t.Fatalf("dotenv contents = %q, want %q", readFile(t, targetPath), wantContents)
 	}
@@ -236,5 +317,58 @@ func TestApplyTargetChanges_RejectsDotenvReplacementWithNewlineBeforeWriting(t *
 	}
 	if !bytes.Equal(readFile(t, targetPath), originalContents) {
 		t.Fatal("dotenv file changed after newline validation failure")
+	}
+}
+
+func TestApplyTargetChanges_RejectsUnsupportedQuotedDotenvCasesWithoutWriting(t *testing.T) {
+	testCases := []struct {
+		name           string
+		targetContents string
+		replacement    string
+		wantError      string
+	}{
+		{
+			name:           "missing single quote terminator",
+			targetContents: "VITE_API_URL='http://localhost:5173\n",
+			replacement:    "https://api.example.test",
+			wantError:      "single-quoted value without a closing quote",
+		},
+		{
+			name:           "unsupported trailing content after double quote",
+			targetContents: "VITE_API_URL=\"http://localhost:5173\" trailing\n",
+			replacement:    "https://api.example.test",
+			wantError:      "unsupported trailing content after the quoted value",
+		},
+		{
+			name:           "single-quoted replacement cannot preserve quote style",
+			targetContents: "VITE_API_URL='http://localhost:5173'\n",
+			replacement:    "https://api.example.test/it's-quoted",
+			wantError:      "cannot preserve the existing single-quoted dotenv style safely",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			targetPath := writeTargetFile(t, projectRoot, "frontend/.env.local", testCase.targetContents)
+			originalContents := readFile(t, targetPath)
+
+			err := ApplyTargetChanges([]TargetChange{{
+				Target: config.Target{Name: "frontendApi", File: targetPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+				Value:  testCase.replacement,
+			}})
+			if err == nil {
+				t.Fatal("ApplyTargetChanges returned nil error, want quoted dotenv failure")
+			}
+			if !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, testCase.wantError)
+			}
+			if strings.Contains(err.Error(), "it's-quoted") {
+				t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
+			}
+			if !bytes.Equal(readFile(t, targetPath), originalContents) {
+				t.Fatal("dotenv file changed after quoted dotenv failure")
+			}
+		})
 	}
 }

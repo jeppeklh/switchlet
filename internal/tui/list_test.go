@@ -490,7 +490,7 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 				testCase.target.File,
 				"Selector",
 				testCase.selector,
-				"Masked value: Server=prod;Password=****;",
+				"Masked value: ****",
 			} {
 				if !strings.Contains(inspectionView, expected) {
 					t.Fatalf("inspection View() = %q, want %s inspection context %q", inspectionView, testCase.name, expected)
@@ -924,6 +924,98 @@ func TestUpdate_ProfileSearchSupportsMultiTermMatching(t *testing.T) {
 	}
 	if strings.Contains(searchView, `Search "dev local"`) || strings.Contains(searchView, `Filter "dev local"`) {
 		t.Fatalf("View() = %q, active query must not appear in profile panel title", searchView)
+	}
+}
+
+func TestUpdate_ProfileSearchMatchesSafeMetadataAndRanksNameMatches(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "ConnectionStrings.Default"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "queue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.url"},
+		},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local-secret")}, {Target: "frontendApi", Value: stringPointer("http://localhost:5173")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer("STAGING_DATABASE_URL")}, {Target: "queue", Value: stringPointer("amqp://staging-secret")}}},
+			{Name: "Database Named", Values: []config.ProfileValue{{Target: "frontendApi", ValueFromEnv: stringPointer("DATABASE_NAMED_API_URL")}}},
+		},
+	))
+	model = acceptProfileSearch(t, model, "database")
+	filteredProfileNames := func() []string {
+		names := make([]string, 0)
+		for _, index := range model.filteredProfileIndices() {
+			names = append(names, model.profiles[index].Name)
+		}
+
+		return names
+	}
+
+	if names := filteredProfileNames(); len(names) != 3 || names[0] != "Database Named" {
+		t.Fatalf("database search names = %#v, want profile-name match before metadata-only matches", names)
+	}
+
+	tests := []struct {
+		query string
+		want  []string
+	}{
+		{query: "backend/appsettings", want: []string{"Local", "Staging"}},
+		{query: "ConnectionStrings.Default", want: []string{"Local", "Staging"}},
+		{query: "STAGING_DATABASE_URL", want: []string{"Staging"}},
+		{query: "dotenv", want: []string{"Local", "Database Named"}},
+		{query: "queue yaml", want: []string{"Staging"}},
+	}
+	for _, testCase := range tests {
+		model.profileFilter = testCase.query
+		names := filteredProfileNames()
+		if strings.Join(names, ",") != strings.Join(testCase.want, ",") {
+			t.Fatalf("filter %q names = %#v, want %#v", testCase.query, names, testCase.want)
+		}
+	}
+
+	model.profileFilter = "postgres://local-secret"
+	if names := filteredProfileNames(); len(names) != 0 {
+		t.Fatalf("raw literal filter names = %#v, want no raw-value matches", names)
+	}
+}
+
+func TestUpdate_ContextualHelpOpensAndReturnsFromMainPicker(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://super-secret")}}}},
+	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(runeKey('?'))
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after opening help")
+	}
+	if !model.helpOpen || model.state != listState {
+		t.Fatalf("model after help key = %#v, want list-state help open", model)
+	}
+	helpView := model.View()
+	for _, expected := range []string{"Help", "Enter: Apply+Exit", "c: Config", "Esc/? Back", "q Quit"} {
+		if !strings.Contains(helpView, expected) {
+			t.Fatalf("help View() = %q, want %q", helpView, expected)
+		}
+	}
+	if strings.Contains(helpView, "postgres://super-secret") {
+		t.Fatalf("help View() = %q, must not reveal raw profile value", helpView)
+	}
+	assertVisibleHeight(t, helpView, 24)
+	assertVisibleWidth(t, helpView, 80)
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after closing help")
+	}
+	if model.helpOpen || model.state != listState {
+		t.Fatalf("model after closing help = %#v, want original list screen", model)
+	}
+	if !strings.Contains(model.View(), "> Local") {
+		t.Fatalf("View() = %q, want profile list after closing help", model.View())
 	}
 }
 

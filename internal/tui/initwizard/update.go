@@ -38,6 +38,13 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, nil
 		}
+		if model.helpOpen {
+			return model.handleHelpKey(message)
+		}
+		if model.canOpenHelp() && isRuneKey(message, '?') {
+			model.helpOpen = true
+			return model, nil
+		}
 		if model.isPending() {
 			return model.handlePendingKey(message)
 		}
@@ -87,6 +94,24 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	default:
 		return model, nil
 	}
+}
+
+func (model initWizardModel) handleHelpKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case message.Type == tea.KeyEsc || isRuneKey(message, '?'):
+		model.helpOpen = false
+		return model, nil
+	case isQuitKey(message):
+		model.helpOpen = false
+		model.cancel()
+		return model, tea.Quit
+	default:
+		return model, nil
+	}
+}
+
+func (model initWizardModel) canOpenHelp() bool {
+	return !model.isPending() && !isTextEntryStep(model.step)
 }
 
 func (model initWizardModel) handlePendingKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {

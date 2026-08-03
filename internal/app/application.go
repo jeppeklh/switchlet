@@ -146,6 +146,9 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 	if configuredProfile.Protected && !options.AllowProtected {
 		return Result{}, fmt.Errorf("profile %q is protected: %w", configuredProfile.Name, ErrProtectedProfileRequiresApproval)
 	}
+	if options.DryRun {
+		return application.dryRunConfiguredProfile(configuredProfile)
+	}
 
 	resolvedProfile := profile.ResolveProfile(configuredProfile)
 	if !resolvedProfile.IsAvailable() {
@@ -157,20 +160,13 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 		return Result{}, fmt.Errorf("build target changes for profile %q: %w", configuredProfile.Name, err)
 	}
 
-	if options.DryRun {
-		if err := editor.PreviewTargetChanges(targetChanges); err != nil {
-			return Result{}, fmt.Errorf("dry-run apply profile %q: %w", configuredProfile.Name, err)
-		}
-	} else {
-		if err := editor.ApplyTargetChanges(targetChanges); err != nil {
-			return Result{}, fmt.Errorf("apply profile %q: %w", configuredProfile.Name, err)
-		}
+	if err := editor.ApplyTargetChanges(targetChanges); err != nil {
+		return Result{}, fmt.Errorf("apply profile %q: %w", configuredProfile.Name, err)
 	}
 
 	result := Result{
 		ProfileName: resolvedProfile.Name,
 		Protected:   configuredProfile.Protected,
-		DryRun:      options.DryRun,
 		Changes:     plannedChanges,
 	}
 	if len(plannedChanges) == 1 {
@@ -179,6 +175,39 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 	}
 
 	return result, nil
+}
+
+func (application Application) dryRunConfiguredProfile(configuredProfile config.Profile) (Result, error) {
+	preview, err := application.managedPatchPreviewForConfiguredProfile(configuredProfile, PreviewOptions{ValueVisibility: ValueVisibilityHidden})
+	if err != nil {
+		return Result{}, fmt.Errorf("dry-run apply profile %q: %w", configuredProfile.Name, err)
+	}
+
+	plannedChanges := managedPatchPreviewPlannedChanges(preview)
+	result := Result{
+		ProfileName:   preview.ProfileName,
+		Protected:     preview.Protected,
+		DryRun:        true,
+		Changes:       plannedChanges,
+		DryRunPreview: &preview,
+	}
+	if len(plannedChanges) == 1 {
+		result.TargetFile = plannedChanges[0].TargetFile
+		result.TargetPath = plannedChanges[0].Selector
+	}
+
+	return result, nil
+}
+
+func managedPatchPreviewPlannedChanges(preview ManagedPatchPreview) []PlannedChange {
+	changes := make([]PlannedChange, 0, preview.IncludedTargetCount)
+	for _, fileGroup := range preview.Files {
+		for _, hunk := range fileGroup.Hunks {
+			changes = append(changes, hunk.TargetDescriptor)
+		}
+	}
+
+	return changes
 }
 
 func (application Application) profileByName(profileName string) (config.Profile, error) {

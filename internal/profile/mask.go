@@ -16,11 +16,9 @@ func MaskManagedValue(value string, context ManagedValueMaskContext) string {
 	if value == "" {
 		return ""
 	}
-	if maskContextIndicatesSensitive(context) {
-		return maskedManagedValue
-	}
+	_ = context
 
-	return maskConnectionString(value)
+	return maskedManagedValue
 }
 
 // MaskConnectionString returns a display-safe representation of a connection string.
@@ -35,12 +33,6 @@ func maskConnectionString(connectionString string) string {
 	}
 
 	return strings.Join(segments, ";")
-}
-
-func maskContextIndicatesSensitive(context ManagedValueMaskContext) bool {
-	return textIndicatesSensitive(context.TargetName) ||
-		textIndicatesSensitive(context.Selector) ||
-		textIndicatesSensitive(context.EnvironmentVariableName)
 }
 
 func maskSegment(segment string) string {

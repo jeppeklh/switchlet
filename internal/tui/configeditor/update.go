@@ -39,6 +39,13 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return model, nil
 		}
+		if model.helpOpen {
+			return model.handleHelpKey(message)
+		}
+		if model.canOpenHelp() && isRuneKey(message, '?') {
+			model.helpOpen = true
+			return model, nil
+		}
 
 		switch model.state {
 		case editorStateFilter:
@@ -92,6 +99,39 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	default:
 		return model, nil
+	}
+}
+
+func (model Model) handleHelpKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case message.Type == tea.KeyEsc || isRuneKey(message, '?'):
+		model.helpOpen = false
+		return model, nil
+	case isQuitKey(message):
+		model.helpOpen = false
+		return model.beginQuit()
+	default:
+		return model, nil
+	}
+}
+
+func (model Model) canOpenHelp() bool {
+	switch model.state {
+	case editorStateOverview,
+		editorStateProfileIncludeValues,
+		editorStateProfileValueSource,
+		editorStateProfileReview,
+		editorStateProfileRemoveConfirm,
+		editorStateManagedValueFileSelect,
+		editorStateManagedValueTypeSelect,
+		editorStateManagedValueSelectorSelect,
+		editorStateManagedValueReview,
+		editorStateManagedValueRemoveConfirm,
+		editorStateDirtyQuitConfirm,
+		editorStateSaveSuccess:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -164,6 +204,11 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.beginEditProfile(selectedRow.Label)
 		} else if selectedRow.Kind == navigationRowManagedValue {
 			return model, model.beginEditManagedValueLocation(selectedRow.Label)
+		}
+	case isRuneKey(message, 'D'):
+		selectedRow := model.selectedRow(rows)
+		if selectedRow.Kind == navigationRowProfile {
+			model.beginDuplicateProfile(selectedRow.Label)
 		}
 	case isRuneKey(message, 'r'):
 		selectedRow := model.selectedRow(rows)

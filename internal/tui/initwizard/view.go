@@ -540,6 +540,21 @@ func (model initWizardModel) initWizardShell(stepNumber int, subtitle string, pa
 }
 
 func (model initWizardModel) initWizardShellWithCommandLine(stepNumber int, subtitle string, panels []ui.Panel, actions []ui.Action, commandLine string) string {
+	if model.helpOpen {
+		return ui.RenderShell(ui.Shell{
+			Title:    "Switchlet init",
+			Subtitle: "Help",
+			Metadata: wizardStepMetadata(stepNumber),
+			Panels:   []ui.Panel{{Title: "Help", Lines: ui.HelpLines(actions, ui.PrimaryPanelWidth(model.width, 1)), Focused: true}},
+			Actions:  ui.HelpReturnActions("Cancel"),
+			Width:    model.width,
+			Height:   model.height,
+		})
+	}
+	if model.canOpenHelp() {
+		actions = ui.AppendHelpAction(actions)
+	}
+
 	if model.height > 0 {
 		for index := range panels {
 			panels[index].FillHeight = true

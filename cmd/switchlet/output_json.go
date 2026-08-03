@@ -36,6 +36,7 @@ func writeApplyJSON(output io.Writer, result app.Result) error {
 		Changes:     targetDescriptorJSONFromDescriptors(result.Changes),
 		Protected:   result.Protected,
 		DryRun:      result.DryRun,
+		Preview:     applyDryRunPreviewJSONFromResult(result),
 	}})
 }
 
@@ -132,6 +133,18 @@ type applyResultJSON struct {
 	Changes     []targetDescriptorJSON `json:"changes"`
 	Protected   bool                   `json:"protected"`
 	DryRun      bool                   `json:"dryRun"`
+	Preview     *dryRunPreviewJSON     `json:"preview,omitempty"`
+}
+
+type dryRunPreviewJSON struct {
+	Complete            bool                   `json:"complete"`
+	IncludedTargetCount int                    `json:"includedTargetCount"`
+	OmittedTargetCount  int                    `json:"omittedTargetCount"`
+	TargetCount         int                    `json:"targetCount"`
+	WouldUpdate         []targetDescriptorJSON `json:"wouldUpdate"`
+	AlreadyMatches      []targetDescriptorJSON `json:"alreadyMatches"`
+	Unavailable         []unavailableValueJSON `json:"unavailable"`
+	OmittedTargets      []targetDescriptorJSON `json:"omittedTargets"`
 }
 
 type statusResultJSON struct {
@@ -281,6 +294,50 @@ func profileJSONFromItem(profileItem app.ProfileItem) profileJSON {
 		Partial:                 profileItem.Partial,
 		Values:                  profileValueJSONFromItems(profileItem.Values),
 	}
+}
+
+func applyDryRunPreviewJSONFromResult(result app.Result) *dryRunPreviewJSON {
+	if !result.DryRun || result.DryRunPreview == nil {
+		return nil
+	}
+
+	preview := result.DryRunPreview
+	return &dryRunPreviewJSON{
+		Complete:            preview.Complete,
+		IncludedTargetCount: preview.IncludedTargetCount,
+		OmittedTargetCount:  preview.OmittedTargetCount,
+		TargetCount:         preview.TargetCount,
+		WouldUpdate:         targetDescriptorJSONFromHunks(managedPatchHunksWithStatus(*preview, app.ManagedPatchStatusWouldUpdate)),
+		AlreadyMatches:      targetDescriptorJSONFromHunks(managedPatchHunksWithStatus(*preview, app.ManagedPatchStatusAlreadyMatches)),
+		Unavailable:         unavailableValueJSONFromHunks(managedPatchHunksWithStatus(*preview, app.ManagedPatchStatusUnavailable)),
+		OmittedTargets:      targetDescriptorJSONFromDescriptors(preview.OmittedTargets),
+	}
+}
+
+func targetDescriptorJSONFromHunks(hunks []app.ManagedPatchHunk) []targetDescriptorJSON {
+	descriptors := make([]app.TargetDescriptor, 0, len(hunks))
+	for _, hunk := range hunks {
+		descriptors = append(descriptors, hunk.TargetDescriptor)
+	}
+
+	return targetDescriptorJSONFromDescriptors(descriptors)
+}
+
+func unavailableValueJSONFromHunks(hunks []app.ManagedPatchHunk) []unavailableValueJSON {
+	values := make([]unavailableValueJSON, 0, len(hunks))
+	for _, hunk := range hunks {
+		values = append(values, unavailableValueJSON{
+			TargetName:              hunk.TargetName,
+			TargetFile:              hunk.TargetFile,
+			TargetType:              string(hunk.TargetType),
+			SelectorName:            hunk.SelectorName,
+			Selector:                hunk.Selector,
+			EnvironmentVariableName: hunk.EnvironmentVariableName,
+			Reason:                  hunk.UnavailableReason,
+		})
+	}
+
+	return values
 }
 
 func profileValueJSONFromItems(values []app.ProfileValueItem) []profileValueJSON {

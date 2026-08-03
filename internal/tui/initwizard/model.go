@@ -111,6 +111,7 @@ type initWizardModel struct {
 	effectRequestID         int
 	pendingEffect           *initWizardPendingEffect
 	result                  *Result
+	helpOpen                bool
 }
 
 // NewModel creates the Bubble Tea model for the interactive init wizard.

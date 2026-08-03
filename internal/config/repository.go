@@ -8,8 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"gopkg.in/yaml.v3"
 )
 
 const gitignoreFileName = ".gitignore"
@@ -161,7 +159,28 @@ func PrepareReplacementFromSnapshot(snapshot ConfigSnapshot, targets []Target, p
 		return PreparedReplacement{}, ConfigChangedError{ConfigPath: configPath}
 	}
 
-	return prepareReplacementContents(resolvedProjectRoot, configPath, permissions, targets, profiles)
+	contents, err := marshalCreatedConfig(resolvedProjectRoot, targets, profiles)
+	if err != nil {
+		return PreparedReplacement{}, err
+	}
+	if snapshot.OriginalVersion == namedTargetVersion {
+		contents, err = marshalReplacementConfigPreservingComments(currentContents, resolvedProjectRoot, targets, profiles)
+		if err != nil {
+			return PreparedReplacement{}, err
+		}
+	}
+
+	loadedConfig, err := loadConfigContents(configPath, contents)
+	if err != nil {
+		return PreparedReplacement{}, fmt.Errorf("verify replacement configuration file %q: %w", configPath, err)
+	}
+
+	return PreparedReplacement{
+		configPath:   configPath,
+		contents:     contents,
+		permissions:  permissions,
+		loadedConfig: loadedConfig,
+	}, nil
 }
 
 func prepareReplacementContents(projectRoot string, configPath string, permissions fs.FileMode, targets []Target, profiles []Profile) (PreparedReplacement, error) {
@@ -341,28 +360,7 @@ func detectLineEnding(contents []byte) string {
 }
 
 func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profile) ([]byte, error) {
-	configuredTargets := fileTargetsFromTargets(projectRoot, targets)
-	configuredProfiles := fileProfilesFromProfiles(profiles)
-
-	configFile := struct {
-		Version  int           `yaml:"version"`
-		Targets  []fileTarget  `yaml:"targets"`
-		Profiles []fileProfile `yaml:"profiles"`
-	}{
-		Version:  namedTargetVersion,
-		Targets:  configuredTargets,
-		Profiles: configuredProfiles,
-	}
-
-	contents, err := yaml.Marshal(configFile)
-	if err != nil {
-		return nil, fmt.Errorf("serialize configuration file: %w", err)
-	}
-	if len(contents) == 0 || contents[len(contents)-1] != '\n' {
-		contents = append(contents, '\n')
-	}
-
-	return contents, nil
+	return marshalVersionThreeConfig(projectRoot, targets, profiles, nil)
 }
 
 func fileTargetsFromTargets(projectRoot string, targets []Target) []fileTarget {

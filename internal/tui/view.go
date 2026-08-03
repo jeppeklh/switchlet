@@ -17,6 +17,9 @@ func (model Model) View() string {
 	if model.isTerminalTooSmall() {
 		return model.tooSmallTerminalView()
 	}
+	if model.helpOpen {
+		return model.helpView()
+	}
 
 	switch model.state {
 	case inspectState:
@@ -35,6 +38,43 @@ func (model Model) View() string {
 		return model.comparisonErrorView()
 	default:
 		return model.listView()
+	}
+}
+
+func (model Model) helpView() string {
+	return RenderShell(Shell{
+		Headerless: true,
+		Panels: []Panel{{
+			Title:   "Help",
+			Lines:   HelpLines(model.currentHelpActions(), fullPanelContentWidth(model.width)),
+			Focused: true,
+		}},
+		Actions: HelpReturnActions("Quit"),
+		Width:   model.width,
+		Height:  model.height,
+	})
+}
+
+func (model Model) currentHelpActions() []Action {
+	switch model.state {
+	case inspectState:
+		shell, ok := model.inspectionShell()
+		if !ok {
+			return model.listActions()
+		}
+		return model.withFocusedPanelScroll(shell, 1).Actions
+	case confirmState:
+		return model.confirmationActions()
+	case errorState:
+		return model.withFocusedPanelScroll(model.errorShell(), 1).Actions
+	case statusLoadingState, statusReadyState:
+		return model.withFocusedPanelScroll(model.statusComparisonShell(), 1).Actions
+	case diffLoadingState, diffReadyState:
+		return model.withFocusedPanelScroll(model.diffComparisonShell(), 0).Actions
+	case comparisonErrorState:
+		return model.withFocusedPanelScroll(model.comparisonErrorShell(), 1).Actions
+	default:
+		return model.listActions()
 	}
 }
 
@@ -79,7 +119,7 @@ func (model Model) listActions() []Action {
 		if model.profileFilter != "" {
 			actions = append(actions, Action{Key: "Esc", Label: "Clear filter", Priority: ActionPriorityPrimary})
 		}
-		return append(actions, Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal}, Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical})
+		return AppendHelpAction(append(actions, Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal}, Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical}))
 	}
 
 	actions := []Action{
@@ -111,7 +151,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
-	return actions
+	return AppendHelpAction(actions)
 }
 
 func (model Model) profileContentsLines() []string {
@@ -274,7 +314,7 @@ func (model Model) statusComparisonShell() Shell {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Status", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: comparisonActions(comparisonRequestStatus, model.valuesVisible),
+		Actions: AppendHelpAction(comparisonActions(comparisonRequestStatus, model.valuesVisible)),
 		Width:   model.width,
 		Height:  model.height,
 	}
@@ -305,7 +345,7 @@ func (model Model) diffComparisonShell() Shell {
 	return Shell{
 		Headerless: true,
 		Panels:     []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
-		Actions:    comparisonActions(comparisonRequestDiff, model.valuesVisible),
+		Actions:    AppendHelpAction(comparisonActions(comparisonRequestDiff, model.valuesVisible)),
 		Width:      model.width,
 		Height:     model.height,
 	}
@@ -323,7 +363,7 @@ func (model Model) comparisonErrorShell() Shell {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.comparisonError, secondaryPanelContentWidth(model.width)), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: comparisonActions(comparisonRequestNone, model.valuesVisible),
+		Actions: AppendHelpAction(comparisonActions(comparisonRequestNone, model.valuesVisible)),
 		Width:   model.width,
 		Height:  model.height,
 	}
@@ -585,7 +625,7 @@ func (model Model) inspectionShell() (Shell, bool) {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Profile detail", Lines: profileLines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: []Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary}, {Key: "i", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary}, model.valueRevealAction(), {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}},
+		Actions: AppendHelpAction([]Action{{Key: "Enter", Label: enterActionLabel(selectedProfile)}, {Key: "Space", Label: stayActionLabel(selectedProfile), Priority: ActionPriorityPrimary}, {Key: "i", Label: "Return", Priority: ActionPriorityPrimary}, {Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary}, model.valueRevealAction(), {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}),
 		Width:   model.width,
 		Height:  model.height,
 	}, true
@@ -629,10 +669,14 @@ func (model Model) confirmationView() string {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Confirmation", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: []Action{{Key: "Enter/y", Label: "Confirm", Priority: ActionPriorityPrimary}, {Key: "n/Esc", Label: "Cancel", Priority: ActionPriorityPrimary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}},
+		Actions: model.confirmationActions(),
 		Width:   model.width,
 		Height:  model.height,
 	})
+}
+
+func (model Model) confirmationActions() []Action {
+	return AppendHelpAction([]Action{{Key: "Enter/y", Label: "Confirm", Priority: ActionPriorityPrimary}, {Key: "n/Esc", Label: "Cancel", Priority: ActionPriorityPrimary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}})
 }
 
 func enterActionLabel(profile app.ProfileItem) string {
@@ -673,7 +717,7 @@ func (model Model) errorShell() Shell {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.recoverableError, secondaryPanelContentWidth(model.width)), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: []Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}},
+		Actions: AppendHelpAction([]Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}}),
 		Width:   model.width,
 		Height:  model.height,
 	}

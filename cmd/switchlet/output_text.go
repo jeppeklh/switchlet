@@ -79,17 +79,7 @@ func writeInspectText(output io.Writer, profileItem app.ProfileItem, projectRoot
 
 func writeApplyText(output io.Writer, result app.Result, projectRoot string) error {
 	if result.DryRun {
-		if _, err := fmt.Fprintf(output, "Dry run successful for profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Planned target", result.Changes)); err != nil {
-			return err
-		}
-		if err := writePlannedChangesText(output, result.Changes, "would update", projectRoot); err != nil {
-			return err
-		}
-		if _, err := fmt.Fprintln(output, "\nNo changes were written."); err != nil {
-			return err
-		}
-
-		return nil
+		return writeDryRunText(output, result, projectRoot)
 	}
 
 	if _, err := fmt.Fprintf(output, "Applied profile %q\n\n%s:\n", result.ProfileName, targetListHeading("Updated target", result.Changes)); err != nil {
@@ -100,6 +90,142 @@ func writeApplyText(output io.Writer, result app.Result, projectRoot string) err
 	}
 
 	return nil
+}
+
+func writeDryRunText(output io.Writer, result app.Result, projectRoot string) error {
+	message := "Dry run successful"
+	if result.DryRunPreview != nil && !result.DryRunPreview.Complete {
+		message = "Dry run completed"
+	}
+	if _, err := fmt.Fprintf(output, "%s for profile %q\n", message, result.ProfileName); err != nil {
+		return err
+	}
+
+	if result.DryRunPreview != nil {
+		if err := writeDryRunPreviewText(output, *result.DryRunPreview, projectRoot); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(output, "\n%s:\n", targetListHeading("Planned target", result.Changes)); err != nil {
+			return err
+		}
+		if err := writePlannedChangesText(output, result.Changes, "would update", projectRoot); err != nil {
+			return err
+		}
+	}
+
+	_, err := fmt.Fprintln(output, "\nNo changes were written.")
+	return err
+}
+
+func writeDryRunPreviewText(output io.Writer, preview app.ManagedPatchPreview, projectRoot string) error {
+	if err := writeDryRunHunkSection(output, preview, app.ManagedPatchStatusWouldUpdate, "Would update", "would update", projectRoot); err != nil {
+		return err
+	}
+	if err := writeDryRunHunkSection(output, preview, app.ManagedPatchStatusAlreadyMatches, "Already matches", "already matches", projectRoot); err != nil {
+		return err
+	}
+	if err := writeDryRunHunkSection(output, preview, app.ManagedPatchStatusUnavailable, "Unavailable", "unavailable", projectRoot); err != nil {
+		return err
+	}
+
+	return writeDryRunOmittedTargets(output, preview.OmittedTargets, projectRoot)
+}
+
+func writeDryRunHunkSection(output io.Writer, preview app.ManagedPatchPreview, status app.ManagedPatchStatus, heading string, marker string, projectRoot string) error {
+	hunks := managedPatchHunksWithStatus(preview, status)
+	if len(hunks) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintf(output, "\n%s:\n", heading); err != nil {
+		return err
+	}
+	for index, hunk := range hunks {
+		if index > 0 {
+			if _, err := fmt.Fprintln(output); err != nil {
+				return err
+			}
+		}
+		if err := writeDryRunHunk(output, hunk, marker, projectRoot); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeDryRunHunk(output io.Writer, hunk app.ManagedPatchHunk, marker string, projectRoot string) error {
+	if err := writeDryRunTargetDescriptor(output, hunk.TargetDescriptor, marker, projectRoot); err != nil {
+		return err
+	}
+	if hunk.Status != app.ManagedPatchStatusUnavailable {
+		return nil
+	}
+	if hunk.EnvironmentVariableName != "" {
+		if _, err := fmt.Fprintf(output, "  environment variable: %s\n", hunk.EnvironmentVariableName); err != nil {
+			return err
+		}
+	}
+	if hunk.UnavailableReason != "" {
+		if _, err := fmt.Fprintf(output, "  reason: %s\n", hunk.UnavailableReason); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeDryRunOmittedTargets(output io.Writer, targets []app.TargetDescriptor, projectRoot string) error {
+	if len(targets) == 0 {
+		return nil
+	}
+	if _, err := fmt.Fprintln(output, "\nOmitted targets:"); err != nil {
+		return err
+	}
+	for index, target := range targets {
+		if index > 0 {
+			if _, err := fmt.Fprintln(output); err != nil {
+				return err
+			}
+		}
+		if err := writeDryRunTargetDescriptor(output, target, "omitted", projectRoot); err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintln(output, "  unchanged by selected profile"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func writeDryRunTargetDescriptor(output io.Writer, descriptor app.TargetDescriptor, marker string, projectRoot string) error {
+	if _, err := fmt.Fprintf(output, "%s %s\n", marker, displayProjectPath(projectRoot, descriptor.TargetFile)); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(output, "  %s%s\n", targetNameLabel(descriptor.TargetName), targetTypeBadge(string(descriptor.TargetType))); err != nil {
+		return err
+	}
+	if descriptor.Selector != "" {
+		if _, err := fmt.Fprintf(output, "  %s\n", descriptor.Selector); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func managedPatchHunksWithStatus(preview app.ManagedPatchPreview, status app.ManagedPatchStatus) []app.ManagedPatchHunk {
+	hunks := make([]app.ManagedPatchHunk, 0)
+	for _, fileGroup := range preview.Files {
+		for _, hunk := range fileGroup.Hunks {
+			if hunk.Status == status {
+				hunks = append(hunks, hunk)
+			}
+		}
+	}
+
+	return hunks
 }
 
 func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem, projectRoot string) error {

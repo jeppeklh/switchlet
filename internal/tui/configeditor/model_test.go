@@ -348,6 +348,106 @@ func TestModel_RemoveProfileUpdatesReviewSummary(t *testing.T) {
 	}
 }
 
+func TestModel_DuplicateProfileCreatesDraftCopyWithoutSaving(t *testing.T) {
+	model, configPath := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+	for index := range model.document.Profiles {
+		if model.document.Profiles[index].Name == "Frontend Only" {
+			model.document.Profiles[index].Protected = true
+		}
+	}
+	model = selectNavigationLabel(t, model, "Frontend Only")
+
+	model, _ = pressRune(t, model, 'D')
+	if model.state != editorStateProfileNameInput {
+		t.Fatalf("state = %v, want duplicate profile name input", model.state)
+	}
+	model = enterText(t, model, "Frontend Copy")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileReview {
+		t.Fatalf("state = %v, want profile review before duplicate enters draft", model.state)
+	}
+	view := model.View()
+	for _, expected := range []string{"Review duplicate profile", "Frontend Copy", "FRONTEND_API_URL"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("duplicate review missing %q\n%s", expected, view)
+		}
+	}
+	if strings.Contains(view, "http://localhost:5173") {
+		t.Fatalf("duplicate review leaked literal value\n%s", view)
+	}
+
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateOverview {
+		t.Fatalf("state = %v, want overview after duplicate draft save", model.state)
+	}
+	if strings.Contains(string(readTestFile(t, configPath)), "Frontend Copy") {
+		t.Fatalf("duplicate was written before review save\n%s", string(readTestFile(t, configPath)))
+	}
+
+	var duplicate config.Profile
+	for _, profile := range model.document.Profiles {
+		if profile.Name == "Frontend Copy" {
+			duplicate = profile
+		}
+	}
+	if duplicate.Name == "" || !duplicate.Protected {
+		t.Fatalf("duplicate profile = %#v, want protected copied profile", duplicate)
+	}
+	if len(duplicate.Values) != 1 || duplicate.Values[0].Target != "frontendApi" || duplicate.Values[0].ValueFromEnv == nil || *duplicate.Values[0].ValueFromEnv != "FRONTEND_API_URL" {
+		t.Fatalf("duplicate values = %#v, want copied frontend env value", duplicate.Values)
+	}
+}
+
+func TestModel_OverviewFilterMatchesProfileManagedValueMetadataSafely(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+
+	model.filter = "frontend/.env.local"
+	rows := model.navigationRows(model.overview())
+	if len(rows) != 2 || rows[0].Label != "Local" || rows[1].Label != "Frontend Only" {
+		t.Fatalf("metadata file filter rows = %#v, want both profiles using frontend managed value", rows)
+	}
+
+	model.filter = "FRONTEND_API_URL"
+	rows = model.navigationRows(model.overview())
+	if len(rows) != 1 || rows[0].Label != "Frontend Only" {
+		t.Fatalf("environment metadata filter rows = %#v, want Frontend Only", rows)
+	}
+
+	model.filter = "postgres://local-secret"
+	if rows = model.navigationRows(model.overview()); len(rows) != 0 {
+		t.Fatalf("raw literal filter rows = %#v, want no raw-value matches", rows)
+	}
+}
+
+func TestModel_ContextualHelpUsesOverviewActions(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 80, 24)
+
+	model, _ = pressRune(t, model, '?')
+	if !model.helpOpen {
+		t.Fatal("helpOpen = false, want contextual help open")
+	}
+	view := model.View()
+	for _, expected := range []string{"Help", "a: Add profile", "q Quit", "Esc/? Back"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("help view missing %q\n%s", expected, view)
+		}
+	}
+	if strings.Contains(view, "postgres://local-secret") {
+		t.Fatalf("help view leaked raw value\n%s", view)
+	}
+	if lineCount := len(strings.Split(strings.TrimSuffix(view, "\n"), "\n")); lineCount > 24 {
+		t.Fatalf("help view rendered %d lines, want at most 24\n%s", lineCount, view)
+	}
+
+	model, _ = pressKey(t, model, tea.KeyEsc)
+	if model.helpOpen || model.state != editorStateOverview {
+		t.Fatalf("model after Esc = %#v, want overview help closed", model)
+	}
+}
+
 func TestModel_AddManagedValueFromFilesFirstSelectionAndSave(t *testing.T) {
 	model, configPath := newTestModel(t, versionThreeConfig())
 	model = resizeModel(t, model, 120, 32)

@@ -67,6 +67,7 @@ type Model struct {
 	currentRequestID  int
 	currentDetection  currentProfileDetectionState
 	configRequested   bool
+	helpOpen          bool
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -231,27 +232,37 @@ func (model Model) filteredProfileIndices() []int {
 		return indices
 	}
 
-	exactIndices := make([]int, 0, len(model.profiles))
-	termIndices := make([]int, 0, len(model.profiles))
+	nameSubstringIndices := make([]int, 0, len(model.profiles))
+	nameTermIndices := make([]int, 0, len(model.profiles))
+	metadataIndices := make([]int, 0, len(model.profiles))
 	filterTerms := profileFilterTerms(filter)
 	for index, profile := range model.profiles {
-		matchRank, matches := profileNameFilterRank(profile.Name, filter, filterTerms)
+		matchRank, matches := profileFilterRank(profile, filter, filterTerms)
 		if !matches {
 			continue
 		}
-		if matchRank == 0 {
-			exactIndices = append(exactIndices, index)
-		} else {
-			termIndices = append(termIndices, index)
+		switch matchRank {
+		case 0:
+			nameSubstringIndices = append(nameSubstringIndices, index)
+		case 1:
+			nameTermIndices = append(nameTermIndices, index)
+		default:
+			metadataIndices = append(metadataIndices, index)
 		}
 	}
 
-	return append(exactIndices, termIndices...)
+	indices := append(nameSubstringIndices, nameTermIndices...)
+	return append(indices, metadataIndices...)
 }
 
 func (model Model) profileMatchesActiveFilter(profile app.ProfileItem) bool {
 	filter := normalizeProfileFilter(model.activeProfileFilter())
-	return filter == "" || profileNameMatchesFilter(profile.Name, filter)
+	if filter == "" {
+		return true
+	}
+
+	_, matches := profileFilterRank(profile, filter, profileFilterTerms(filter))
+	return matches
 }
 
 func normalizeProfileFilter(value string) string {
@@ -261,6 +272,17 @@ func normalizeProfileFilter(value string) string {
 func profileNameMatchesFilter(profileName string, normalizedFilter string) bool {
 	_, matches := profileNameFilterRank(profileName, normalizedFilter, profileFilterTerms(normalizedFilter))
 	return matches
+}
+
+func profileFilterRank(profile app.ProfileItem, normalizedFilter string, filterTerms []string) (int, bool) {
+	if matchRank, matches := profileNameFilterRank(profile.Name, normalizedFilter, filterTerms); matches {
+		return matchRank, true
+	}
+	if profileMetadataMatchesFilter(profile, normalizedFilter, filterTerms) {
+		return 2, true
+	}
+
+	return 0, false
 }
 
 func profileNameFilterRank(profileName string, normalizedFilter string, filterTerms []string) (int, bool) {
@@ -288,6 +310,64 @@ func searchTermsMatch(value string, terms []string) bool {
 
 	for _, term := range terms {
 		if !strings.Contains(value, term) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func profileMetadataMatchesFilter(profile app.ProfileItem, normalizedFilter string, filterTerms []string) bool {
+	fields := profileSafeMetadataFields(profile)
+	if len(fields) == 0 {
+		return false
+	}
+	for _, field := range fields {
+		if strings.Contains(field, normalizedFilter) {
+			return true
+		}
+	}
+
+	return searchTermsMatchAnyField(fields, filterTerms)
+}
+
+func profileSafeMetadataFields(profile app.ProfileItem) []string {
+	fields := make([]string, 0, 1+len(profile.Values)*6)
+	if profile.EnvironmentVariableName != "" {
+		fields = append(fields, normalizeProfileFilter(profile.EnvironmentVariableName))
+	}
+	for _, value := range profile.Values {
+		for _, field := range []string{
+			value.TargetName,
+			value.TargetFile,
+			string(value.TargetType),
+			value.SelectorName,
+			value.Selector,
+			value.EnvironmentVariableName,
+		} {
+			if field != "" {
+				fields = append(fields, normalizeProfileFilter(field))
+			}
+		}
+	}
+
+	return fields
+}
+
+func searchTermsMatchAnyField(fields []string, terms []string) bool {
+	if len(terms) == 0 {
+		return false
+	}
+
+	for _, term := range terms {
+		matchedTerm := false
+		for _, field := range fields {
+			if strings.Contains(field, term) {
+				matchedTerm = true
+				break
+			}
+		}
+		if !matchedTerm {
 			return false
 		}
 	}

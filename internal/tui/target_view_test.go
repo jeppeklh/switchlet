@@ -424,26 +424,25 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 		"Environment variable",
 		"STAGING_DATABASE_URL",
 		"Value",
-		"Server=staging;Database=App;Password=****;",
+		"****",
 		workerPath,
 		"workerQueue [yaml]",
 		"queue.endpoint",
-		"https://queue.staging.example.test",
 		servicePath,
 		"serviceEndpoint [toml]",
 		"services.api.endpoint",
-		"https://service.staging.example.test",
 		frontendPath,
 		"frontendApi [dotenv]",
 		"VITE_API_URL",
-		"https://api.staging.example.test",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want multi-target inspection detail %q", view, expected)
 		}
 	}
-	if strings.Contains(view, "super-secret") {
-		t.Fatalf("View() = %q, must not include unmasked secret", view)
+	for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.staging.example.test", "https://service.staging.example.test", "https://api.staging.example.test"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not include resolved value %q", view, forbidden)
+		}
 	}
 }
 

@@ -138,6 +138,35 @@ func (model Model) configEditorShellWithScroll(subtitle string, panels []ui.Pane
 			panels[index].FillHeight = true
 		}
 	}
+	helpActions := actions
+	if scrollPanelIndex >= 0 && scrollPanelIndex < len(panels) {
+		shell := ui.Shell{
+			Title:      "Switchlet config",
+			Subtitle:   subtitle,
+			Panels:     panels,
+			Actions:    actions,
+			Width:      model.width,
+			Height:     model.height,
+			Headerless: true,
+		}
+		if ui.PanelScrollMetricsForShell(shell, scrollPanelIndex).CanScroll() {
+			helpActions = append(helpActions, ui.PanelScrollActions()...)
+		}
+	}
+	if model.helpOpen {
+		return ui.RenderShell(ui.Shell{
+			Title:      "Switchlet config",
+			Subtitle:   "Help",
+			Panels:     []ui.Panel{{Title: "Help", Lines: ui.HelpLines(helpActions, ui.PrimaryPanelWidth(model.width, 1)), Focused: true}},
+			Actions:    ui.HelpReturnActions("Quit"),
+			Width:      model.width,
+			Height:     model.height,
+			Headerless: true,
+		})
+	}
+	if model.canOpenHelp() {
+		actions = ui.AppendHelpAction(actions)
+	}
 
 	shell := ui.Shell{
 		Title:      "Switchlet config",
@@ -446,6 +475,7 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 	if selectedRow.Kind == navigationRowProfile {
 		actions = append(actions,
 			ui.Action{Key: "e", Label: "Edit"},
+			ui.Action{Key: "D", Label: "Duplicate"},
 			ui.Action{Key: "r", Label: "Rename"},
 			ui.Action{Key: "d", Label: "Delete"},
 		)

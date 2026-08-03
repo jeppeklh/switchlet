@@ -155,6 +155,9 @@ func (model Model) profileRemoveConfirmView() string {
 }
 
 func (model Model) profileFormTitle() string {
+	if model.profileForm.mode == profileDraftDuplicate {
+		return "Duplicate profile"
+	}
 	if model.profileForm.mode == profileDraftUpdate {
 		return "Edit profile"
 	}
@@ -163,7 +166,10 @@ func (model Model) profileFormTitle() string {
 }
 
 func (model Model) profileFormPanelTitle(title string) string {
-	if model.profileForm.mode == profileDraftUpdate && model.profileForm.originalName != "" {
+	if model.profileForm.mode == profileDraftDuplicate && title == "Review profile" {
+		title = "Review duplicate profile"
+	}
+	if (model.profileForm.mode == profileDraftUpdate || model.profileForm.mode == profileDraftDuplicate) && model.profileForm.originalName != "" {
 		return title + " - " + model.profileForm.originalName
 	}
 
