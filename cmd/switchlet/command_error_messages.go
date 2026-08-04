@@ -238,6 +238,61 @@ func formatTargetErrorMessage(profileName string, targetErr editor.TargetError, 
 	return builder.String()
 }
 
+func formatPreflightErrorMessage(profileName string, preflightErr editor.PreflightError, projectRoot string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Could not verify target-file writes before applying profile %q.", profileName)
+
+	if preflightErr.TargetFile != "" {
+		fmt.Fprintf(&builder, "\n\nFile:\n%s", displayProjectPath(projectRoot, preflightErr.TargetFile))
+	}
+	if preflightErr.Err != nil {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", preflightErr.Err)
+	}
+
+	builder.WriteString("\n\nNo target files were replaced.")
+	builder.WriteString("\n\nHint:\nCheck permissions and available space for the listed target file, then retry the apply.")
+	return builder.String()
+}
+
+func formatRecoveryErrorMessage(profileName string, recoveryErr editor.RecoveryError, projectRoot string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Apply failed while writing target files for profile %q.", profileName)
+
+	if recoveryErr.FailedFile != "" {
+		fmt.Fprintf(&builder, "\n\nFailed file:\n%s", displayProjectPath(projectRoot, recoveryErr.FailedFile))
+	}
+	if len(recoveryErr.RestoredFiles) > 0 {
+		builder.WriteString("\n\nRestored files:")
+		writeDisplayFileList(&builder, projectRoot, recoveryErr.RestoredFiles)
+	}
+	if len(recoveryErr.UnrestoredFiles) > 0 {
+		builder.WriteString("\n\nFiles that may still be updated:")
+		writeDisplayFileList(&builder, projectRoot, recoveryErr.UnrestoredFiles)
+	} else if len(recoveryErr.ReplacedFiles) > 0 {
+		builder.WriteString("\n\nPrior replacements were restored.")
+	}
+	if recoveryErr.Err != nil {
+		fmt.Fprintf(&builder, "\n\nWrite failure:\n%s", recoveryErr.Err)
+	}
+	if recoveryErr.RestoreErr != nil {
+		fmt.Fprintf(&builder, "\n\nRestoration failure:\n%s", recoveryErr.RestoreErr)
+	}
+
+	if len(recoveryErr.UnrestoredFiles) > 0 {
+		builder.WriteString("\n\nHint:\nReview the listed files before running the application.")
+		return builder.String()
+	}
+
+	builder.WriteString("\n\nHint:\nThe failed apply did not leave earlier target files updated. Fix the write failure and retry.")
+	return builder.String()
+}
+
+func writeDisplayFileList(builder *strings.Builder, projectRoot string, files []string) {
+	for _, file := range files {
+		fmt.Fprintf(builder, "\n- %s", displayProjectPath(projectRoot, file))
+	}
+}
+
 func formatTargetReadErrorMessage(commandName string, targetErr editor.TargetError, projectRoot string) string {
 	target := targetErr.Target
 	var builder strings.Builder

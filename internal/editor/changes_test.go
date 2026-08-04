@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -53,6 +54,39 @@ func TestApplyTargetChanges_UpdatesMultipleJSONFiles(t *testing.T) {
 	api := frontendRoot["api"].(map[string]any)
 	if api["url"] != "https://new.example.test" {
 		t.Fatalf("api.url = %q, want updated value", api["url"])
+	}
+}
+
+func TestApplyTargetChanges_SingleFileApplySucceedsAndPreservesPermissions(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://old"}}`)
+	if err := os.Chmod(targetPath, 0o600); err != nil {
+		t.Fatalf("set target permissions: %v", err)
+	}
+	originalInfo, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat target file: %v", err)
+	}
+
+	err = ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		Value:  "postgres://new",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	root := decodeJSONRoot(t, readFile(t, targetPath))
+	database := root["database"].(map[string]any)
+	if database["url"] != "postgres://new" {
+		t.Fatalf("database.url = %q, want updated value", database["url"])
+	}
+	updatedInfo, err := os.Stat(targetPath)
+	if err != nil {
+		t.Fatalf("stat updated target file: %v", err)
+	}
+	if updatedInfo.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("file permissions = %o, want %o", updatedInfo.Mode().Perm(), originalInfo.Mode().Perm())
 	}
 }
 
@@ -500,16 +534,189 @@ func TestApplyTargetChanges_RenameFailureLeavesOriginalFileIntactAndCleansTempor
 	}
 }
 
-func TestApplyTargetChanges_WriteFailureAfterEarlierFileReportsPartialStateAndCleansTemporaryFile(t *testing.T) {
+func TestApplyTargetChanges_PreflightFailurePreventsEveryReplacementAndCleansTemporaryFiles(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	originalDatabaseContents := readFile(t, databasePath)
+	originalFrontendContents := readFile(t, frontendPath)
+
+	var writtenTargets []string
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		writtenTargets = append(writtenTargets, newPath)
+		return originalReplaceFile(oldPath, newPath)
+	}
+	originalSyncFile := syncFile
+	syncFile = func(file *os.File) error {
+		if filepath.Dir(file.Name()) == filepath.Dir(frontendPath) {
+			return errors.New("preflight sync failed")
+		}
+
+		return originalSyncFile(file)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+		syncFile = originalSyncFile
+	})
+
+	err := ApplyTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://new-secret",
+		},
+		{
+			Target: config.Target{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
+			Value:  "https://secret-value.example.test",
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want preflight failure")
+	}
+	var preflightErr PreflightError
+	if !errors.As(err, &preflightErr) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want PreflightError", err)
+	}
+	if preflightErr.TargetFile != frontendPath {
+		t.Fatalf("PreflightError.TargetFile = %q, want %q", preflightErr.TargetFile, frontendPath)
+	}
+	for _, expected := range []string{"preflight target file", "preflight sync failed"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
+		}
+	}
+	for _, forbidden := range []string{"new-secret", "secret-value"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyTargetChanges leaked secret %q in error %q", forbidden, err)
+		}
+	}
+	if len(writtenTargets) != 0 {
+		t.Fatalf("writtenTargets = %#v, want no replacements after preflight failure", writtenTargets)
+	}
+	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
+		t.Fatal("database target changed after preflight failure")
+	}
+	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
+		t.Fatal("frontend target changed after preflight failure")
+	}
+	for _, targetPath := range []string{databasePath, frontendPath} {
+		if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+			t.Fatalf("preflight temporary file for %q was not cleaned up", targetPath)
+		}
+	}
+}
+
+func TestApplyTargetChanges_WriteFailureRestoresEarlierFilesInReverseOrder(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	workerPath := writeTargetFile(t, projectRoot, "worker/config.json", `{"queue":{"url":"https://queue.old.example.test"}}`)
+	originalContents := map[string][]byte{
+		databasePath: readFile(t, databasePath),
+		frontendPath: readFile(t, frontendPath),
+		workerPath:   readFile(t, workerPath),
+	}
+	if err := os.Chmod(databasePath, 0o600); err != nil {
+		t.Fatalf("set database permissions: %v", err)
+	}
+	originalDatabaseInfo, err := os.Stat(databasePath)
+	if err != nil {
+		t.Fatalf("stat database target: %v", err)
+	}
+
+	var replacementOrder []string
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		replacementOrder = append(replacementOrder, newPath)
+		if newPath == workerPath {
+			return errors.New("worker rename failed")
+		}
+
+		return originalReplaceFile(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err = ApplyTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://new-secret",
+		},
+		{
+			Target: config.Target{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
+			Value:  "https://secret-value.example.test",
+		},
+		{
+			Target: config.Target{Name: "workerQueue", File: workerPath, Type: config.TargetTypeJSON, JSONPath: "queue.url"},
+			Value:  "https://queue.secret.example.test",
+		},
+	})
+	if err == nil {
+		t.Fatal("ApplyTargetChanges returned nil error, want third-file write failure")
+	}
+	var recoveryErr RecoveryError
+	if !errors.As(err, &recoveryErr) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want RecoveryError", err)
+	}
+	if recoveryErr.FailedFile != workerPath {
+		t.Fatalf("RecoveryError.FailedFile = %q, want %q", recoveryErr.FailedFile, workerPath)
+	}
+	wantRestored := []string{frontendPath, databasePath}
+	if !stringSlicesEqual(recoveryErr.RestoredFiles, wantRestored) {
+		t.Fatalf("RecoveryError.RestoredFiles = %#v, want %#v", recoveryErr.RestoredFiles, wantRestored)
+	}
+	if len(recoveryErr.UnrestoredFiles) != 0 {
+		t.Fatalf("RecoveryError.UnrestoredFiles = %#v, want none", recoveryErr.UnrestoredFiles)
+	}
+	wantReplacementOrder := []string{databasePath, frontendPath, workerPath, frontendPath, databasePath}
+	if !stringSlicesEqual(replacementOrder, wantReplacementOrder) {
+		t.Fatalf("replacementOrder = %#v, want reverse restoration order %#v", replacementOrder, wantReplacementOrder)
+	}
+	for _, expected := range []string{"after 2 file(s) were already replaced", "restored prior replacements", "worker rename failed"} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
+		}
+	}
+	for _, forbidden := range []string{"new-secret", "secret-value", "queue.secret"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyTargetChanges leaked secret %q in error %q", forbidden, err)
+		}
+	}
+	for targetPath, originalContent := range originalContents {
+		if !bytes.Equal(readFile(t, targetPath), originalContent) {
+			t.Fatalf("target file %q was not restored to original contents", targetPath)
+		}
+		if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+			t.Fatalf("temporary file for %q was not cleaned up", targetPath)
+		}
+	}
+	updatedDatabaseInfo, err := os.Stat(databasePath)
+	if err != nil {
+		t.Fatalf("stat restored database target: %v", err)
+	}
+	if updatedDatabaseInfo.Mode().Perm() != originalDatabaseInfo.Mode().Perm() {
+		t.Fatalf("database permissions = %o, want restored permissions %o", updatedDatabaseInfo.Mode().Perm(), originalDatabaseInfo.Mode().Perm())
+	}
+}
+
+func TestApplyTargetChanges_FailedRestorationReportsUncertainPartialState(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
 	frontendPath := writeTargetFile(t, projectRoot, "frontend/config.json", `{"api":{"url":"https://old.example.test"}}`)
 	originalFrontendContents := readFile(t, frontendPath)
 
+	databaseReplacementCount := 0
 	originalReplaceFile := replaceFile
 	replaceFile = func(oldPath string, newPath string) error {
 		if newPath == frontendPath {
-			return errors.New("rename failed")
+			return errors.New("frontend rename failed")
+		}
+		if newPath == databasePath {
+			databaseReplacementCount++
+			if databaseReplacementCount == 2 {
+				return errors.New("database restore failed")
+			}
 		}
 
 		return originalReplaceFile(oldPath, newPath)
@@ -521,7 +728,7 @@ func TestApplyTargetChanges_WriteFailureAfterEarlierFileReportsPartialStateAndCl
 	err := ApplyTargetChanges([]TargetChange{
 		{
 			Target: config.Target{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
-			Value:  "postgres://new",
+			Value:  "postgres://new-secret",
 		},
 		{
 			Target: config.Target{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
@@ -529,26 +736,53 @@ func TestApplyTargetChanges_WriteFailureAfterEarlierFileReportsPartialStateAndCl
 		},
 	})
 	if err == nil {
-		t.Fatal("ApplyTargetChanges returned nil error, want second-file write failure")
+		t.Fatal("ApplyTargetChanges returned nil error, want restoration failure")
 	}
-	for _, expected := range []string{"after 1 file(s) were already replaced", "target files may now be partially updated", "rename failed"} {
+	var recoveryErr RecoveryError
+	if !errors.As(err, &recoveryErr) {
+		t.Fatalf("ApplyTargetChanges returned error %q, want RecoveryError", err)
+	}
+	if !stringSlicesEqual(recoveryErr.UnrestoredFiles, []string{databasePath}) {
+		t.Fatalf("RecoveryError.UnrestoredFiles = %#v, want database", recoveryErr.UnrestoredFiles)
+	}
+	if recoveryErr.RestoreErr == nil || !strings.Contains(recoveryErr.RestoreErr.Error(), "database restore failed") {
+		t.Fatalf("RecoveryError.RestoreErr = %v, want restore failure", recoveryErr.RestoreErr)
+	}
+	for _, expected := range []string{"restoration failed", "target files may now be partially updated", "frontend rename failed"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
 		}
 	}
-	if strings.Contains(err.Error(), "secret-value") {
-		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
+	for _, forbidden := range []string{"new-secret", "secret-value"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("ApplyTargetChanges leaked secret %q in error %q", forbidden, err)
+		}
 	}
 
 	databaseRoot := decodeJSONRoot(t, readFile(t, databasePath))
 	database := databaseRoot["database"].(map[string]any)
-	if database["url"] != "postgres://new" {
-		t.Fatalf("database.url = %q, want first file to have been replaced before second failure", database["url"])
+	if database["url"] != "postgres://new-secret" {
+		t.Fatalf("database.url = %q, want updated value after failed restoration", database["url"])
 	}
 	if !bytes.Equal(readFile(t, frontendPath), originalFrontendContents) {
 		t.Fatal("second target file changed after its replacement failed")
 	}
-	if containsTempFile(t, filepath.Dir(frontendPath), tempFilePrefix(frontendPath)) {
-		t.Fatal("temporary file was not cleaned up after second-file rename failure")
+	for _, targetPath := range []string{databasePath, frontendPath} {
+		if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+			t.Fatalf("temporary file for %q was not cleaned up", targetPath)
+		}
 	}
+}
+
+func stringSlicesEqual(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for index := range left {
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
 }

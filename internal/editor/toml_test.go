@@ -669,10 +669,11 @@ func TestApplyTargetChanges_TOMLPlusDotenvPreparationFailureLeavesEveryFileUncha
 	}
 }
 
-func TestApplyTargetChanges_WriteFailureAfterTOMLSuccessReportsPartialStateAndCleansTemporaryFile(t *testing.T) {
+func TestApplyTargetChanges_WriteFailureAfterTOMLSuccessRestoresEarlierFileAndCleansTemporaryFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	tomlPath := writeTargetFile(t, projectRoot, "worker/config.toml", "[queue]\nendpoint = \"http://old-queue.example.test\"\n")
 	jsonPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	originalTOMLContents := readFile(t, tomlPath)
 	originalJSONContents := readFile(t, jsonPath)
 
 	originalReplaceFile := replaceFile
@@ -700,7 +701,7 @@ func TestApplyTargetChanges_WriteFailureAfterTOMLSuccessReportsPartialStateAndCl
 	if err == nil {
 		t.Fatal("ApplyTargetChanges returned nil error, want second-file write failure")
 	}
-	for _, expected := range []string{"after 1 file(s) were already replaced", "target files may now be partially updated", "rename failed"} {
+	for _, expected := range []string{"after 1 file(s) were already replaced", "restored prior replacements", "rename failed"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
 		}
@@ -709,13 +710,14 @@ func TestApplyTargetChanges_WriteFailureAfterTOMLSuccessReportsPartialStateAndCl
 		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
 	}
 
-	tomlRoot := decodeTOMLRoot(t, readFile(t, tomlPath))
-	queue := tomlRoot["queue"].(map[string]any)
-	if queue["endpoint"] != "http://new-queue.example.test" {
-		t.Fatalf("queue.endpoint = %q, want first TOML file to have been replaced before second failure", queue["endpoint"])
+	if !bytes.Equal(readFile(t, tomlPath), originalTOMLContents) {
+		t.Fatal("TOML file was not restored after second-file replacement failed")
 	}
 	if !bytes.Equal(readFile(t, jsonPath), originalJSONContents) {
 		t.Fatal("second target file changed after its replacement failed")
+	}
+	if containsTempFile(t, filepath.Dir(tomlPath), tempFilePrefix(tomlPath)) {
+		t.Fatal("temporary file was not cleaned up after TOML restoration")
 	}
 	if containsTempFile(t, filepath.Dir(jsonPath), tempFilePrefix(jsonPath)) {
 		t.Fatal("temporary file was not cleaned up after second-file rename failure")

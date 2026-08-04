@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -43,9 +44,49 @@ type PreparedChanges struct {
 }
 
 type preparedFileChange struct {
-	targetFile  string
-	contents    []byte
-	permissions fs.FileMode
+	targetFile          string
+	originalContents    []byte
+	updatedContents     []byte
+	originalPermissions fs.FileMode
+}
+
+// PreflightError describes a failed target-file write preflight before any
+// prepared target files were replaced.
+type PreflightError struct {
+	TargetFile string
+	Err        error
+}
+
+func (err PreflightError) Error() string {
+	return fmt.Sprintf("preflight target file %q: %v", err.TargetFile, err.Err)
+}
+
+func (err PreflightError) Unwrap() error {
+	return err.Err
+}
+
+// RecoveryError describes a failed multi-file apply after Switchlet attempted
+// to restore already replaced target files from same-apply captured contents.
+type RecoveryError struct {
+	FailedFile      string
+	ReplacedFiles   []string
+	RestoredFiles   []string
+	UnrestoredFiles []string
+	Err             error
+	RestoreErr      error
+}
+
+func (err RecoveryError) Error() string {
+	replacedCount := len(err.ReplacedFiles)
+	if len(err.UnrestoredFiles) == 0 {
+		return fmt.Sprintf("write prepared target file %q failed after %d file(s) were already replaced; restored prior replacements: %v", err.FailedFile, replacedCount, err.Err)
+	}
+
+	return fmt.Sprintf("write prepared target file %q failed after %d file(s) were already replaced; restoration failed for %d file(s); target files may now be partially updated: %v", err.FailedFile, replacedCount, len(err.UnrestoredFiles), err.Err)
+}
+
+func (err RecoveryError) Unwrap() error {
+	return errors.Join(err.Err, err.RestoreErr)
 }
 
 type targetChangeGroup struct {
@@ -235,20 +276,68 @@ func PrepareTargetChanges(changes []TargetChange) (PreparedChanges, error) {
 	return PreparedChanges{fileChanges: fileChanges}, nil
 }
 
-// Write persists every prepared file update. Callers should treat a write
-// failure after an earlier successful replacement as an uncertain partial state.
+// Write persists every prepared file update, restoring already replaced files
+// on a best-effort basis if a later replacement fails.
 func (preparedChanges PreparedChanges) Write() error {
+	if err := preparedChanges.preflight(); err != nil {
+		return err
+	}
+
+	replacedFiles := make([]preparedFileChange, 0, len(preparedChanges.fileChanges))
 	for index, fileChange := range preparedChanges.fileChanges {
-		if err := writeFileAtomically(fileChange.targetFile, fileChange.contents, fileChange.permissions); err != nil {
+		if err := writeFileAtomically(fileChange.targetFile, fileChange.updatedContents, fileChange.originalPermissions); err != nil {
 			if index > 0 {
-				return fmt.Errorf("write prepared target file %q after %d file(s) were already replaced; target files may now be partially updated: %w", fileChange.targetFile, index, err)
+				return restoreReplacedFiles(fileChange.targetFile, err, replacedFiles)
 			}
 
 			return fmt.Errorf("write prepared target file %q: %w", fileChange.targetFile, err)
 		}
+
+		replacedFiles = append(replacedFiles, fileChange)
 	}
 
 	return nil
+}
+
+func (preparedChanges PreparedChanges) preflight() error {
+	for _, fileChange := range preparedChanges.fileChanges {
+		if err := preflightAtomicWrite(fileChange.targetFile, fileChange.originalPermissions); err != nil {
+			return PreflightError{TargetFile: fileChange.targetFile, Err: err}
+		}
+	}
+
+	return nil
+}
+
+func restoreReplacedFiles(failedFile string, writeErr error, replacedFiles []preparedFileChange) error {
+	restoredFiles := make([]string, 0, len(replacedFiles))
+	unrestoredFiles := make([]string, 0)
+	restoreErrs := make([]error, 0)
+
+	for index := len(replacedFiles) - 1; index >= 0; index-- {
+		fileChange := replacedFiles[index]
+		if err := writeFileAtomically(fileChange.targetFile, fileChange.originalContents, fileChange.originalPermissions); err != nil {
+			unrestoredFiles = append(unrestoredFiles, fileChange.targetFile)
+			restoreErrs = append(restoreErrs, fmt.Errorf("restore target file %q: %w", fileChange.targetFile, err))
+			continue
+		}
+
+		restoredFiles = append(restoredFiles, fileChange.targetFile)
+	}
+
+	replacedFilePaths := make([]string, 0, len(replacedFiles))
+	for _, fileChange := range replacedFiles {
+		replacedFilePaths = append(replacedFilePaths, fileChange.targetFile)
+	}
+
+	return RecoveryError{
+		FailedFile:      failedFile,
+		ReplacedFiles:   replacedFilePaths,
+		RestoredFiles:   restoredFiles,
+		UnrestoredFiles: unrestoredFiles,
+		Err:             writeErr,
+		RestoreErr:      errors.Join(restoreErrs...),
+	}
 }
 
 func groupTargetChanges(changes []TargetChange) ([]targetChangeGroup, error) {
@@ -411,9 +500,10 @@ func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error
 	}
 
 	return preparedFileChange{
-		targetFile:  group.targetFile,
-		contents:    updatedContents,
-		permissions: targetInfo.Mode().Perm(),
+		targetFile:          group.targetFile,
+		originalContents:    append([]byte(nil), contents...),
+		updatedContents:     updatedContents,
+		originalPermissions: targetInfo.Mode().Perm(),
 	}, nil
 }
 

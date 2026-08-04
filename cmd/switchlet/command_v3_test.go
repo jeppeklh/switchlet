@@ -3,8 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/editor"
 )
 
 func TestRunCommand_ListVersionOneJSONReportsCompatibilityTarget(t *testing.T) {
@@ -576,6 +580,80 @@ profiles:
 	}
 	if strings.Contains(result.stderr, "secret-value") {
 		t.Fatalf("stderr %q must not contain resolved replacement value", result.stderr)
+	}
+}
+
+func TestApplyCommandErrorFormatsRecoveryFailureWithValueSafePaths(t *testing.T) {
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Staging
+    values:
+      - target: database
+        value: postgres://database-secret
+      - target: frontendApi
+        value: https://api.secret.example.test
+`)+"\n")
+
+	applyErr := editor.RecoveryError{
+		FailedFile:    frontendPath,
+		ReplacedFiles: []string{databasePath},
+		RestoredFiles: []string{databasePath},
+		Err:           errors.New("replace failed"),
+	}
+	commandErr := applyCommandError(commandOutputOptions{NoColor: true}, false, app.NewWithTargets(nil, nil), "Staging", applyErr, projectRoot)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	if err := writeCommandError(commandErr, &stdout, &stderr); err != nil {
+		t.Fatalf("writeCommandError returned error: %v", err)
+	}
+	if stdout.String() != "" {
+		t.Fatalf("stdout = %q, want empty", stdout.String())
+	}
+	for _, expected := range []string{
+		`Apply failed while writing target files for profile "Staging".`,
+		"Failed file:\nfrontend/.env.local",
+		"Restored files:\n- backend/appsettings.Development.json",
+		"Prior replacements were restored.",
+		"Write failure:\nreplace failed",
+		"Fix the write failure and retry.",
+	} {
+		if !strings.Contains(stderr.String(), expected) {
+			t.Fatalf("stderr %q does not contain %q", stderr.String(), expected)
+		}
+	}
+	for _, forbidden := range []string{databasePath, frontendPath, "database-secret", "api.secret"} {
+		if strings.Contains(stderr.String(), forbidden) {
+			t.Fatalf("stderr %q must not contain %q", stderr.String(), forbidden)
+		}
+	}
+
+	jsonErr := applyCommandError(commandOutputOptions{NoColor: true}, true, app.NewWithTargets(nil, nil), "Staging", applyErr, projectRoot)
+	stdout.Reset()
+	stderr.Reset()
+	if err := writeCommandError(jsonErr, &stdout, &stderr); err != nil {
+		t.Fatalf("writeCommandError returned JSON error: %v", err)
+	}
+	if stderr.String() != "" {
+		t.Fatalf("stderr = %q, want empty for JSON error", stderr.String())
+	}
+
+	var payload struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &payload); err != nil {
+		t.Fatalf("unmarshal recovery JSON error: %v\noutput: %q", err, stdout.String())
+	}
+	if payload.Error.Kind != "runtime" {
+		t.Fatalf("error.kind = %q, want runtime", payload.Error.Kind)
+	}
+	for _, forbidden := range []string{"database-secret", "api.secret"} {
+		if strings.Contains(payload.Error.Message, forbidden) {
+			t.Fatalf("JSON error.message %q must not contain %q", payload.Error.Message, forbidden)
+		}
 	}
 }
 

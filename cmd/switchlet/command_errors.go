@@ -88,6 +88,16 @@ func applyCommandError(outputOptions commandOutputOptions, jsonOutput bool, appl
 		}
 	}
 
+	var recoveryErr editor.RecoveryError
+	if errors.As(err, &recoveryErr) {
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatRecoveryErrorMessage(profileName, recoveryErr, textProjectRoot(jsonOutput, projectRoot)))
+	}
+
+	var preflightErr editor.PreflightError
+	if errors.As(err, &preflightErr) {
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatPreflightErrorMessage(profileName, preflightErr, textProjectRoot(jsonOutput, projectRoot)))
+	}
+
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
 		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatTargetErrorMessage(profileName, targetErr, textProjectRoot(jsonOutput, projectRoot)))

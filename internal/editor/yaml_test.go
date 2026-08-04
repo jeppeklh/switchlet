@@ -562,10 +562,11 @@ func TestApplyTargetChanges_YAMLPlusDotenvPreparationFailureLeavesEveryFileUncha
 	}
 }
 
-func TestApplyTargetChanges_WriteFailureAfterYAMLSuccessReportsPartialStateAndCleansTemporaryFile(t *testing.T) {
+func TestApplyTargetChanges_WriteFailureAfterYAMLSuccessRestoresEarlierFileAndCleansTemporaryFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	yamlPath := writeTargetFile(t, projectRoot, "worker/config.yaml", "queue:\n  endpoint: http://old-queue.example.test\n")
 	jsonPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	originalYAMLContents := readFile(t, yamlPath)
 	originalJSONContents := readFile(t, jsonPath)
 
 	originalReplaceFile := replaceFile
@@ -593,7 +594,7 @@ func TestApplyTargetChanges_WriteFailureAfterYAMLSuccessReportsPartialStateAndCl
 	if err == nil {
 		t.Fatal("ApplyTargetChanges returned nil error, want second-file write failure")
 	}
-	for _, expected := range []string{"after 1 file(s) were already replaced", "target files may now be partially updated", "rename failed"} {
+	for _, expected := range []string{"after 1 file(s) were already replaced", "restored prior replacements", "rename failed"} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Fatalf("ApplyTargetChanges returned error %q, want substring %q", err, expected)
 		}
@@ -602,13 +603,14 @@ func TestApplyTargetChanges_WriteFailureAfterYAMLSuccessReportsPartialStateAndCl
 		t.Fatalf("ApplyTargetChanges leaked secret in error %q", err)
 	}
 
-	yamlRoot := decodeYAMLRoot(t, readFile(t, yamlPath))
-	queue := yamlRoot["queue"].(map[string]any)
-	if queue["endpoint"] != "http://new-queue.example.test" {
-		t.Fatalf("queue.endpoint = %q, want first YAML file to have been replaced before second failure", queue["endpoint"])
+	if !bytes.Equal(readFile(t, yamlPath), originalYAMLContents) {
+		t.Fatal("YAML file was not restored after second-file replacement failed")
 	}
 	if !bytes.Equal(readFile(t, jsonPath), originalJSONContents) {
 		t.Fatal("second target file changed after its replacement failed")
+	}
+	if containsTempFile(t, filepath.Dir(yamlPath), tempFilePrefix(yamlPath)) {
+		t.Fatal("temporary file was not cleaned up after YAML restoration")
 	}
 	if containsTempFile(t, filepath.Dir(jsonPath), tempFilePrefix(jsonPath)) {
 		t.Fatal("temporary file was not cleaned up after second-file rename failure")

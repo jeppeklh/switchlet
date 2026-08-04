@@ -112,6 +112,14 @@ switchlet apply Local --dry-run --json
 Protected profiles are never applied silently. Non-interactive apply requires
 `--allow-protected` for protected profiles.
 
+For profiles that update multiple target files, Switchlet prepares every target
+file before replacing any file. It then runs a write preflight for each affected
+file. If a later replacement fails after earlier files were replaced, Switchlet
+attempts best-effort restoration of those earlier files from the original
+same-apply contents and reports whether restoration succeeded or files may still
+be partially updated. Switchlet does not create persistent backups, undo history,
+or a restore command.
+
 Use `--` before a positional profile name that starts with `-`. For `apply`, put
 flags before `--`, for example `switchlet apply --dry-run -- -Local`.
 
