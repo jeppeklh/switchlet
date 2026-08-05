@@ -211,6 +211,10 @@ func (application Application) compareProfileWithCurrentValues(configuredProfile
 }
 
 func (application Application) readCurrentTargetValues(targets []config.Target) (map[string]string, error) {
+	if application.readTargetValues != nil {
+		return application.readTargetValues(targets)
+	}
+
 	return editor.ReadTargetValues(targets)
 }
 

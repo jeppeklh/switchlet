@@ -287,6 +287,32 @@ func formatRecoveryErrorMessage(profileName string, recoveryErr editor.RecoveryE
 	return builder.String()
 }
 
+func formatPostApplyVerificationErrorMessage(profileName string, verificationErr app.PostApplyVerificationError, projectRoot string) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Writes completed for profile %q, but Switchlet could not confirm the final managed state.", profileName)
+
+	if len(verificationErr.Failures) > 0 {
+		builder.WriteString("\n\nVerification failures:")
+		for _, failure := range verificationErr.Failures {
+			fmt.Fprintf(&builder, "\n- %s%s", targetNameLabel(failure.TargetName), targetTypeBadge(string(failure.TargetType)))
+			if failure.TargetFile != "" {
+				fmt.Fprintf(&builder, "\n  file: %s", displayProjectPath(projectRoot, failure.TargetFile))
+			}
+			if failure.Selector != "" {
+				fmt.Fprintf(&builder, "\n  %s: %s", selectorFieldName(failure.SelectorName), failure.Selector)
+			}
+			if failure.Reason != "" {
+				fmt.Fprintf(&builder, "\n  reason: %s", failure.Reason)
+			}
+		}
+	} else if verificationErr.Err != nil {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", verificationErr.Err)
+	}
+
+	fmt.Fprintf(&builder, "\n\nHint:\nRun `switchlet status` or `%s` to review current managed values.", profileCommandSuggestion("switchlet diff", profileName))
+	return builder.String()
+}
+
 func writeDisplayFileList(builder *strings.Builder, projectRoot string, files []string) {
 	for _, file := range files {
 		fmt.Fprintf(builder, "\n- %s", displayProjectPath(projectRoot, file))

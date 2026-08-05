@@ -98,6 +98,11 @@ func applyCommandError(outputOptions commandOutputOptions, jsonOutput bool, appl
 		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatPreflightErrorMessage(profileName, preflightErr, textProjectRoot(jsonOutput, projectRoot)))
 	}
 
+	var verificationErr app.PostApplyVerificationError
+	if errors.As(err, &verificationErr) {
+		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatPostApplyVerificationErrorMessage(profileName, verificationErr, textProjectRoot(jsonOutput, projectRoot)))
+	}
+
 	var targetErr editor.TargetError
 	if errors.As(err, &targetErr) {
 		return runtimeCommandErrorWithMessage(outputOptions, jsonOutput, err, formatTargetErrorMessage(profileName, targetErr, textProjectRoot(jsonOutput, projectRoot)))
@@ -130,6 +135,8 @@ func runtimeErrorKind(err error) string {
 		return "profile_unavailable"
 	case errors.Is(err, app.ErrProtectedProfileRequiresApproval):
 		return "protected_profile"
+	case errors.Is(err, app.ErrPostApplyVerificationFailed):
+		return "post_apply_verification_failed"
 	case errors.Is(err, config.ErrConfigNotFound):
 		return "config_not_found"
 	default:

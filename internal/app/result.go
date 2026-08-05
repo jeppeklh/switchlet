@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
@@ -15,6 +16,9 @@ var (
 	// ErrProtectedProfileRequiresApproval indicates that a protected profile was
 	// requested without explicit non-interactive approval.
 	ErrProtectedProfileRequiresApproval = errors.New("protected profile requires explicit opt-in")
+	// ErrPostApplyVerificationFailed indicates that target writes completed, but
+	// Switchlet could not confirm the selected profile state afterward.
+	ErrPostApplyVerificationFailed = errors.New("post-apply verification failed")
 )
 
 // ApplyOptions controls how a profile application request behaves.
@@ -71,6 +75,54 @@ type TargetDescriptor struct {
 	TargetType   config.TargetType
 	SelectorName string
 	Selector     string
+}
+
+// PostApplyVerificationError describes failed verification after target writes
+// completed. It carries only target context and value-safe reasons.
+type PostApplyVerificationError struct {
+	ProfileName string
+	Failures    []PostApplyVerificationFailure
+	Err         error
+}
+
+func (err PostApplyVerificationError) Error() string {
+	base := fmt.Sprintf("post-apply verification failed for profile %q", err.ProfileName)
+	if len(err.Failures) == 0 {
+		if err.Err != nil {
+			return fmt.Sprintf("%s: %v", base, err.Err)
+		}
+
+		return base
+	}
+	if len(err.Failures) > 1 {
+		return fmt.Sprintf("%s: %d target(s) failed verification", base, len(err.Failures))
+	}
+
+	failure := err.Failures[0]
+	reason := failure.Reason
+	if reason == "" {
+		reason = "verification failed"
+	}
+	return fmt.Sprintf("%s: target %q: %s", base, targetNameForError(failure.TargetName), reason)
+}
+
+func (err PostApplyVerificationError) Unwrap() error {
+	return errors.Join(ErrPostApplyVerificationFailed, err.Err)
+}
+
+// PostApplyVerificationFailure identifies one target that could not be verified
+// without exposing current or expected managed values.
+type PostApplyVerificationFailure struct {
+	TargetDescriptor
+	Reason string
+}
+
+func targetNameForError(targetName string) string {
+	if targetName == "" {
+		return "target"
+	}
+
+	return targetName
 }
 
 // ValueVisibility identifies whether app-owned preview data should include

@@ -11,8 +11,9 @@ import (
 
 // Application coordinates profile resolution and target-file editing.
 type Application struct {
-	targets  []config.Target
-	profiles []config.Profile
+	targets          []config.Target
+	profiles         []config.Profile
+	readTargetValues func([]config.Target) (map[string]string, error)
 }
 
 const defaultTargetName = "default"
@@ -28,8 +29,9 @@ func NewWithTargets(targets []config.Target, profiles []config.Profile) Applicat
 	configuredProfiles := copyProfiles(profiles)
 
 	return Application{
-		targets:  configuredTargets,
-		profiles: configuredProfiles,
+		targets:          configuredTargets,
+		profiles:         configuredProfiles,
+		readTargetValues: editor.ReadTargetValues,
 	}
 }
 
@@ -163,6 +165,9 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 	if err := editor.ApplyTargetChanges(targetChanges); err != nil {
 		return Result{}, fmt.Errorf("apply profile %q: %w", configuredProfile.Name, err)
 	}
+	if err := application.verifyAppliedTargetChanges(resolvedProfile.Name, targetChanges, plannedChanges); err != nil {
+		return Result{}, fmt.Errorf("verify applied profile %q: %w", configuredProfile.Name, err)
+	}
 
 	result := Result{
 		ProfileName: resolvedProfile.Name,
@@ -236,6 +241,72 @@ func (application Application) targetChangesForResolvedProfile(resolvedProfile p
 	}
 
 	return targetChanges, plannedChanges, nil
+}
+
+func (application Application) verifyAppliedTargetChanges(profileName string, targetChanges []editor.TargetChange, plannedChanges []PlannedChange) error {
+	currentValues, err := application.readCurrentTargetValues(targetsFromChanges(targetChanges))
+	if err != nil {
+		return PostApplyVerificationError{
+			ProfileName: profileName,
+			Failures:    verificationReadFailures(err),
+			Err:         err,
+		}
+	}
+
+	failures := make([]PostApplyVerificationFailure, 0)
+	for index, targetChange := range targetChanges {
+		currentValue, ok := currentValues[targetChange.Target.Name]
+		if !ok {
+			failures = append(failures, PostApplyVerificationFailure{
+				TargetDescriptor: plannedChanges[index],
+				Reason:           fmt.Sprintf("current value for target %q was not read", targetChange.Target.Name),
+			})
+			continue
+		}
+		if currentValue == targetChange.Value {
+			continue
+		}
+
+		failures = append(failures, PostApplyVerificationFailure{
+			TargetDescriptor: plannedChanges[index],
+			Reason:           "current value does not match selected profile value",
+		})
+	}
+	if len(failures) == 0 {
+		return nil
+	}
+
+	return PostApplyVerificationError{ProfileName: profileName, Failures: failures}
+}
+
+func targetsFromChanges(changes []editor.TargetChange) []config.Target {
+	targets := make([]config.Target, 0, len(changes))
+	for _, change := range changes {
+		targets = append(targets, change.Target)
+	}
+
+	return targets
+}
+
+func verificationReadFailures(err error) []PostApplyVerificationFailure {
+	if targetFailure, ok := TargetFailureFromError(err); ok {
+		return []PostApplyVerificationFailure{{
+			TargetDescriptor: TargetDescriptor{
+				TargetName:   targetFailure.TargetName,
+				TargetFile:   targetFailure.TargetFile,
+				TargetType:   targetFailure.TargetType,
+				SelectorName: targetFailure.SelectorName,
+				Selector:     targetFailure.Selector,
+			},
+			Reason: targetFailure.Reason,
+		}}
+	}
+
+	reason := "post-apply verification read failed"
+	if err != nil {
+		reason = err.Error()
+	}
+	return []PostApplyVerificationFailure{{Reason: reason}}
 }
 
 func (application Application) profileItem(configuredProfile config.Profile, targetsByName map[string]config.Target) ProfileItem {

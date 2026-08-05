@@ -495,6 +495,35 @@ func (model Model) targetFailureError(profileName string, failure app.TargetFail
 	}
 }
 
+func (model Model) postApplyVerificationError(profileName string, verificationErr app.PostApplyVerificationError, cause error) RecoverableError {
+	context := []string{RenderKeyValue("Profile", profileName)}
+	for _, failure := range verificationErr.Failures {
+		context = append(context, "", RenderKeyValue("Managed value", targetNameLabel(failure.TargetName)+targetTypeBadge(string(failure.TargetType))))
+		if failure.TargetFile != "" {
+			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(failure.TargetFile, "File")))
+		}
+		if failure.Selector != "" {
+			context = append(context, RenderKeyValue("Selector", fitValueForLabel(failure.Selector, secondaryPanelContentWidth(model.width), "Selector")))
+		}
+		if failure.Reason != "" {
+			context = append(context, RenderKeyValue("Reason", failure.Reason))
+		}
+	}
+
+	reason := "One or more managed targets did not match the selected profile after writing."
+	if len(verificationErr.Failures) == 1 && verificationErr.Failures[0].Reason != "" {
+		reason = verificationErr.Failures[0].Reason
+	}
+
+	return RecoverableError{
+		Problem:  "Writes completed, but Switchlet could not confirm the final managed state.",
+		Context:  context,
+		Reason:   reason,
+		Recovery: "Return to the profile list, then use status or diff to review current managed values. Press any key to return.",
+		Cause:    cause,
+	}
+}
+
 func (model Model) comparisonFailureError(kind comparisonRequestKind, profileName string, cause error) RecoverableError {
 	problem := "Could not compare current status."
 	context := []string{RenderKeyValue("Action", "Current status")}

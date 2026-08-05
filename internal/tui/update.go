@@ -822,6 +822,11 @@ func (model Model) isActiveComparisonRequest(kind comparisonRequestKind, request
 }
 
 func (model Model) applyFailureError(profileName string, err error) RecoverableError {
+	var verificationErr app.PostApplyVerificationError
+	if errors.As(err, &verificationErr) {
+		return model.postApplyVerificationError(profileName, verificationErr, err)
+	}
+
 	if targetFailure, ok := app.TargetFailureFromError(err); ok {
 		return model.targetFailureError(profileName, targetFailure, err)
 	}
