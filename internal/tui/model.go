@@ -42,6 +42,13 @@ const (
 	currentProfileDetectionUnavailable
 )
 
+const (
+	profileFilterRankNameSubstring = iota
+	profileFilterRankNameTerm
+	profileFilterRankNameFuzzy
+	profileFilterRankMetadata
+)
+
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
 	application       app.Application
@@ -234,6 +241,7 @@ func (model Model) filteredProfileIndices() []int {
 
 	nameSubstringIndices := make([]int, 0, len(model.profiles))
 	nameTermIndices := make([]int, 0, len(model.profiles))
+	nameFuzzyIndices := make([]int, 0, len(model.profiles))
 	metadataIndices := make([]int, 0, len(model.profiles))
 	filterTerms := profileFilterTerms(filter)
 	for index, profile := range model.profiles {
@@ -242,16 +250,19 @@ func (model Model) filteredProfileIndices() []int {
 			continue
 		}
 		switch matchRank {
-		case 0:
+		case profileFilterRankNameSubstring:
 			nameSubstringIndices = append(nameSubstringIndices, index)
-		case 1:
+		case profileFilterRankNameTerm:
 			nameTermIndices = append(nameTermIndices, index)
+		case profileFilterRankNameFuzzy:
+			nameFuzzyIndices = append(nameFuzzyIndices, index)
 		default:
 			metadataIndices = append(metadataIndices, index)
 		}
 	}
 
 	indices := append(nameSubstringIndices, nameTermIndices...)
+	indices = append(indices, nameFuzzyIndices...)
 	return append(indices, metadataIndices...)
 }
 
@@ -279,7 +290,7 @@ func profileFilterRank(profile app.ProfileItem, normalizedFilter string, filterT
 		return matchRank, true
 	}
 	if profileMetadataMatchesFilter(profile, normalizedFilter, filterTerms) {
-		return 2, true
+		return profileFilterRankMetadata, true
 	}
 
 	return 0, false
@@ -288,10 +299,13 @@ func profileFilterRank(profile app.ProfileItem, normalizedFilter string, filterT
 func profileNameFilterRank(profileName string, normalizedFilter string, filterTerms []string) (int, bool) {
 	normalizedName := strings.ToLower(profileName)
 	if strings.Contains(normalizedName, normalizedFilter) {
-		return 0, true
+		return profileFilterRankNameSubstring, true
 	}
 	if searchTermsMatch(normalizedName, filterTerms) {
-		return 1, true
+		return profileFilterRankNameTerm, true
+	}
+	if profileNameFuzzyMatches(normalizedName, normalizedFilter, filterTerms) {
+		return profileFilterRankNameFuzzy, true
 	}
 
 	return 0, false
@@ -315,6 +329,119 @@ func searchTermsMatch(value string, terms []string) bool {
 	}
 
 	return true
+}
+
+func profileNameFuzzyMatches(normalizedName string, normalizedFilter string, filterTerms []string) bool {
+	if fuzzyCandidateMatches(normalizedName, normalizedFilter) {
+		return true
+	}
+
+	nameTerms := profileFilterTerms(normalizedName)
+	if len(nameTerms) == 0 {
+		return false
+	}
+	if len(filterTerms) == 1 {
+		for _, nameTerm := range nameTerms {
+			if fuzzyCandidateMatches(nameTerm, filterTerms[0]) {
+				return true
+			}
+		}
+
+		return false
+	}
+	if len(filterTerms) == 0 {
+		return false
+	}
+	for _, filterTerm := range filterTerms {
+		matched := false
+		for _, nameTerm := range nameTerms {
+			if strings.Contains(nameTerm, filterTerm) || fuzzyCandidateMatches(nameTerm, filterTerm) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			return false
+		}
+	}
+
+	return true
+}
+
+func fuzzyCandidateMatches(candidate string, filter string) bool {
+	if len([]rune(filter)) < 3 {
+		return false
+	}
+	maxDistance := maxProfileFuzzyDistance(filter)
+	return boundedEditDistance(candidate, filter, maxDistance) <= maxDistance
+}
+
+func maxProfileFuzzyDistance(filter string) int {
+	if len([]rune(filter)) < 6 {
+		return 1
+	}
+
+	return 2
+}
+
+func boundedEditDistance(left string, right string, maxDistance int) int {
+	leftRunes := []rune(left)
+	rightRunes := []rune(right)
+	if absInt(len(leftRunes)-len(rightRunes)) > maxDistance {
+		return maxDistance + 1
+	}
+
+	previous := make([]int, len(rightRunes)+1)
+	current := make([]int, len(rightRunes)+1)
+	for column := range previous {
+		previous[column] = column
+	}
+
+	for row := 1; row <= len(leftRunes); row++ {
+		current[0] = row
+		rowMinimum := current[0]
+		for column := 1; column <= len(rightRunes); column++ {
+			cost := 0
+			if leftRunes[row-1] != rightRunes[column-1] {
+				cost = 1
+			}
+
+			current[column] = minInt(
+				previous[column]+1,
+				current[column-1]+1,
+				previous[column-1]+cost,
+			)
+			if current[column] < rowMinimum {
+				rowMinimum = current[column]
+			}
+		}
+		if rowMinimum > maxDistance {
+			return maxDistance + 1
+		}
+
+		previous, current = current, previous
+	}
+
+	return previous[len(rightRunes)]
+}
+
+func minInt(values ...int) int {
+	minimum := values[0]
+	for _, value := range values[1:] {
+		if value < minimum {
+			minimum = value
+		}
+	}
+
+	return minimum
+}
+
+func absInt(value int) int {
+	if value < 0 {
+		return -value
+	}
+
+	return value
 }
 
 func profileMetadataMatchesFilter(profile app.ProfileItem, normalizedFilter string, filterTerms []string) bool {

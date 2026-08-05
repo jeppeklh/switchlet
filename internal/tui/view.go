@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	minimumTerminalWidth  = 80
-	minimumTerminalHeight = 24
+	minimumTerminalWidth  = 60
+	minimumTerminalHeight = 20
 )
 
 // View renders the current terminal state.
@@ -115,6 +115,7 @@ func (model Model) listActions() []Action {
 		actions := make([]Action, 0, 4)
 		if len(model.profiles) > 0 {
 			actions = append(actions, Action{Key: "/", Label: "Search", Priority: ActionPrioritySecondary})
+			actions = append(actions, Action{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary})
 		}
 		if model.profileFilter != "" {
 			actions = append(actions, Action{Key: "Esc", Label: "Clear filter", Priority: ActionPriorityPrimary})
@@ -148,6 +149,7 @@ func (model Model) listActions() []Action {
 		Action{Key: "s", Label: "Status", Priority: ActionPrioritySecondary},
 		Action{Key: "d", Label: "Diff", Priority: ActionPrioritySecondary},
 		model.valueRevealAction(),
+		Action{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 

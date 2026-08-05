@@ -17,22 +17,45 @@ func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
 	))
 
-	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 59, Height: 19})
 	model = updatedModel.(Model)
 
 	view := model.View()
 	if !strings.Contains(view, "Terminal too small.") {
 		t.Fatalf("View() = %q, want too-small message", view)
 	}
-	if !strings.Contains(view, "Minimum size: 80x24") {
+	if !strings.Contains(view, "Minimum size: 60x20") {
 		t.Fatalf("View() = %q, want minimum size guidance", view)
 	}
-	if !strings.Contains(view, "Current size: 79x23") {
+	if !strings.Contains(view, "Current size: 59x19") {
 		t.Fatalf("View() = %q, want current size guidance", view)
 	}
 	if !strings.Contains(view, "q Quit") {
 		t.Fatalf("View() = %q, want quit guidance", view)
 	}
+}
+
+func TestView_MainPickerUsesCompactNarrowTerminalLayout(t *testing.T) {
+	model := New(app.New(
+		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
+	))
+
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 60, Height: 20})
+	model = updatedModel.(Model)
+
+	view := model.View()
+	if strings.Contains(view, "Terminal too small") {
+		t.Fatalf("View() = %q, want compact main picker instead of too-small state", view)
+	}
+	for _, expected := range []string{"* Profiles", "> Local", "Profile contents", "q Quit"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want compact main picker content %q", view, expected)
+		}
+	}
+	assertVisibleWidth(t, view, 60)
+	assertVisibleHeight(t, view, 20)
+	assertMainCommandBarAtBottom(t, view, "q Quit")
 }
 
 func TestView_TooSmallTerminalMessageStaysWithinReportedWidth(t *testing.T) {
@@ -61,6 +84,7 @@ func TestView_CommandBarUsesReportedTerminalHeight(t *testing.T) {
 		{width: 200, height: 60},
 		{width: 120, height: 40},
 		{width: 80, height: 24},
+		{width: 60, height: 20},
 	} {
 		model := New(app.New(
 			config.Target{},
@@ -118,7 +142,7 @@ func TestUpdate_DoesNotApplyHiddenActionsWhenTerminalIsTooSmall(t *testing.T) {
 		[]config.Profile{{Name: "Local", Value: stringPointer("https://new.example.test")}},
 	))
 
-	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 59, Height: 19})
 	model = updatedModel.(Model)
 
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
@@ -149,7 +173,7 @@ func TestUpdate_TooSmallTerminalStillAllowsDocumentedQuitAndCancelKeys(t *testin
 		t.Fatalf("state = %d, want inspectState", model.state)
 	}
 
-	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 59, Height: 19})
 	model = updatedModel.(Model)
 	if !strings.Contains(model.View(), "q Quit") {
 		t.Fatalf("View() = %q, want q quit command-bar copy", model.View())
@@ -167,7 +191,7 @@ func TestUpdate_TooSmallTerminalStillAllowsDocumentedQuitAndCancelKeys(t *testin
 	))
 	updatedModel, _ = model.Update(runeKey('i'))
 	model = updatedModel.(Model)
-	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 79, Height: 23})
+	updatedModel, _ = model.Update(tea.WindowSizeMsg{Width: 59, Height: 19})
 	model = updatedModel.(Model)
 
 	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEsc})

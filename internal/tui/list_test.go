@@ -354,12 +354,123 @@ func TestView_ListActionsExposeConfigWithoutReplacingApplyOrQuit(t *testing.T) {
 		config.Target{},
 		[]config.Profile{{Name: "Local", Value: stringPointer("Server=localhost;Database=App;")}},
 	))
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 200, Height: 32})
+	model = updatedModel.(Model)
 
 	view := model.View()
-	for _, expected := range []string{"Enter Apply+Exit", "Space Apply", "c Config", "q Quit"} {
+	for _, expected := range []string{"Enter Apply+Exit", "Space Apply", "r Refresh", "c Config", "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want command bar entry %q", view, expected)
 		}
+	}
+}
+
+func TestUpdate_ProfileListRefreshReevaluatesAvailabilityAndCurrentState(t *testing.T) {
+	projectRoot := t.TempDir()
+	environmentVariableName := "SWITCHLET_TUI_REFRESH_STAGING_URL"
+	t.Setenv(environmentVariableName, "")
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"local"}}`)
+	originalMode := fileMode(t, targetPath)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("local")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer(environmentVariableName)}}},
+		},
+	))
+	startupCommand := model.Init()
+	model = acceptProfileSearch(t, model, "stag")
+	if selectedProfileName, ok := model.SelectedProfileName(); !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() before refresh = %q, %t, want Staging", selectedProfileName, ok)
+	}
+	if selectedProfile, ok := model.selectedProfile(); !ok || selectedProfile.Available {
+		t.Fatalf("selected profile before refresh = %#v, %t, want unavailable Staging", selectedProfile, ok)
+	}
+
+	t.Setenv(environmentVariableName, "staging")
+	writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"staging"}}`)
+	updatedModel, refreshCommand := model.Update(runeKey('r'))
+	model = updatedModel.(Model)
+	if refreshCommand == nil {
+		t.Fatal("refreshCommand is nil, want current-profile detection command")
+	}
+	if model.state != listState || model.profileFilter != "stag" || model.currentDetection != currentProfileDetectionChecking {
+		t.Fatalf("model after refresh key = %#v, want list refresh with filter preserved and checking feedback", model)
+	}
+	if selectedProfileName, ok := model.SelectedProfileName(); !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() after refresh = %q, %t, want Staging", selectedProfileName, ok)
+	}
+	refreshingView := model.View()
+	if !strings.Contains(refreshingView, "> Staging") || strings.Contains(refreshingView, "x Staging") {
+		t.Fatalf("View() = %q, want refreshed availability for Staging", refreshingView)
+	}
+	if !strings.Contains(refreshingView, "Checking current profile...") {
+		t.Fatalf("View() = %q, want immediate current-profile checking feedback", refreshingView)
+	}
+
+	updatedModel, staleCommand := model.Update(startupCommand())
+	model = updatedModel.(Model)
+	if staleCommand != nil {
+		t.Fatal("staleCommand is not nil, want stale startup current-profile detection ignored")
+	}
+	if model.profileIsCurrent("Local") || model.profileIsCurrent("Staging") {
+		t.Fatalf("model after stale startup result = %#v, want no stale current badges", model)
+	}
+
+	updatedModel, command := model.Update(refreshCommand())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after refreshed current-profile detection")
+	}
+	if model.currentDetection != currentProfileDetectionReady || !model.profileIsCurrent("Staging") || model.profileIsCurrent("Local") {
+		t.Fatalf("model after refresh result = %#v, want Staging current", model)
+	}
+	if !strings.Contains(model.View(), "> Staging [current]") {
+		t.Fatalf("View() = %q, want refreshed current badge on Staging", model.View())
+	}
+	if mode := fileMode(t, targetPath); mode != originalMode {
+		t.Fatalf("target mode = %v, want refresh to preserve mode %v", mode, originalMode)
+	}
+	assertNoTargetTempFile(t, targetPath)
+}
+
+func TestUpdate_ProfileListRefreshFailureIsValueSafeAndNonBlocking(t *testing.T) {
+	projectRoot := t.TempDir()
+	missingTargetPath := filepath.Join(projectRoot, "missing.json")
+	secretValue := "postgres://refresh-secret"
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: missingTargetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(secretValue)}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}},
+		},
+	))
+
+	updatedModel, refreshCommand := model.Update(runeKey('r'))
+	model = updatedModel.(Model)
+	if refreshCommand == nil || model.currentDetection != currentProfileDetectionChecking {
+		t.Fatalf("model after refresh key = %#v, command %v, want checking refresh command", model, refreshCommand)
+	}
+	updatedModel, command := model.Update(refreshCommand())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after refresh failure")
+	}
+	if model.state != listState || model.currentDetection != currentProfileDetectionUnavailable || model.profileIsCurrent("Local") {
+		t.Fatalf("model after refresh failure = %#v, want non-blocking unavailable detection", model)
+	}
+	view := model.View()
+	if !strings.Contains(view, "Current profile check unavailable.") {
+		t.Fatalf("View() = %q, want value-safe refresh failure feedback", view)
+	}
+	if strings.Contains(view, secretValue) {
+		t.Fatalf("View() = %q, must not reveal raw profile value", view)
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updatedModel.(Model)
+	if command != nil || model.cursor != 1 {
+		t.Fatalf("model after Down = %#v, command %v, want list navigation to remain available", model, command)
 	}
 }
 
@@ -924,6 +1035,45 @@ func TestUpdate_ProfileSearchSupportsMultiTermMatching(t *testing.T) {
 	}
 	if strings.Contains(searchView, `Search "dev local"`) || strings.Contains(searchView, `Filter "dev local"`) {
 		t.Fatalf("View() = %q, active query must not appear in profile panel title", searchView)
+	}
+}
+
+func TestUpdate_ProfileSearchSupportsBoundedFuzzyNameMatching(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Local", Value: stringPointer("local")},
+			{Name: "Staging", Value: stringPointer("staging")},
+			{Name: "Production", Value: stringPointer("production")},
+		},
+	))
+
+	model = acceptProfileSearch(t, model, "stagng")
+	if selectedProfileName, ok := model.SelectedProfileName(); !ok || selectedProfileName != "Staging" {
+		t.Fatalf("SelectedProfileName() = %q, %t, want fuzzy match Staging", selectedProfileName, ok)
+	}
+	view := model.View()
+	if !strings.Contains(view, "> Staging") || strings.Contains(view, "Production") || strings.Contains(view, "Local") {
+		t.Fatalf("View() = %q, want only close fuzzy profile-name match", view)
+	}
+}
+
+func TestUpdate_ProfileSearchRanksSubstringBeforeFuzzyMatches(t *testing.T) {
+	model := New(app.New(
+		config.Target{},
+		[]config.Profile{
+			{Name: "Staring", Value: stringPointer("staring")},
+			{Name: "Staging", Value: stringPointer("staging")},
+		},
+	))
+
+	model = acceptProfileSearch(t, model, "staging")
+	names := make([]string, 0)
+	for _, index := range model.filteredProfileIndices() {
+		names = append(names, model.profiles[index].Name)
+	}
+	if strings.Join(names, ",") != "Staging,Staring" {
+		t.Fatalf("filtered names = %#v, want substring match before fuzzy match", names)
 	}
 }
 

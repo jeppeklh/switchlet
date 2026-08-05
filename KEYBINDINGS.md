@@ -24,6 +24,7 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `c` | Open the configuration editor. |
 | `s` | Open current status for managed configuration. |
 | `d` | Open read-only diff for the selected profile. |
+| `r` | Refresh profile availability and current managed state. |
 | `v` | Toggle managed value visibility where reveal is supported. |
 | `?` | Open contextual help for the active main-picker screen. |
 | `q` | Quit without applying changes. |

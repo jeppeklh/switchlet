@@ -261,6 +261,9 @@ func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		model.configRequested = true
 		return model, tea.Quit
 	}
+	if matchesKey(message, keyRefresh) {
+		return model.startProfileListRefresh()
+	}
 
 	if len(model.profiles) == 0 {
 		return model, nil
@@ -711,6 +714,15 @@ func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.resetScrollOffset()
 
 	return model, compareStatus(model.application, model.comparisonRequestID)
+}
+
+func (model Model) startProfileListRefresh() (tea.Model, tea.Cmd) {
+	model.refreshProfiles()
+	model.currentProfiles = nil
+	model.currentRequestID++
+	model.currentDetection = currentProfileDetectionChecking
+
+	return model, detectCurrentProfile(model.application, model.currentRequestID)
 }
 
 func (model Model) startDiffComparison(profileName string) (tea.Model, tea.Cmd) {
