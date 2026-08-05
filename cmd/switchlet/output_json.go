@@ -263,6 +263,7 @@ type healthCheckJSON struct {
 	Name                string                   `json:"name"`
 	Status              string                   `json:"status"`
 	Message             string                   `json:"message"`
+	Hint                string                   `json:"hint,omitempty"`
 	Targets             []targetDescriptorJSON   `json:"targets,omitempty"`
 	Profiles            []healthProfileJSON      `json:"profiles,omitempty"`
 	UnavailableProfiles []unavailableProfileJSON `json:"unavailableProfiles,omitempty"`
@@ -482,6 +483,7 @@ func healthCheckJSONFromChecks(checks []app.HealthCheck) []healthCheckJSON {
 			Name:                check.Name,
 			Status:              string(check.Status),
 			Message:             check.Message,
+			Hint:                check.Hint,
 			Targets:             targetDescriptorJSONFromDescriptors(check.Targets),
 			Profiles:            healthProfileJSONFromProfiles(check.Profiles),
 			UnavailableProfiles: unavailableProfileJSONFromProfiles(check.UnavailableProfiles),

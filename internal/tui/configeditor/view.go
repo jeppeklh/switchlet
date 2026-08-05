@@ -357,7 +357,7 @@ func profileDetailLines(profile app.ConfigEditProfileItem) []string {
 		if value.Source == app.ProfileSourceEnvironment {
 			fields = append(fields, ui.DetailField{Label: "Env", Value: value.EnvironmentVariableName})
 		} else {
-			fields = append(fields, ui.DetailField{Label: "Value", Value: "****"})
+			fields = append(fields, ui.DetailField{Label: "Value", Value: "hidden literal value"})
 		}
 		lines = append(lines, ui.RenderFieldRows(fields)...)
 	}

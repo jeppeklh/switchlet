@@ -345,6 +345,154 @@ func TestConfigEditWorkflow_PrepareSaveValidatesTargetsAndCommitsConfigReplaceme
 	}
 }
 
+func TestConfigEditWorkflow_CommitProtectsGitignoreForLiteralValues(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	if err := os.WriteFile(gitignorePath, []byte("bin/\n"), 0o644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	updatedDocument, err := workflow.UpdateProfile(document, "Local", config.Profile{
+		Name: "Local",
+		Values: []config.ProfileValue{{
+			Target: "service",
+			Value:  stringPointer("https://updated-secret.example.test"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile returned error: %v", err)
+	}
+
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+	if !containsConfigEditChange(preparedSave.Changes, app.ConfigEditChangeGitignoreProtection) {
+		t.Fatalf("prepared changes = %#v, want gitignore protection warning", preparedSave.Changes)
+	}
+	changeText := configEditChangesString(preparedSave.Changes)
+	if !strings.Contains(changeText, ".switchlet.yaml") || !strings.Contains(changeText, ".gitignore") {
+		t.Fatalf("prepared changes = %#v, want .gitignore protection explanation", preparedSave.Changes)
+	}
+	if strings.Contains(changeText, "updated-secret") {
+		t.Fatalf("prepared changes = %#v, must not expose literal value", preparedSave.Changes)
+	}
+	if string(readAppTestFile(t, gitignorePath)) != "bin/\n" {
+		t.Fatalf("PrepareSave modified .gitignore before Commit")
+	}
+
+	if err := preparedSave.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	if contents := string(readAppTestFile(t, gitignorePath)); contents != "bin/\n.switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want appended .switchlet.yaml", contents)
+	}
+	if contents := string(readAppTestFile(t, configPath)); !strings.Contains(contents, "https://updated-secret.example.test") {
+		t.Fatalf("configuration contents = %q, want committed literal profile update", contents)
+	}
+}
+
+func TestConfigEditWorkflow_CommitDoesNotRewriteGitignoreWhenAlreadyIgnored(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	originalGitignore := "bin/\n.switchlet.yaml\n"
+	if err := os.WriteFile(gitignorePath, []byte(originalGitignore), 0o644); err != nil {
+		t.Fatalf("write .gitignore: %v", err)
+	}
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	updatedDocument, err := workflow.UpdateProfile(document, "Local", config.Profile{
+		Name: "Local",
+		Values: []config.ProfileValue{{
+			Target: "service",
+			Value:  stringPointer("https://updated.example.test"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile returned error: %v", err)
+	}
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+
+	if err := preparedSave.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	if contents := string(readAppTestFile(t, gitignorePath)); contents != originalGitignore {
+		t.Fatalf(".gitignore contents = %q, want unchanged existing ignore entry", contents)
+	}
+}
+
+func TestConfigEditWorkflow_CommitDoesNotTouchGitignoreForEnvironmentOnlyProfiles(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := environmentOnlyConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	updatedDocument, err := workflow.UpdateProfile(document, "Local", config.Profile{
+		Name: "Local",
+		Values: []config.ProfileValue{{
+			Target:       "service",
+			ValueFromEnv: stringPointer("UPDATED_SERVICE_URL"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile returned error: %v", err)
+	}
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+	if containsConfigEditChange(preparedSave.Changes, app.ConfigEditChangeGitignoreProtection) {
+		t.Fatalf("prepared changes = %#v, want no gitignore protection warning for environment-only profiles", preparedSave.Changes)
+	}
+
+	if err := preparedSave.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+	_, statErr := os.Stat(filepath.Join(projectRoot, ".gitignore"))
+	if !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf(".gitignore stat error = %v, want not-exist", statErr)
+	}
+}
+
+func TestConfigEditWorkflow_GitignoreFailureBlocksConfigCommit(t *testing.T) {
+	workflow := app.NewConfigEditWorkflow(app.ConfigEditDependencies{
+		EnsureConfigIgnored: func(string) (bool, error) {
+			return false, errors.New("permission denied")
+		},
+	})
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+	originalContents := string(readAppTestFile(t, configPath))
+
+	updatedDocument, err := workflow.UpdateProfile(document, "Local", config.Profile{
+		Name: "Local",
+		Values: []config.ProfileValue{{
+			Target: "service",
+			Value:  stringPointer("https://blocked.example.test"),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("UpdateProfile returned error: %v", err)
+	}
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+
+	err = preparedSave.Commit()
+	if err == nil || !strings.Contains(err.Error(), "protect .switchlet.yaml in .gitignore") || !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("Commit returned error %v, want .gitignore protection failure", err)
+	}
+	if contents := string(readAppTestFile(t, configPath)); contents != originalContents {
+		t.Fatalf("configuration contents = %q, want unchanged after .gitignore failure", contents)
+	}
+}
+
 func TestConfigEditWorkflow_PrepareSavePropagatesStaleConfigError(t *testing.T) {
 	workflow := app.DefaultConfigEditWorkflow()
 	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
@@ -453,6 +601,30 @@ profiles:
     values:
       - target: service
         value: `+profileValue+`
+`)+"\n")
+
+	return projectRoot, configPath
+}
+
+func environmentOnlyConfig(t *testing.T) (string, string) {
+	t.Helper()
+
+	projectRoot := t.TempDir()
+	writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://old.example.test"}}`)
+	configPath := writeConfigFile(t, projectRoot, strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+
+profiles:
+  - name: Local
+    values:
+      - target: service
+        valueFromEnv: LOCAL_SERVICE_URL
 `)+"\n")
 
 	return projectRoot, configPath

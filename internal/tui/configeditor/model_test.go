@@ -259,6 +259,15 @@ func TestModel_AddProfileFromExistingManagedValuesAndSave(t *testing.T) {
 	}
 
 	model = selectReviewTab(t, model)
+	reviewView := model.View()
+	for _, expected := range []string{".switchlet.yaml", ".gitignore", "Hidden literal profile values"} {
+		if !strings.Contains(reviewView, expected) {
+			t.Fatalf("review view does not contain %q\n%s", expected, reviewView)
+		}
+	}
+	if strings.Contains(reviewView, "postgres://qa-secret") {
+		t.Fatalf("review view leaked raw literal value\n%s", reviewView)
+	}
 	var cmd tea.Cmd
 	model, cmd = pressRune(t, model, 's')
 	if model.state != editorStateSaving || cmd == nil {
@@ -271,6 +280,10 @@ func TestModel_AddProfileFromExistingManagedValuesAndSave(t *testing.T) {
 	}
 	if !strings.Contains(string(readTestFile(t, configPath)), "name: QA") {
 		t.Fatalf("saved configuration does not contain added profile\n%s", string(readTestFile(t, configPath)))
+	}
+	gitignorePath := filepath.Join(filepath.Dir(configPath), ".gitignore")
+	if string(readTestFile(t, gitignorePath)) != ".switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want .switchlet.yaml entry", string(readTestFile(t, gitignorePath)))
 	}
 }
 

@@ -229,7 +229,7 @@ func (model Model) profileDraftValueSummaryLines() []string {
 				lines = append(lines, "  environment: "+value.EnvironmentVariableName)
 			}
 		} else {
-			lines = append(lines, "  literal value: ****")
+			lines = append(lines, "  literal value: hidden literal value")
 		}
 	}
 	if len(lines) == 0 {

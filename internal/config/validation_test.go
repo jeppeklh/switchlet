@@ -600,6 +600,67 @@ profiles:
 	}
 }
 
+func TestLoad_ValidationErrorIncludesYAMLLocationContext(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database..url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+`)+"\n")
+
+	_, err := config.Load(configPath)
+	if err == nil {
+		t.Fatal("Load returned nil error, want validation error")
+	}
+
+	errorText := err.Error()
+	for _, expected := range []string{configPath + ":7:15:", "targets[0].jsonPath is invalid", "path must contain non-empty dot-separated segments"} {
+		if !strings.Contains(errorText, expected) {
+			t.Fatalf("Load returned error %q, want substring %q", errorText, expected)
+		}
+	}
+}
+
+func TestLoad_ValidationErrorFallsBackWhenYAMLLocationIsUnavailable(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+targets:
+  - name: database
+    file: config.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://localhost:5432/myapp
+`)+"\n")
+
+	_, err := config.Load(configPath)
+	if err == nil {
+		t.Fatal("Load returned nil error, want validation error")
+	}
+
+	errorText := err.Error()
+	if !strings.Contains(errorText, "version must be set") {
+		t.Fatalf("Load returned error %q, want missing version validation", errorText)
+	}
+	if strings.Contains(errorText, configPath+":") || strings.Contains(errorText, ":0:0:") {
+		t.Fatalf("Load returned error %q, want no synthetic location", errorText)
+	}
+}
+
 func TestLoad_InfersVersionThreeTargetTypesFromUnambiguousFileNames(t *testing.T) {
 	projectRoot := t.TempDir()
 	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`

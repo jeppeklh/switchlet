@@ -486,7 +486,8 @@ func buildDoctorReport(workingDirectory string, loadOptions projectLoadOptions) 
 		report.Checks = append(report.Checks, app.HealthCheck{
 			Name:    "configuration_discovery",
 			Status:  app.HealthCheckFailed,
-			Message: formatRuntimeErrorMessage(err, err.Error()),
+			Message: doctorConfigurationDiscoveryMessage(err),
+			Hint:    doctorConfigurationDiscoveryHint(err),
 		})
 		return report
 	}
@@ -509,6 +510,7 @@ func buildDoctorReport(workingDirectory string, loadOptions projectLoadOptions) 
 			Name:    "configuration_loading",
 			Status:  app.HealthCheckFailed,
 			Message: err.Error(),
+			Hint:    "Fix .switchlet.yaml, then run `switchlet doctor` again.",
 		})
 		return report
 	}
@@ -523,6 +525,22 @@ func buildDoctorReport(workingDirectory string, loadOptions projectLoadOptions) 
 	report.Checks = append(report.Checks, application.HealthChecks()...)
 
 	return report
+}
+
+func doctorConfigurationDiscoveryMessage(err error) string {
+	if errors.Is(err, config.ErrConfigNotFound) {
+		return "No .switchlet.yaml found."
+	}
+
+	return formatRuntimeErrorMessage(err, err.Error())
+}
+
+func doctorConfigurationDiscoveryHint(err error) string {
+	if errors.Is(err, config.ErrConfigNotFound) {
+		return "Run `switchlet init` to create one, or run Switchlet from a configured project."
+	}
+
+	return "Check the configured path or working directory, then run `switchlet doctor` again."
 }
 
 func doctorReportHasFailures(report doctorReport) bool {

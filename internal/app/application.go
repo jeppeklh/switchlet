@@ -369,6 +369,7 @@ func (application Application) profileAvailabilityHealthCheck() HealthCheck {
 		Name:                "profile_availability",
 		Status:              HealthCheckWarning,
 		Message:             fmt.Sprintf("%d configured profile(s) are unavailable in the current environment", len(unavailableProfiles)),
+		Hint:                "Set the listed environment variables or edit the affected profiles, then run `switchlet doctor` again.",
 		Profiles:            profiles,
 		UnavailableProfiles: unavailableProfiles,
 	}
@@ -407,6 +408,7 @@ func failedHealthCheck(name string, message string, err error) HealthCheck {
 		Name:    name,
 		Status:  HealthCheckFailed,
 		Message: message,
+		Hint:    healthCheckFailureHint(name),
 	}
 	if targetFailure, ok := TargetFailureFromError(err); ok {
 		check.TargetFailure = targetFailure
@@ -418,6 +420,17 @@ func failedHealthCheck(name string, message string, err error) HealthCheck {
 	}
 
 	return check
+}
+
+func healthCheckFailureHint(name string) string {
+	switch name {
+	case "startup_target_validation":
+		return "Fix the configured target file, type, or selector, then run `switchlet doctor` again."
+	case "current_state_comparison":
+		return "Run `switchlet status` or `switchlet diff <profile>` to inspect the current managed state."
+	default:
+		return "Fix the reported issue, then run `switchlet doctor` again."
+	}
 }
 
 func currentStateHealthMessage(status StatusComparison) string {
@@ -453,6 +466,7 @@ func (application Application) profileValueItems(resolvedValues []profile.Resolv
 				TargetName:              item.TargetName,
 				Selector:                item.Selector,
 				EnvironmentVariableName: item.EnvironmentVariableName,
+				Source:                  resolvedValue.Source,
 			})
 		}
 		if resolvedValue.ResolutionError != nil {

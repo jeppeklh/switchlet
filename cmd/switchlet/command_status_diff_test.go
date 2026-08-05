@@ -1323,6 +1323,7 @@ func TestRunCommand_DoctorReportsInvalidConfigAsJSONFailure(t *testing.T) {
 				Name    string `json:"name"`
 				Status  string `json:"status"`
 				Message string `json:"message"`
+				Hint    string `json:"hint"`
 			} `json:"checks"`
 		} `json:"result"`
 	}
@@ -1335,6 +1336,9 @@ func TestRunCommand_DoctorReportsInvalidConfigAsJSONFailure(t *testing.T) {
 	loadingCheck := payload.Result.Checks[1]
 	if loadingCheck.Name != "configuration_loading" || loadingCheck.Status != "failed" || !strings.Contains(loadingCheck.Message, "parse configuration file") {
 		t.Fatalf("loading check = %#v, want parse failure", loadingCheck)
+	}
+	if !strings.Contains(loadingCheck.Hint, "Fix .switchlet.yaml") {
+		t.Fatalf("loading check hint = %q, want config repair hint", loadingCheck.Hint)
 	}
 }
 
@@ -1362,7 +1366,7 @@ profiles:
 	if result.exitCode != runtimeExitCode {
 		t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
 	}
-	for _, expected := range []string{"[failed] startup_target_validation", "database [json]", "backend/appsettings.Development.json", "database.url", "missing segment \"url\"", "[skipped] current_state_comparison"} {
+	for _, expected := range []string{"[failed] startup_target_validation", "database [json]", "backend/appsettings.Development.json", "database.url", "missing segment \"url\"", "hint", "Fix the configured target file", "[skipped] current_state_comparison"} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
 		}
@@ -1407,6 +1411,7 @@ profiles:
 			Checks  []struct {
 				Name                string `json:"name"`
 				Status              string `json:"status"`
+				Hint                string `json:"hint"`
 				UnavailableProfiles []struct {
 					ProfileName string `json:"profileName"`
 					Protected   bool   `json:"protected"`
@@ -1437,6 +1442,9 @@ profiles:
 		foundAvailabilityCheck = true
 		if check.Status != "warning" || len(check.UnavailableProfiles) != 1 || check.UnavailableProfiles[0].ProfileName != "Staging" || !check.UnavailableProfiles[0].Protected {
 			t.Fatalf("availability check = %#v, want protected Staging warning", check)
+		}
+		if !strings.Contains(check.Hint, "Set the listed environment variables") {
+			t.Fatalf("availability check hint = %q, want environment recovery hint", check.Hint)
 		}
 		unavailableValues := check.UnavailableProfiles[0].Values
 		if len(unavailableValues) != 1 || unavailableValues[0].TargetName != "database" || unavailableValues[0].EnvironmentVariable != "SWITCHLET_TEST_MISSING_DATABASE_URL" || !strings.Contains(unavailableValues[0].Reason, "SWITCHLET_TEST_MISSING_DATABASE_URL") {

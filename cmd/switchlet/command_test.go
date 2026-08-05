@@ -494,7 +494,7 @@ profiles:
 	if !strings.Contains(result.stdout, "Environment variable: MYAPPLICATION_PRODUCTION_URL") {
 		t.Fatalf("stdout %q does not include environment variable name", result.stdout)
 	}
-	if !strings.Contains(result.stdout, "Masked value:\n****") {
+	if !strings.Contains(result.stdout, "Masked value:\nhidden environment value") {
 		t.Fatalf("stdout %q does not include redacted value", result.stdout)
 	}
 	if strings.Contains(result.stdout, "super-secret") {
@@ -548,7 +548,7 @@ profiles:
 	if payload.Profile.EnvironmentVariableName != "MYAPPLICATION_TEST_URL" {
 		t.Fatalf("profile.EnvironmentVariableName = %q, want %q", payload.Profile.EnvironmentVariableName, "MYAPPLICATION_TEST_URL")
 	}
-	if payload.Profile.MaskedValue != "****" {
+	if payload.Profile.MaskedValue != "hidden environment value" {
 		t.Fatalf("profile.MaskedValue = %q, want redacted value", payload.Profile.MaskedValue)
 	}
 }

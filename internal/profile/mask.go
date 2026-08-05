@@ -2,13 +2,19 @@ package profile
 
 import "strings"
 
-const maskedManagedValue = "****"
+const (
+	maskedManagedValue            = "****"
+	hiddenLiteralManagedValue     = "hidden literal value"
+	hiddenEnvironmentManagedValue = "hidden environment value"
+	hiddenManagedValue            = "hidden managed value"
+)
 
 // ManagedValueMaskContext describes user-controlled names around one managed value.
 type ManagedValueMaskContext struct {
 	TargetName              string
 	Selector                string
 	EnvironmentVariableName string
+	Source                  ValueSource
 }
 
 // MaskManagedValue returns a display-safe representation of one managed value.
@@ -16,9 +22,18 @@ func MaskManagedValue(value string, context ManagedValueMaskContext) string {
 	if value == "" {
 		return ""
 	}
-	_ = context
 
-	return maskedManagedValue
+	switch context.Source {
+	case ValueSourceLiteral:
+		return hiddenLiteralManagedValue
+	case ValueSourceEnvironment:
+		return hiddenEnvironmentManagedValue
+	}
+	if context.EnvironmentVariableName != "" {
+		return hiddenEnvironmentManagedValue
+	}
+
+	return hiddenManagedValue
 }
 
 // MaskConnectionString returns a display-safe representation of a connection string.

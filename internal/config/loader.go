@@ -84,14 +84,19 @@ func LoadSnapshot(configPath string) (ConfigSnapshot, error) {
 }
 
 func loadConfigContents(resolvedConfigPath string, contents []byte) (Config, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(contents, &root); err != nil {
+		return Config{}, fmt.Errorf("parse configuration file %q: %w", resolvedConfigPath, err)
+	}
+
 	var parsed fileConfig
-	if err := yaml.Unmarshal(contents, &parsed); err != nil {
+	if err := root.Decode(&parsed); err != nil {
 		return Config{}, fmt.Errorf("parse configuration file %q: %w", resolvedConfigPath, err)
 	}
 
 	loadedConfig, err := validateConfig(resolvedConfigPath, parsed)
 	if err != nil {
-		return Config{}, fmt.Errorf("validate configuration file %q: %w", resolvedConfigPath, err)
+		return Config{}, fmt.Errorf("validate configuration file %q: %w", resolvedConfigPath, validationErrorWithLocation(resolvedConfigPath, &root, err))
 	}
 
 	return loadedConfig, nil

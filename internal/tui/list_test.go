@@ -601,7 +601,7 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 				testCase.target.File,
 				"Selector",
 				testCase.selector,
-				"Masked value: ****",
+				"Masked value: hidden literal value",
 			} {
 				if !strings.Contains(inspectionView, expected) {
 					t.Fatalf("inspection View() = %q, want %s inspection context %q", inspectionView, testCase.name, expected)

@@ -1,6 +1,7 @@
 package profile_test
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jeppeklh/switchlet/internal/profile"
@@ -93,8 +94,9 @@ func TestMaskManagedValue(t *testing.T) {
 			context: profile.ManagedValueMaskContext{
 				TargetName: "frontendApi",
 				Selector:   "VITE_API_URL",
+				Source:     profile.ValueSourceLiteral,
 			},
-			want: "****",
+			want: "hidden literal value",
 		},
 		{
 			name:  "target name masks full value",
@@ -102,14 +104,16 @@ func TestMaskManagedValue(t *testing.T) {
 			context: profile.ManagedValueMaskContext{
 				TargetName: "apiKey",
 				Selector:   "services.api.url",
+				Source:     profile.ValueSourceLiteral,
 			},
-			want: "****",
+			want: "hidden literal value",
 		},
 		{
 			name:  "empty value remains empty",
 			value: "",
 			context: profile.ManagedValueMaskContext{
 				TargetName: "apiKey",
+				Source:     profile.ValueSourceLiteral,
 			},
 			want: "",
 		},
@@ -119,8 +123,9 @@ func TestMaskManagedValue(t *testing.T) {
 			context: profile.ManagedValueMaskContext{
 				TargetName: "database",
 				Selector:   "database.password",
+				Source:     profile.ValueSourceLiteral,
 			},
-			want: "****",
+			want: "hidden literal value",
 		},
 		{
 			name:  "environment variable masks full value",
@@ -129,8 +134,9 @@ func TestMaskManagedValue(t *testing.T) {
 				TargetName:              "serviceEndpoint",
 				Selector:                "services.api.url",
 				EnvironmentVariableName: "STAGING_SERVICE_API_KEY",
+				Source:                  profile.ValueSourceEnvironment,
 			},
-			want: "****",
+			want: "hidden environment value",
 		},
 		{
 			name:  "non-sensitive context still masks full value",
@@ -138,8 +144,9 @@ func TestMaskManagedValue(t *testing.T) {
 			context: profile.ManagedValueMaskContext{
 				TargetName: "monkeyMode",
 				Selector:   "settings.monkeyMode",
+				Source:     profile.ValueSourceLiteral,
 			},
-			want: "****",
+			want: "hidden literal value",
 		},
 		{
 			name:  "connection string masks full value",
@@ -147,8 +154,18 @@ func TestMaskManagedValue(t *testing.T) {
 			context: profile.ManagedValueMaskContext{
 				TargetName: "database",
 				Selector:   "ConnectionStrings.DefaultConnection",
+				Source:     profile.ValueSourceLiteral,
 			},
-			want: "****",
+			want: "hidden literal value",
+		},
+		{
+			name:  "unknown source uses generic hidden label",
+			value: "https://example.test/plain-value",
+			context: profile.ManagedValueMaskContext{
+				TargetName: "serviceEndpoint",
+				Selector:   "services.api.url",
+			},
+			want: "hidden managed value",
 		},
 	}
 
@@ -158,6 +175,11 @@ func TestMaskManagedValue(t *testing.T) {
 
 			if maskedValue != testCase.want {
 				t.Fatalf("MaskManagedValue(%q, %#v) = %q, want %q", testCase.value, testCase.context, maskedValue, testCase.want)
+			}
+			for _, forbidden := range []string{testCase.value, "api.staging", "plain-value", "postgres", "localhost", "Password", "STAGING_SERVICE_API_KEY"} {
+				if forbidden != "" && strings.Contains(maskedValue, forbidden) {
+					t.Fatalf("masked value %q must not expose %q", maskedValue, forbidden)
+				}
 			}
 		})
 	}

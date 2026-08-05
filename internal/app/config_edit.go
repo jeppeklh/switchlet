@@ -20,9 +20,10 @@ var (
 
 // ConfigEditDependencies lets tests replace config-edit persistence and validation effects.
 type ConfigEditDependencies struct {
-	LoadSnapshot       func(string) (config.ConfigSnapshot, error)
-	ValidateTargets    func([]config.Target) error
-	PrepareReplacement func(config.ConfigSnapshot, []config.Target, []config.Profile) (config.PreparedReplacement, error)
+	LoadSnapshot        func(string) (config.ConfigSnapshot, error)
+	ValidateTargets     func([]config.Target) error
+	PrepareReplacement  func(config.ConfigSnapshot, []config.Target, []config.Profile) (config.PreparedReplacement, error)
+	EnsureConfigIgnored func(string) (bool, error)
 }
 
 // ConfigEditDocument represents an editable .switchlet.yaml draft.
@@ -47,6 +48,8 @@ const (
 	ConfigEditChangeCompatibilityConversion ConfigEditChangeKind = "compatibility_conversion"
 	// ConfigEditChangeFormattingNormalization warns about normalized .switchlet.yaml output.
 	ConfigEditChangeFormattingNormalization ConfigEditChangeKind = "formatting_normalization"
+	// ConfigEditChangeGitignoreProtection warns that literal profile values require .gitignore protection.
+	ConfigEditChangeGitignoreProtection ConfigEditChangeKind = "gitignore_protection"
 	// ConfigEditChangeProfileAdded reports an added profile.
 	ConfigEditChangeProfileAdded ConfigEditChangeKind = "profile_added"
 	// ConfigEditChangeProfileUpdated reports an edited profile.
@@ -108,11 +111,24 @@ type ConfigEditPreparedSave struct {
 	ConfigPath string
 	Changes    []ConfigEditChange
 
-	replacement config.PreparedReplacement
+	projectRoot         string
+	protectConfigFile   bool
+	ensureConfigIgnored func(string) (bool, error)
+	replacement         config.PreparedReplacement
 }
 
-// Commit writes the prepared .switchlet.yaml replacement.
+// Commit applies any required config-file protection, then writes the prepared .switchlet.yaml replacement.
 func (save ConfigEditPreparedSave) Commit() error {
+	if save.protectConfigFile {
+		ensureConfigIgnored := save.ensureConfigIgnored
+		if ensureConfigIgnored == nil {
+			ensureConfigIgnored = config.EnsureConfigIgnored
+		}
+		if _, err := ensureConfigIgnored(save.projectRoot); err != nil {
+			return fmt.Errorf("protect .switchlet.yaml in .gitignore: %w", err)
+		}
+	}
+
 	return save.replacement.Commit()
 }
 
@@ -367,9 +383,12 @@ func (workflow ConfigEditWorkflow) PrepareSave(document ConfigEditDocument) (Con
 	}
 
 	return ConfigEditPreparedSave{
-		ConfigPath:  replacement.ConfigPath(),
-		Changes:     changes,
-		replacement: replacement,
+		ConfigPath:          replacement.ConfigPath(),
+		Changes:             changes,
+		projectRoot:         normalizedDraft.ProjectRoot,
+		protectConfigFile:   InitProfilesHaveLiteralValues(normalizedDraft.Profiles),
+		ensureConfigIgnored: workflow.ensureConfigIgnored,
+		replacement:         replacement,
 	}, nil
 }
 
@@ -380,7 +399,7 @@ func (workflow ConfigEditWorkflow) SummarizeChanges(document ConfigEditDocument)
 		return nil
 	}
 
-	changes := make([]ConfigEditChange, 0, len(modelChanges)+2)
+	changes := make([]ConfigEditChange, 0, len(modelChanges)+3)
 	if document.ConvertsToVersionThree {
 		changes = append(changes, ConfigEditChange{
 			Kind:    ConfigEditChangeCompatibilityConversion,
@@ -393,6 +412,17 @@ func (workflow ConfigEditWorkflow) SummarizeChanges(document ConfigEditDocument)
 		Summary: ".switchlet.yaml formatting may be normalized and some comments may still move or be dropped when exact preservation is not safe.",
 		Warning: true,
 	})
+	if InitProfilesHaveLiteralValues(document.Profiles) {
+		changes = append(changes, ConfigEditChange{
+			Kind:    ConfigEditChangeGitignoreProtection,
+			Summary: ".gitignore protection is enabled.",
+			Detail: []string{
+				".switchlet.yaml will be or is already ignored.",
+				"Hidden literal profile values.",
+			},
+			Warning: true,
+		})
+	}
 	changes = append(changes, modelChanges...)
 
 	return changes
@@ -529,6 +559,14 @@ func (workflow ConfigEditWorkflow) prepareReplacement(snapshot config.ConfigSnap
 	}
 
 	return config.PrepareReplacementFromSnapshot(snapshot, targets, profiles)
+}
+
+func (workflow ConfigEditWorkflow) ensureConfigIgnored(projectRoot string) (bool, error) {
+	if workflow.dependencies.EnsureConfigIgnored != nil {
+		return workflow.dependencies.EnsureConfigIgnored(projectRoot)
+	}
+
+	return config.EnsureConfigIgnored(projectRoot)
 }
 
 func (workflow ConfigEditWorkflow) summarizeManagedValueChanges(document ConfigEditDocument) []ConfigEditChange {

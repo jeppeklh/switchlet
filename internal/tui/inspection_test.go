@@ -48,7 +48,7 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 	if strings.Contains(view, "Masked connection string") {
 		t.Fatalf("View() = %q, must not contain ASP.NET-specific masked-value label", view)
 	}
-	if !strings.Contains(view, "Masked value: ****") {
+	if !strings.Contains(view, "Masked value: hidden environment value") {
 		t.Fatalf("View() = %q, want redacted value", view)
 	}
 	if strings.Contains(view, "super-secret") {
@@ -167,13 +167,13 @@ func TestView_InspectionAddsDetailsNotPresentInSelectedPanel(t *testing.T) {
 			name:            "literal value",
 			profile:         config.Profile{Name: "Local", Value: stringPointer("Server=local;Database=App;Password=literal-secret;")},
 			selectedMissing: []string{"Masked value:", "Password=****", "literal-secret"},
-			inspectDetails:  []string{"Source: Literal value", "Masked value: ****"},
+			inspectDetails:  []string{"Source: Literal value", "Masked value: hidden literal value"},
 		},
 		{
 			name:            "environment value",
 			profile:         config.Profile{Name: "Production", ValueFromEnv: stringPointer("PRODUCTION_DATABASE_URL"), Protected: true},
 			selectedMissing: []string{"Environment variable: PRODUCTION_DATABASE_URL", "Masked value:", "super-secret"},
-			inspectDetails:  []string{"Source: Environment variable", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value: ****"},
+			inspectDetails:  []string{"Source: Environment variable", "Environment variable: PRODUCTION_DATABASE_URL", "Masked value: hidden environment value"},
 		},
 		{
 			name:            "unavailable value",

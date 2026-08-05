@@ -39,6 +39,11 @@ func writeDoctorCheckText(output io.Writer, styles commandOutputStyles, check ap
 			return err
 		}
 	}
+	if check.Hint != "" {
+		if err := writeCommandDetail(output, styles, "hint", check.Hint); err != nil {
+			return err
+		}
+	}
 	if check.HasTargetFailure {
 		if err := writeDoctorTargetFailureText(output, styles, check.TargetFailure, projectRoot); err != nil {
 			return err

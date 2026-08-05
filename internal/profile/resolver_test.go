@@ -37,7 +37,7 @@ func TestResolveProfile_ReturnsLiteralValue(t *testing.T) {
 	if resolvedProfile.Value != "Server=localhost;Database=MyApplication;Password=secret;" {
 		t.Fatalf("Value = %q, want literal connection string", resolvedProfile.Value)
 	}
-	if resolvedProfile.MaskedValue != "****" {
+	if resolvedProfile.MaskedValue != "hidden literal value" {
 		t.Fatalf("MaskedValue = %q, want redacted literal value", resolvedProfile.MaskedValue)
 	}
 	if resolvedProfile.ResolutionError != nil {
@@ -67,7 +67,7 @@ func TestResolveProfile_ResolvesEnvironmentVariable(t *testing.T) {
 	if resolvedProfile.Value != "Server=test;Database=MyApplication;Pwd=secret;" {
 		t.Fatalf("Value = %q, want resolved environment value", resolvedProfile.Value)
 	}
-	if resolvedProfile.MaskedValue != "****" {
+	if resolvedProfile.MaskedValue != "hidden environment value" {
 		t.Fatalf("MaskedValue = %q, want redacted environment value", resolvedProfile.MaskedValue)
 	}
 	if resolvedProfile.ResolutionError != nil {
@@ -109,7 +109,7 @@ func TestResolveProfile_ReturnsValuesForMultipleTargets(t *testing.T) {
 	if databaseValue.Source != profile.ValueSourceLiteral {
 		t.Fatalf("Values[0].Source = %q, want %q", databaseValue.Source, profile.ValueSourceLiteral)
 	}
-	if databaseValue.MaskedValue != "****" {
+	if databaseValue.MaskedValue != "hidden literal value" {
 		t.Fatalf("Values[0].MaskedValue = %q, want redacted database value", databaseValue.MaskedValue)
 	}
 
@@ -125,6 +125,9 @@ func TestResolveProfile_ReturnsValuesForMultipleTargets(t *testing.T) {
 	}
 	if frontendValue.Value != "https://api.staging.example.test" {
 		t.Fatalf("Values[1].Value = %q, want resolved environment value", frontendValue.Value)
+	}
+	if frontendValue.MaskedValue != "hidden environment value" {
+		t.Fatalf("Values[1].MaskedValue = %q, want redacted environment value", frontendValue.MaskedValue)
 	}
 }
 

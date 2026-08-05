@@ -58,7 +58,7 @@ profiles:
 		"- workerQueue [yaml]",
 		"file: worker/config.yaml",
 		"yamlPath: queue.endpoint",
-		"masked value: ****",
+		"masked value: hidden literal value",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)

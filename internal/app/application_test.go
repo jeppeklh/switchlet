@@ -73,7 +73,7 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	if items[0].Source != app.ProfileSourceLiteral {
 		t.Fatalf("Profiles()[0].Source = %q, want %q", items[0].Source, app.ProfileSourceLiteral)
 	}
-	if items[0].MaskedValue != "****" {
+	if items[0].MaskedValue != "hidden literal value" {
 		t.Fatalf("Profiles()[0].MaskedValue = %q, want redacted literal value", items[0].MaskedValue)
 	}
 	if !items[1].Available {
@@ -88,7 +88,7 @@ func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *
 	if items[1].EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
 		t.Fatalf("Profiles()[1].EnvironmentVariableName = %q, want %q", items[1].EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
 	}
-	if items[1].MaskedValue != "****" {
+	if items[1].MaskedValue != "hidden environment value" {
 		t.Fatalf("Profiles()[1].MaskedValue = %q, want redacted environment value", items[1].MaskedValue)
 	}
 	if items[1].UnavailableReason != "" {
@@ -126,16 +126,16 @@ func TestApplication_Profiles_UsesManagedValueMaskingContext(t *testing.T) {
 		maskedValuesByTarget[valueItem.TargetName] = valueItem.MaskedValue
 	}
 
-	if maskedValuesByTarget["databasePassword"] != "****" {
+	if maskedValuesByTarget["databasePassword"] != "hidden literal value" {
 		t.Fatalf("databasePassword masked value = %q, want full mask", maskedValuesByTarget["databasePassword"])
 	}
-	if maskedValuesByTarget["serviceEndpoint"] != "****" {
+	if maskedValuesByTarget["serviceEndpoint"] != "hidden literal value" {
 		t.Fatalf("serviceEndpoint masked value = %q, want selector-based full mask", maskedValuesByTarget["serviceEndpoint"])
 	}
-	if maskedValuesByTarget["workerEndpoint"] != "****" {
+	if maskedValuesByTarget["workerEndpoint"] != "hidden environment value" {
 		t.Fatalf("workerEndpoint masked value = %q, want environment-based full mask", maskedValuesByTarget["workerEndpoint"])
 	}
-	if maskedValuesByTarget["frontendApi"] != "****" {
+	if maskedValuesByTarget["frontendApi"] != "hidden literal value" {
 		t.Fatalf("frontendApi masked value = %q, want full mask", maskedValuesByTarget["frontendApi"])
 	}
 }
@@ -203,7 +203,7 @@ func TestApplication_InspectProfileByName_ReturnsResolvedDisplayData(t *testing.
 	if item.EnvironmentVariableName != "MYAPPLICATION_TEST_CONNECTION_STRING" {
 		t.Fatalf("EnvironmentVariableName = %q, want %q", item.EnvironmentVariableName, "MYAPPLICATION_TEST_CONNECTION_STRING")
 	}
-	if item.MaskedValue != "****" {
+	if item.MaskedValue != "hidden environment value" {
 		t.Fatalf("MaskedValue = %q, want redacted value", item.MaskedValue)
 	}
 	if item.UnavailableReason != "" {

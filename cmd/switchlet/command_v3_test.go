@@ -159,11 +159,11 @@ profiles:
 		"file: backend/appsettings.Development.json",
 		"jsonPath: database.url",
 		"environment variable: STAGING_DATABASE_URL",
-		"masked value: ****",
+		"masked value: hidden environment value",
 		"- frontendApi [dotenv]",
 		"file: frontend/.env.local",
 		"key: VITE_API_URL",
-		"masked value: ****",
+		"masked value: hidden literal value",
 	} {
 		if !strings.Contains(result.stdout, expected) {
 			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
@@ -235,7 +235,7 @@ profiles:
 	if databaseValue.EnvironmentVariableName != "STAGING_DATABASE_URL" {
 		t.Fatalf("environmentVariableName = %q, want STAGING_DATABASE_URL", databaseValue.EnvironmentVariableName)
 	}
-	if databaseValue.MaskedValue != "****" {
+	if databaseValue.MaskedValue != "hidden environment value" {
 		t.Fatalf("maskedValue = %q, want redacted database value", databaseValue.MaskedValue)
 	}
 	for _, forbidden := range []string{"super-secret", "https://api.staging.example.test"} {

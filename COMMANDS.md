@@ -212,7 +212,8 @@ Doctor checks configuration discovery, configuration loading and schema
 validation, startup target validation, profile availability, and current-state
 comparison availability. Missing or invalid configuration and target-read
 failures return non-zero. Unavailable environment-backed profile values are
-reported as warnings.
+reported as warnings. Failed and warning checks include a value-safe recovery
+hint when Switchlet can identify a clear next step.
 
 ## Output Modes
 
@@ -247,7 +248,8 @@ JSON output includes top-level `schemaVersion: 1`, profile names, target names,
 files, selectors, availability, and safe errors. The schema version describes
 Switchlet command JSON output, not the `.switchlet.yaml` configuration schema.
 JSON output does not include raw current target values or raw resolved profile
-values.
+values. Masked profile values use safe labels such as `hidden literal value` or
+`hidden environment value`; doctor checks may include an additive `hint` field.
 
 `apply --dry-run --json` also includes an additive `preview` object with
 would-update, already-matching, unavailable, and omitted target categories.

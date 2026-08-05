@@ -329,6 +329,7 @@ type HealthCheck struct {
 	Name                string
 	Status              HealthCheckStatus
 	Message             string
+	Hint                string
 	Targets             []TargetDescriptor
 	Profiles            []HealthProfile
 	UnavailableProfiles []UnavailableProfile

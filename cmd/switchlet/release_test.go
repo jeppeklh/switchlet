@@ -98,7 +98,7 @@ profiles:
 	if inspectResult.exitCode != 0 {
 		t.Fatalf("switchlet inspect exitCode = %d, want 0\nstdout: %q\nstderr: %q", inspectResult.exitCode, inspectResult.stdout, inspectResult.stderr)
 	}
-	if !strings.Contains(inspectResult.stdout, "Masked value:\n****") {
+	if !strings.Contains(inspectResult.stdout, "Masked value:\nhidden environment value") {
 		t.Fatalf("inspect stdout %q does not contain redacted value", inspectResult.stdout)
 	}
 	if strings.Contains(inspectResult.stdout, "super-secret") {
@@ -196,7 +196,7 @@ profiles:
 	if inspectResult.exitCode != 0 {
 		t.Fatalf("switchlet inspect exitCode = %d, want 0\nstdout: %q\nstderr: %q", inspectResult.exitCode, inspectResult.stdout, inspectResult.stderr)
 	}
-	for _, expected := range []string{"- database [json]", "jsonPath: database.url", "masked value: ****", "- frontendApi [dotenv]", "key: VITE_API_URL"} {
+	for _, expected := range []string{"- database [json]", "jsonPath: database.url", "masked value: hidden environment value", "- frontendApi [dotenv]", "key: VITE_API_URL"} {
 		if !strings.Contains(inspectResult.stdout, expected) {
 			t.Fatalf("inspect stdout %q does not contain %q", inspectResult.stdout, expected)
 		}

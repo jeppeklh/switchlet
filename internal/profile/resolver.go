@@ -72,7 +72,7 @@ func resolveProfileValue(profileName string, configuredValue config.ProfileValue
 			break
 		}
 
-		resolvedValue.MaskedValue = MaskManagedValue(resolvedValue.Value, ManagedValueMaskContext{TargetName: configuredValue.Target})
+		resolvedValue.MaskedValue = MaskManagedValue(resolvedValue.Value, ManagedValueMaskContext{TargetName: configuredValue.Target, Source: resolvedValue.Source})
 	case configuredValue.ValueFromEnv != nil:
 		resolvedValue.Source = ValueSourceEnvironment
 		resolvedValue.EnvironmentVariableName = *configuredValue.ValueFromEnv
@@ -85,6 +85,7 @@ func resolveProfileValue(profileName string, configuredValue config.ProfileValue
 			resolvedValue.MaskedValue = MaskManagedValue(resolvedValue.Value, ManagedValueMaskContext{
 				TargetName:              configuredValue.Target,
 				EnvironmentVariableName: resolvedValue.EnvironmentVariableName,
+				Source:                  resolvedValue.Source,
 			})
 		}
 	default:
