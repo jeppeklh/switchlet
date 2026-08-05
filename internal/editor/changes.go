@@ -452,7 +452,7 @@ func validateTargetSelector(target config.Target) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid JSON path %q: %w", target.JSONPath, err)
 		}
-		return strings.Join(pathSegments, "."), nil
+		return selectorSegmentsKey(pathSegments), nil
 	case config.TargetTypeDotenv:
 		if target.Key == "" {
 			return "", fmt.Errorf("key must be set")
@@ -469,7 +469,7 @@ func validateTargetSelector(target config.Target) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid YAML path %q: %w", target.YAMLPath, err)
 		}
-		return strings.Join(pathSegments, "."), nil
+		return selectorSegmentsKey(pathSegments), nil
 	case config.TargetTypeTOML:
 		if target.TOMLPath == "" {
 			return "", fmt.Errorf("tomlPath must be set")
@@ -478,7 +478,7 @@ func validateTargetSelector(target config.Target) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("invalid TOML path %q: %w", target.TOMLPath, err)
 		}
-		return strings.Join(pathSegments, "."), nil
+		return selectorSegmentsKey(pathSegments), nil
 	default:
 		return "", fmt.Errorf("target type %q is not supported", target.Type)
 	}
@@ -486,6 +486,15 @@ func validateTargetSelector(target config.Target) (string, error) {
 
 func targetLocationKey(target config.Target, selector string) string {
 	return string(target.Type) + "\x00" + target.File + "\x00" + selector
+}
+
+func selectorSegmentsKey(pathSegments []string) string {
+	var key strings.Builder
+	for _, segment := range pathSegments {
+		key.WriteString(fmt.Sprintf("%d:%s", len(segment), segment))
+	}
+
+	return key.String()
 }
 
 func prepareTargetFileChange(group targetChangeGroup) (preparedFileChange, error) {

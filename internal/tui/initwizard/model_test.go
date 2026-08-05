@@ -314,6 +314,18 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	}
 }
 
+func TestTargetSelectorNodesPreserveEscapedSelectors(t *testing.T) {
+	nodes := jsonTargetSelectorNodes([]app.InitStringTargetNode{{
+		Name:       "api.url",
+		JSONPath:   `settings.api\.url`,
+		Selectable: true,
+	}})
+
+	if len(nodes) != 1 || nodes[0].selector != `settings.api\.url` || !nodes[0].selectable {
+		t.Fatalf("nodes = %#v, want escaped selector preserved", nodes)
+	}
+}
+
 func TestInitWizardModel_YAMLTargetSelectionCreatesYAMLTarget(t *testing.T) {
 	projectRoot := t.TempDir()
 	yamlCandidate := app.InitTargetFileCandidate{

@@ -123,15 +123,17 @@ func validateLegacyTarget(parsedTarget fileTarget, targetFile string) (Target, e
 	if connectionName == "" {
 		return Target{}, fmt.Errorf("target.connectionName must be set")
 	}
-	if strings.Contains(connectionName, ".") {
-		return Target{}, fmt.Errorf("target.connectionName %q cannot be mapped to a JSON path because dots are not supported inside path segments", connectionName)
+
+	jsonPath, err := FormatJSONPath([]string{"ConnectionStrings", connectionName})
+	if err != nil {
+		return Target{}, fmt.Errorf("target.connectionName is invalid: %w", err)
 	}
 
 	return Target{
 		Name:     compatibilityTargetName,
 		File:     targetFile,
 		Type:     TargetTypeJSON,
-		JSONPath: legacyConnectionJSONPath(connectionName),
+		JSONPath: jsonPath,
 	}, nil
 }
 
@@ -374,17 +376,35 @@ func validateVersionThreeTOMLTarget(index int, name string, targetFile string, p
 }
 
 func targetLocationKey(target Target) string {
-	selector := target.JSONPath
+	selector := canonicalSelectorLocationKey(target.JSONPath, ParseJSONPath)
 	switch target.Type {
 	case TargetTypeDotenv:
 		selector = target.Key
 	case TargetTypeYAML:
-		selector = target.YAMLPath
+		selector = canonicalSelectorLocationKey(target.YAMLPath, ParseYAMLPath)
 	case TargetTypeTOML:
-		selector = target.TOMLPath
+		selector = canonicalSelectorLocationKey(target.TOMLPath, ParseTOMLPath)
 	}
 
 	return string(target.Type) + "\x00" + filepath.Clean(target.File) + "\x00" + selector
+}
+
+func canonicalSelectorLocationKey(selector string, parse func(string) ([]string, error)) string {
+	pathSegments, err := parse(selector)
+	if err != nil {
+		return selector
+	}
+
+	return selectorSegmentsLocationKey(pathSegments)
+}
+
+func selectorSegmentsLocationKey(pathSegments []string) string {
+	var key strings.Builder
+	for _, segment := range pathSegments {
+		key.WriteString(fmt.Sprintf("%d:%s", len(segment), segment))
+	}
+
+	return key.String()
 }
 
 func isValidDotenvKey(key string) bool {
@@ -417,77 +437,13 @@ func isDotenvKeyPart(character byte) bool {
 	return isDotenvKeyStart(character) || character >= '0' && character <= '9'
 }
 
-// ParseJSONPath validates and splits a dot-separated JSON object-property path.
-func ParseJSONPath(jsonPath string) ([]string, error) {
-	return parseDotSeparatedPath(jsonPath)
-}
-
-// ParseYAMLPath validates and splits a dot-separated YAML mapping-key path.
-func ParseYAMLPath(yamlPath string) ([]string, error) {
-	return parseDotSeparatedPath(yamlPath)
-}
-
-// ParseTOMLPath validates and splits a dot-separated TOML table/key path.
-func ParseTOMLPath(tomlPath string) ([]string, error) {
-	segments, err := parseDotSeparatedPath(tomlPath)
-	if err != nil {
-		return nil, err
-	}
-
-	for _, segment := range segments {
-		if strings.Contains(segment, "*") {
-			return nil, fmt.Errorf("wildcard selectors are not supported")
-		}
-		if strings.ContainsAny(segment, "[]") {
-			return nil, fmt.Errorf("array selectors are not supported")
-		}
-		if !isTOMLBareKeySegment(segment) {
-			return nil, fmt.Errorf("segment %q must use unquoted TOML bare-key syntax [A-Za-z0-9_-]+", segment)
-		}
-	}
-
-	return segments, nil
-}
-
-func isTOMLBareKeySegment(segment string) bool {
-	if segment == "" {
-		return false
-	}
-
-	for index := 0; index < len(segment); index++ {
-		character := segment[index]
-		if !(character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
-			return false
-		}
-	}
-
-	return true
-}
-
-func parseDotSeparatedPath(path string) ([]string, error) {
-	trimmedPath := strings.TrimSpace(path)
-	if trimmedPath == "" {
-		return nil, fmt.Errorf("path must be set")
-	}
-
-	rawSegments := strings.Split(trimmedPath, ".")
-	segments := make([]string, 0, len(rawSegments))
-	for _, rawSegment := range rawSegments {
-		if rawSegment == "" {
-			return nil, fmt.Errorf("path must contain non-empty dot-separated segments")
-		}
-		if strings.TrimSpace(rawSegment) != rawSegment {
-			return nil, fmt.Errorf("segment %q must not contain leading or trailing whitespace", rawSegment)
-		}
-
-		segments = append(segments, rawSegment)
-	}
-
-	return segments, nil
-}
-
 func legacyConnectionJSONPath(connectionName string) string {
-	return "ConnectionStrings." + connectionName
+	jsonPath, err := FormatJSONPath([]string{"ConnectionStrings", connectionName})
+	if err != nil {
+		return "ConnectionStrings."
+	}
+
+	return jsonPath
 }
 
 func validateCompatibilityProfiles(parsedProfiles []fileProfile) ([]Profile, error) {

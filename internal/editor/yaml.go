@@ -145,7 +145,7 @@ func findYAMLStringTarget(document *yaml.Node, yamlPath string) (*yaml.Node, err
 
 	for index, segment := range pathSegments {
 		if currentNode.Kind != yaml.MappingNode {
-			traversedPath := strings.Join(pathSegments[:index], ".")
+			traversedPath := formatYAMLPathForError(pathSegments[:index])
 			return nil, fmt.Errorf("YAML path %q cannot continue through %q because it is not a mapping", yamlPath, traversedPath)
 		}
 
@@ -167,7 +167,7 @@ func findYAMLStringTarget(document *yaml.Node, yamlPath string) (*yaml.Node, err
 		}
 
 		if nextNode.Kind != yaml.MappingNode {
-			traversedPath := strings.Join(pathSegments[:index+1], ".")
+			traversedPath := formatYAMLPathForError(pathSegments[:index+1])
 			return nil, fmt.Errorf("YAML path %q cannot continue through %q because it is not a mapping", yamlPath, traversedPath)
 		}
 
@@ -307,7 +307,10 @@ func buildYAMLStringTargetNodes(mappingNode *yaml.Node, parentSegments []string)
 		}
 
 		pathSegments := appendPathSegment(parentSegments, keyNode.Value)
-		yamlPath := strings.Join(pathSegments, ".")
+		yamlPath, ok := formatYAMLPath(pathSegments)
+		if !ok {
+			continue
+		}
 		switch {
 		case isYAMLStringScalar(valueNode):
 			nodes = append(nodes, YAMLStringTargetNode{
@@ -360,7 +363,7 @@ func yamlMappingHasMergeKey(mappingNode *yaml.Node) bool {
 }
 
 func isInspectableYAMLMappingKey(node *yaml.Node) bool {
-	return isYAMLStringMappingKey(node) && node.Value != "" && strings.TrimSpace(node.Value) == node.Value && !strings.Contains(node.Value, ".")
+	return isYAMLStringMappingKey(node) && node.Value != "" && strings.TrimSpace(node.Value) == node.Value
 }
 
 func isYAMLStringMappingKey(node *yaml.Node) bool {
@@ -380,5 +383,23 @@ func yamlPathContext(pathSegments []string) string {
 		return "root"
 	}
 
-	return fmt.Sprintf("%q", strings.Join(pathSegments, "."))
+	return fmt.Sprintf("%q", formatYAMLPathForError(pathSegments))
+}
+
+func formatYAMLPath(pathSegments []string) (string, bool) {
+	yamlPath, err := config.FormatYAMLPath(pathSegments)
+	if err != nil {
+		return "", false
+	}
+
+	return yamlPath, true
+}
+
+func formatYAMLPathForError(pathSegments []string) string {
+	yamlPath, ok := formatYAMLPath(pathSegments)
+	if ok {
+		return yamlPath
+	}
+
+	return strings.Join(pathSegments, ".")
 }

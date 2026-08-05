@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -45,6 +46,7 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 		return nil, fmt.Errorf("project root %q is not a directory", resolvedProjectRoot)
 	}
 
+	ignoreRules := loadDiscoveryIgnoreRules(resolvedProjectRoot)
 	candidates := make([]TargetFileCandidate, 0)
 	err = filepath.WalkDir(resolvedProjectRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -52,7 +54,7 @@ func DiscoverTargetFileCandidates(projectRoot string) ([]TargetFileCandidate, er
 		}
 
 		if entry.IsDir() {
-			if path != resolvedProjectRoot && shouldSkipDiscoveryDirectory(entry) {
+			if path != resolvedProjectRoot && shouldSkipDiscoveryDirectoryPath(resolvedProjectRoot, path, entry, ignoreRules) {
 				return filepath.SkipDir
 			}
 
@@ -240,6 +242,19 @@ func shouldSkipDiscoveryDirectory(entry fs.DirEntry) bool {
 	return shouldSkip
 }
 
+func shouldSkipDiscoveryDirectoryPath(projectRoot string, directoryPath string, entry fs.DirEntry, ignoreRules discoveryIgnoreRules) bool {
+	if shouldSkipDiscoveryDirectory(entry) {
+		return true
+	}
+
+	relativePath, err := filepath.Rel(projectRoot, directoryPath)
+	if err != nil {
+		return false
+	}
+
+	return ignoreRules.ignoresDirectory(relativePath)
+}
+
 func discoveryCandidateRank(candidate TargetFileCandidate) int {
 	fileName := strings.ToLower(filepath.Base(candidate.RelativePath))
 	baseName := strings.TrimSuffix(fileName, filepath.Ext(fileName))
@@ -292,4 +307,100 @@ func isInConfigDirectory(path string) bool {
 
 func pathDepth(path string) int {
 	return strings.Count(path, string(filepath.Separator))
+}
+
+type discoveryIgnoreRules struct {
+	rules []discoveryIgnoreRule
+}
+
+type discoveryIgnoreRule struct {
+	pattern      string
+	negated      bool
+	basenameOnly bool
+}
+
+func loadDiscoveryIgnoreRules(projectRoot string) discoveryIgnoreRules {
+	contents, err := os.ReadFile(filepath.Join(projectRoot, ".gitignore"))
+	if err != nil {
+		return discoveryIgnoreRules{}
+	}
+
+	return parseDiscoveryIgnoreRules(string(contents))
+}
+
+func parseDiscoveryIgnoreRules(contents string) discoveryIgnoreRules {
+	rules := make([]discoveryIgnoreRule, 0)
+	for _, line := range strings.Split(contents, "\n") {
+		rule, ok := parseDiscoveryIgnoreRule(line)
+		if ok {
+			rules = append(rules, rule)
+		}
+	}
+
+	return discoveryIgnoreRules{rules: rules}
+}
+
+func parseDiscoveryIgnoreRule(rawLine string) (discoveryIgnoreRule, bool) {
+	line := strings.TrimSpace(rawLine)
+	if line == "" || strings.HasPrefix(line, "#") {
+		return discoveryIgnoreRule{}, false
+	}
+	escapedLeadingMarker := false
+	if strings.HasPrefix(line, `\#`) || strings.HasPrefix(line, `\!`) {
+		line = line[1:]
+		escapedLeadingMarker = true
+	}
+
+	negated := false
+	if !escapedLeadingMarker && strings.HasPrefix(line, "!") {
+		negated = true
+		line = strings.TrimSpace(strings.TrimPrefix(line, "!"))
+		if line == "" {
+			return discoveryIgnoreRule{}, false
+		}
+	}
+
+	line = filepath.ToSlash(line)
+	line = strings.Trim(line, "/")
+	if line == "" {
+		return discoveryIgnoreRule{}, false
+	}
+
+	return discoveryIgnoreRule{
+		pattern:      line,
+		negated:      negated,
+		basenameOnly: !strings.Contains(line, "/"),
+	}, true
+}
+
+func (rules discoveryIgnoreRules) ignoresDirectory(relativePath string) bool {
+	pathToCheck := strings.Trim(filepath.ToSlash(relativePath), "/")
+	if pathToCheck == "" || pathToCheck == "." {
+		return false
+	}
+
+	ignored := false
+	for _, rule := range rules.rules {
+		if rule.matchesDirectory(pathToCheck) {
+			ignored = !rule.negated
+		}
+	}
+
+	return ignored
+}
+
+func (rule discoveryIgnoreRule) matchesDirectory(relativePath string) bool {
+	if rule.basenameOnly {
+		return matchDiscoveryIgnorePattern(rule.pattern, path.Base(relativePath))
+	}
+
+	return matchDiscoveryIgnorePattern(rule.pattern, relativePath)
+}
+
+func matchDiscoveryIgnorePattern(pattern string, value string) bool {
+	if matched, err := path.Match(pattern, value); err == nil && matched {
+		return true
+	}
+
+	return !strings.ContainsAny(pattern, "*?[") && pattern == value
 }

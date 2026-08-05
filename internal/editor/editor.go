@@ -5,10 +5,17 @@ import (
 	"io/fs"
 	"os"
 	"sort"
+
+	"github.com/jeppeklh/switchlet/internal/config"
 )
 
 func connectionStringJSONPath(connectionName string) string {
-	return "ConnectionStrings." + connectionName
+	jsonPath, err := config.FormatJSONPath([]string{"ConnectionStrings", connectionName})
+	if err != nil {
+		return "ConnectionStrings."
+	}
+
+	return jsonPath
 }
 
 // ValidateStringTarget verifies that the configured target file exists and

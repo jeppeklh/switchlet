@@ -104,12 +104,6 @@ profiles:
 			wantError: "target.jsonPath is invalid",
 		},
 		{
-			name: "legacy connection name cannot contain dots",
-			configContent: legacyConfig(1, "appsettings.Development.json", "Primary.Default", `  - name: Local
-    value: postgres://localhost:5432/myapp`),
-			wantError: "cannot be mapped to a JSON path",
-		},
-		{
 			name: "empty profile list",
 			configContent: strings.TrimSpace(`
 version: 2
@@ -170,6 +164,21 @@ profiles: []
 				t.Fatalf("Load returned error %q, want substring %q", err, testCase.wantError)
 			}
 		})
+	}
+}
+
+func TestLoad_AcceptsLegacyConnectionNameWithDots(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", legacyConfig(1, "appsettings.Development.json", "Primary.Default", `  - name: Local
+    value: postgres://localhost:5432/myapp`))
+
+	loadedConfig, err := config.Load(configPath)
+	if err != nil {
+		t.Fatalf("Load returned error: %v", err)
+	}
+
+	if loadedConfig.Target.JSONPath != `ConnectionStrings.Primary\.Default` {
+		t.Fatalf("Target.JSONPath = %q, want escaped connection-name segment", loadedConfig.Target.JSONPath)
 	}
 }
 
@@ -873,6 +882,11 @@ func TestParseTOMLPath_ValidatesBareKeySelectorContract(t *testing.T) {
 			tomlPath:  `services."api".endpoint`,
 			wantError: "must use unquoted TOML bare-key syntax",
 		},
+		{
+			name:      "escaped dotted key selector",
+			tomlPath:  `services.api\.endpoint`,
+			wantError: "must use unquoted TOML bare-key syntax",
+		},
 	}
 
 	for _, testCase := range tests {
@@ -895,6 +909,50 @@ func TestParseTOMLPath_ValidatesBareKeySelectorContract(t *testing.T) {
 				t.Fatalf("segments = %#v, want %#v", segments, testCase.wantSegments)
 			}
 		})
+	}
+}
+
+func TestParseJSONAndYAMLPaths_SupportEscapedSegments(t *testing.T) {
+	tests := []struct {
+		name         string
+		parse        func(string) ([]string, error)
+		selector     string
+		wantSegments []string
+	}{
+		{
+			name:         "json escaped dot",
+			parse:        config.ParseJSONPath,
+			selector:     `ConnectionStrings.Primary\.Default`,
+			wantSegments: []string{"ConnectionStrings", "Primary.Default"},
+		},
+		{
+			name:         "yaml escaped dot and slash",
+			parse:        config.ParseYAMLPath,
+			selector:     `services.worker\.api.path\\name`,
+			wantSegments: []string{"services", `worker.api`, `path\name`},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			segments, err := testCase.parse(testCase.selector)
+			if err != nil {
+				t.Fatalf("parse returned error: %v", err)
+			}
+			if fmt.Sprint(segments) != fmt.Sprint(testCase.wantSegments) {
+				t.Fatalf("segments = %#v, want %#v", segments, testCase.wantSegments)
+			}
+		})
+	}
+}
+
+func TestParseJSONPath_ReturnsClearErrorForMalformedEscape(t *testing.T) {
+	_, err := config.ParseJSONPath(`services.api\`)
+	if err == nil {
+		t.Fatal("ParseJSONPath returned nil error, want malformed escape error")
+	}
+	if !strings.Contains(err.Error(), "path escape must be followed by a character") {
+		t.Fatalf("ParseJSONPath returned error %q, want malformed escape context", err)
 	}
 }
 

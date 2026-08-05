@@ -54,6 +54,35 @@ func TestApplication_ApplyProfile_AppliesLiteralProfile(t *testing.T) {
 	}
 }
 
+func TestApplication_ApplyProfile_AppliesEscapedDottedJSONKey(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "settings": {
+    "api.url": "https://old.example.test"
+  }
+}
+`)+"\n")
+
+	application := app.New(
+		config.Target{File: targetPath, JSONPath: `settings.api\.url`},
+		[]config.Profile{{Name: "Staging", Value: stringPointer("https://staging.example.test")}},
+	)
+	result, err := application.ApplyProfileByName("Staging")
+	if err != nil {
+		t.Fatalf("ApplyProfileByName returned error: %v", err)
+	}
+
+	if result.TargetPath != `settings.api\.url` {
+		t.Fatalf("TargetPath = %q, want escaped selector", result.TargetPath)
+	}
+	updatedRoot := decodeJSONRoot(t, readFile(t, targetPath))
+	settings := updatedRoot["settings"].(map[string]any)
+	if settings["api.url"] != "https://staging.example.test" {
+		t.Fatalf("settings api.url = %q, want updated value", settings["api.url"])
+	}
+}
+
 func TestApplication_Profiles_ReturnsResolvedDisplayDataForAvailableProfiles(t *testing.T) {
 	t.Setenv("MYAPPLICATION_TEST_CONNECTION_STRING", "Server=test;Database=App;Password=super-secret;")
 

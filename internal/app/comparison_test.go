@@ -453,6 +453,28 @@ func TestApplication_DiffProfileByName_GroupsAlreadyMatchingAndWouldUpdateTarget
 	}
 }
 
+func TestApplication_DiffProfileByName_ReadsEscapedDottedJSONKey(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"settings":{"api.url":"https://old.example.test"}}`)
+
+	application := app.NewWithTargets(
+		[]config.Target{{Name: "api", File: targetPath, Type: config.TargetTypeJSON, JSONPath: `settings.api\.url`}},
+		[]config.Profile{{
+			Name:   "Staging",
+			Values: []config.ProfileValue{{Target: "api", Value: stringPointer("https://staging.example.test")}},
+		}},
+	)
+
+	diff, err := application.DiffProfileByName("Staging")
+	if err != nil {
+		t.Fatalf("DiffProfileByName returned error: %v", err)
+	}
+
+	if len(diff.WouldUpdate) != 1 || diff.WouldUpdate[0].Selector != `settings.api\.url` {
+		t.Fatalf("WouldUpdate = %#v, want escaped JSON selector", diff.WouldUpdate)
+	}
+}
+
 func TestApplication_DiffProfileByName_UsesGroupedReadsForSameFileTargets(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://old"},"redis":{"url":"redis://staging"}}`)

@@ -95,6 +95,51 @@ func TestDiscoverTargetFileCandidates_SkipsObviousDependencyAndBuildDirectories(
 	}
 }
 
+func TestDiscoverTargetFileCandidates_SkipsGitignoredDirectories(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	writeTargetFile(t, projectRoot, ".gitignore", "generated-config/\n")
+	writeTargetFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://runtime.example.test"}`)
+	writeTargetFile(t, projectRoot, "generated-config/appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=ignored;Database=App;"}}`)
+
+	candidates, err := DiscoverTargetFileCandidates(projectRoot)
+	if err != nil {
+		t.Fatalf("DiscoverTargetFileCandidates returned error: %v", err)
+	}
+
+	gotRelativePaths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotRelativePaths = append(gotRelativePaths, candidate.RelativePath)
+	}
+
+	wantRelativePaths := []string{filepath.Join("config", "runtime.json")}
+	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
+		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
+	}
+}
+
+func TestDiscoverTargetFileCandidates_DoesNotHideGitignoredLocalTargetFiles(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	writeTargetFile(t, projectRoot, ".gitignore", "appsettings.Development.json\n")
+	writeTargetFile(t, projectRoot, "appsettings.Development.json", `{"ConnectionStrings":{"DefaultConnection":"Server=local;Database=App;"}}`)
+
+	candidates, err := DiscoverTargetFileCandidates(projectRoot)
+	if err != nil {
+		t.Fatalf("DiscoverTargetFileCandidates returned error: %v", err)
+	}
+
+	gotRelativePaths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotRelativePaths = append(gotRelativePaths, candidate.RelativePath)
+	}
+
+	wantRelativePaths := []string{"appsettings.Development.json"}
+	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
+		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
+	}
+}
+
 func TestInspectStringTargets_ReturnsHierarchicalNodes(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
@@ -109,6 +154,7 @@ func TestInspectStringTargets_ReturnsHierarchicalNodes(t *testing.T) {
   },
   "database": {
     "primary": {
+      "api.url": "https://api.example.test",
       "url": "postgres://old",
       "port": 5432
     },
@@ -147,11 +193,18 @@ func TestInspectStringTargets_ReturnsHierarchicalNodes(t *testing.T) {
 				{
 					Name:     "primary",
 					JSONPath: "database.primary",
-					Children: []StringTargetNode{{
-						Name:       "url",
-						JSONPath:   "database.primary.url",
-						Selectable: true,
-					}},
+					Children: []StringTargetNode{
+						{
+							Name:       "api.url",
+							JSONPath:   `database.primary.api\.url`,
+							Selectable: true,
+						},
+						{
+							Name:       "url",
+							JSONPath:   "database.primary.url",
+							Selectable: true,
+						},
+					},
 				},
 				{
 					Name:     "secondary",

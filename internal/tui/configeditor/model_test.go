@@ -623,6 +623,13 @@ func TestManagedValueSelectorOptionsSupportAllTargetTypes(t *testing.T) {
 			want: "service.baseUrl",
 		},
 		{
+			name: "json escaped selector",
+			selection: app.InitTargetFileSelection{TargetType: app.InitTargetTypeJSON, Nodes: []app.InitStringTargetNode{
+				{Name: "api.url", JSONPath: `settings.api\.url`, Selectable: true},
+			}},
+			want: `settings.api\.url`,
+		},
+		{
 			name: "yaml",
 			selection: app.InitTargetFileSelection{TargetType: app.InitTargetTypeYAML, YAMLNodes: []app.InitYAMLStringTargetNode{
 				{Name: "queue", YAMLPath: "queue", Children: []app.InitYAMLStringTargetNode{{Name: "endpoint", YAMLPath: "queue.endpoint", Selectable: true}}},

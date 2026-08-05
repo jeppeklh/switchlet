@@ -132,6 +132,32 @@ func TestUpdateStringValue_ReplacesNestedStringAndPreservesOtherValues(t *testin
 	}
 }
 
+func TestUpdateStringValue_ReplacesEscapedDottedJSONKey(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "ConnectionStrings": {
+    "Primary.Default": "Server=old;Database=App;",
+    "Replica": "Server=replica;Database=App;"
+  }
+}
+`)+"\n")
+
+	replacementValue := "Server=new;Database=App;"
+	if err := UpdateStringValue(targetPath, `ConnectionStrings.Primary\.Default`, replacementValue); err != nil {
+		t.Fatalf("UpdateStringValue returned error: %v", err)
+	}
+
+	rootObject := decodeJSONRoot(t, readFile(t, targetPath))
+	connectionStrings := rootObject["ConnectionStrings"].(map[string]any)
+	if connectionStrings["Primary.Default"] != replacementValue {
+		t.Fatalf("ConnectionStrings.Primary.Default = %q, want %q", connectionStrings["Primary.Default"], replacementValue)
+	}
+	if connectionStrings["Replica"] != "Server=replica;Database=App;" {
+		t.Fatalf("ConnectionStrings.Replica = %q, want unchanged replica", connectionStrings["Replica"])
+	}
+}
+
 func TestUpdateStringValue_PreservesJSONFormattingAndKeyOrderWherePractical(t *testing.T) {
 	projectRoot := t.TempDir()
 	originalContents := strings.TrimSpace(`

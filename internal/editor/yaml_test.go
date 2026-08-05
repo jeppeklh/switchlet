@@ -133,6 +133,32 @@ features:
 	}
 }
 
+func TestApplyTargetChanges_ReplacesEscapedDottedYAMLKey(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
+queue:
+  "endpoint.url": http://old-queue.example.test
+  retries: 3
+`)+"\n")
+
+	err := ApplyTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "workerQueue", File: targetPath, Type: config.TargetTypeYAML, YAMLPath: `queue.endpoint\.url`},
+		Value:  "http://new-queue.example.test",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyTargetChanges returned error: %v", err)
+	}
+
+	root := decodeYAMLRoot(t, readFile(t, targetPath))
+	queue := root["queue"].(map[string]any)
+	if queue["endpoint.url"] != "http://new-queue.example.test" {
+		t.Fatalf("queue endpoint.url = %q, want updated value", queue["endpoint.url"])
+	}
+	if queue["retries"] != 3 {
+		t.Fatalf("queue.retries = %#v, want unchanged integer", queue["retries"])
+	}
+}
+
 func TestApplyTargetChanges_PreservesYAMLScalarStyleWherePractical(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
@@ -430,7 +456,7 @@ features:
 	}
 }
 
-func TestInspectYAMLStringTargets_SkipsUnsupportedPathShapeKeys(t *testing.T) {
+func TestInspectYAMLStringTargets_ReturnsEscapedSelectorsForDottedKeys(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "worker/config.yaml", strings.TrimSpace(`
 queue:
@@ -451,11 +477,18 @@ nested:
 		{
 			Name:     "queue",
 			YAMLPath: "queue",
-			Children: []YAMLStringTargetNode{{
-				Name:       "endpoint",
-				YAMLPath:   "queue.endpoint",
-				Selectable: true,
-			}},
+			Children: []YAMLStringTargetNode{
+				{
+					Name:       "endpoint",
+					YAMLPath:   "queue.endpoint",
+					Selectable: true,
+				},
+				{
+					Name:       "endpoint.with.dot",
+					YAMLPath:   `queue.endpoint\.with\.dot`,
+					Selectable: true,
+				},
+			},
 		},
 		{
 			Name:     "nested",

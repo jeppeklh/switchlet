@@ -121,7 +121,7 @@ func replaceJSONStringTokens(contents []byte, updates []jsonStringValueUpdate) (
 			return nil, false
 		}
 
-		valueRange, ok := rangesByPath[strings.Join(pathSegments, ".")]
+		valueRange, ok := rangesByPath[selectorSegmentsKey(pathSegments)]
 		if !ok {
 			return nil, false
 		}
@@ -260,7 +260,7 @@ func collectJSONValueStringRanges(decoder *json.Decoder, contents []byte, pathSe
 		if !ok {
 			return fmt.Errorf("could not locate JSON string token")
 		}
-		rangesByPath[strings.Join(pathSegments, ".")] = valueRange
+		rangesByPath[selectorSegmentsKey(pathSegments)] = valueRange
 	}
 
 	return nil
@@ -337,7 +337,7 @@ func findStringTarget(rootObject map[string]any, jsonPath string) (map[string]an
 
 		nextObject, ok := nextValue.(map[string]any)
 		if !ok {
-			return nil, "", fmt.Errorf("JSON path %q cannot continue through %q because it is not an object", jsonPath, strings.Join(pathSegments[:index+1], "."))
+			return nil, "", fmt.Errorf("JSON path %q cannot continue through %q because it is not an object", jsonPath, formatJSONPathForError(pathSegments[:index+1]))
 		}
 
 		currentObject = nextObject
@@ -420,7 +420,10 @@ func buildStringTargetNodes(currentObject map[string]any, parentSegments []strin
 	stringNodes := make([]StringTargetNode, 0)
 	for _, propertyName := range propertyNames {
 		pathSegments := appendPathSegment(parentSegments, propertyName)
-		jsonPath := strings.Join(pathSegments, ".")
+		jsonPath, ok := formatJSONPath(pathSegments)
+		if !ok {
+			continue
+		}
 
 		switch propertyValue := currentObject[propertyName].(type) {
 		case string:
@@ -451,4 +454,22 @@ func appendPathSegment(pathSegments []string, segment string) []string {
 	copy(nextPathSegments, pathSegments)
 	nextPathSegments[len(pathSegments)] = segment
 	return nextPathSegments
+}
+
+func formatJSONPath(pathSegments []string) (string, bool) {
+	jsonPath, err := config.FormatJSONPath(pathSegments)
+	if err != nil {
+		return "", false
+	}
+
+	return jsonPath, true
+}
+
+func formatJSONPathForError(pathSegments []string) string {
+	jsonPath, ok := formatJSONPath(pathSegments)
+	if ok {
+		return jsonPath
+	}
+
+	return strings.Join(pathSegments, ".")
 }
