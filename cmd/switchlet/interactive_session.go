@@ -18,6 +18,7 @@ const (
 type interactiveSessionModel struct {
 	workingDirectory string
 	projectRoot      string
+	loadOptions      projectLoadOptions
 	application      app.Application
 	mainModel        tui.Model
 	configModel      configeditor.Model
@@ -32,10 +33,15 @@ func newInteractiveSessionModel(workingDirectory string, application app.Applica
 	if len(projectRootOption) > 0 {
 		projectRoot = projectRootOption[0]
 	}
+	loadOptions := projectLoadOptions{}
+	if len(projectRootOption) > 1 && projectRootOption[1] != "" {
+		loadOptions.ConfigPath = projectRootOption[1]
+	}
 
 	return interactiveSessionModel{
 		workingDirectory: workingDirectory,
 		projectRoot:      projectRoot,
+		loadOptions:      loadOptions,
 		application:      application,
 		mainModel:        tui.NewWithProjectRoot(application, projectRoot),
 		mode:             interactiveSessionMain,
@@ -88,7 +94,7 @@ func (model interactiveSessionModel) updateMain(message tea.Msg) (tea.Model, tea
 	}
 	model.selectedProfile, _ = model.mainModel.SelectedProfileName()
 
-	configModel, err := configEditorModelForWorkingDirectory(model.workingDirectory, configeditor.Options{Embedded: true})
+	configModel, err := configEditorModelForWorkingDirectory(model.workingDirectory, configeditor.Options{Embedded: true}, model.loadOptions)
 	if err != nil {
 		model.mainModel = tui.NewConfigOpenError(err)
 		return model, model.mainModel.Init()
@@ -120,7 +126,7 @@ func (model interactiveSessionModel) updateConfig(message tea.Msg) (tea.Model, t
 
 func (model interactiveSessionModel) handleConfigResult(result configeditor.Result) (tea.Model, tea.Cmd) {
 	if result.Saved {
-		project, err := loadProject(model.workingDirectory)
+		project, err := loadProject(model.workingDirectory, model.loadOptions)
 		if err != nil {
 			model.mainModel = model.resizeMainModel(tui.NewReloadError(err))
 			model.mode = interactiveSessionMain

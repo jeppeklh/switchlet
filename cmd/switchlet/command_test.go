@@ -226,6 +226,230 @@ profiles:
 	}
 }
 
+func TestRunCommand_ConfigFlagLoadsExplicitProjectAndResolvesTargetsFromConfigDirectory(t *testing.T) {
+	workingDirectory, explicitConfigPath := writeConfigSelectionProjects(t)
+	relativeConfigPath, err := filepath.Rel(workingDirectory, explicitConfigPath)
+	if err != nil {
+		t.Fatalf("make relative config path: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		args     []string
+		expected []string
+	}{
+		{name: "list", args: []string{"list", "--config", relativeConfigPath}, expected: []string{"Explicit"}},
+		{name: "inspect", args: []string{"inspect", "--config", relativeConfigPath, "Explicit"}, expected: []string{"Profile: Explicit"}},
+		{name: "apply dry run", args: []string{"apply", "--dry-run", "--config", relativeConfigPath, "Explicit"}, expected: []string{`Dry run successful for profile "Explicit"`, "No changes were written."}},
+		{name: "status", args: []string{"status", "--config", relativeConfigPath, "--short"}, expected: []string{"Current profile: Explicit"}},
+		{name: "diff", args: []string{"diff", "--config", relativeConfigPath, "Explicit"}, expected: []string{"Switchlet diff", "Already matches", "config/runtime.json"}},
+		{name: "doctor", args: []string{"doctor", "--config", relativeConfigPath}, expected: []string{"Switchlet doctor", "using explicit configuration file", "[ok] configuration_loading"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, workingDirectory)
+			if result.exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+			}
+			if result.programStarted {
+				t.Fatal("runProgram was called for non-interactive command")
+			}
+			for _, expected := range testCase.expected {
+				if !strings.Contains(result.stdout, expected) {
+					t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+				}
+			}
+			if strings.Contains(result.stdout, "Default") {
+				t.Fatalf("stdout %q includes discovered project profile instead of explicit config", result.stdout)
+			}
+		})
+	}
+
+	nameResult := runCommandForTest(t, []string{"status", "--name", "--config", relativeConfigPath}, workingDirectory)
+	if nameResult.exitCode != 0 {
+		t.Fatalf("status --name exitCode = %d, want 0 (stdout: %q, stderr: %q)", nameResult.exitCode, nameResult.stdout, nameResult.stderr)
+	}
+	if nameResult.stdout != "Explicit\n" {
+		t.Fatalf("status --name stdout = %q, want exact profile name", nameResult.stdout)
+	}
+}
+
+func TestRunCommand_ConfigFlagSelectsProjectForInteractiveStartup(t *testing.T) {
+	forceTerminalFileDetection(t, true)
+
+	workingDirectory, explicitConfigPath := writeConfigSelectionProjects(t)
+	relativeConfigPath, err := filepath.Rel(workingDirectory, explicitConfigPath)
+	if err != nil {
+		t.Fatalf("make relative config path: %v", err)
+	}
+	input := openTerminalLikeFile(t, os.O_RDONLY)
+	output := openTerminalLikeFile(t, os.O_WRONLY)
+	programStarted := false
+
+	err = runCommandWithTerminalRunner([]string{"--config", relativeConfigPath}, workingDirectory, func(model tea.Model) (tea.Model, error) {
+		programStarted = true
+		updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 140, Height: 32})
+		view := updatedModel.View()
+		if !strings.Contains(view, "Explicit") {
+			t.Fatalf("View() = %q, want explicit config profile", view)
+		}
+		if strings.Contains(view, "Default") {
+			t.Fatalf("View() = %q, must not show discovered project profile", view)
+		}
+
+		return model, nil
+	}, input, output)
+	if err != nil {
+		t.Fatalf("runCommandWithTerminalRunner returned error: %v", err)
+	}
+	if !programStarted {
+		t.Fatal("runProgram was not called for interactive startup")
+	}
+}
+
+func TestRunCommand_ConfigFlagReportsUsageAndLoadFailures(t *testing.T) {
+	workingDirectory := t.TempDir()
+
+	missingValue := runCommandForTest(t, []string{"list", "--config"}, workingDirectory)
+	if missingValue.exitCode != usageExitCode {
+		t.Fatalf("missing value exitCode = %d, want %d", missingValue.exitCode, usageExitCode)
+	}
+	if !strings.Contains(missingValue.stderr, "--config requires a path") {
+		t.Fatalf("stderr %q does not explain missing config path", missingValue.stderr)
+	}
+
+	missingFile := runCommandForTest(t, []string{"list", "--config", "missing.yaml"}, workingDirectory)
+	if missingFile.exitCode != runtimeExitCode {
+		t.Fatalf("missing file exitCode = %d, want %d", missingFile.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(missingFile.stderr, "read configuration file") || !strings.Contains(missingFile.stderr, "missing.yaml") {
+		t.Fatalf("stderr %q does not explain missing explicit config file", missingFile.stderr)
+	}
+
+	invalidConfigPath := writeFile(t, workingDirectory, "invalid.switchlet.yaml", "version: 3\nprofiles: [\n")
+	invalidConfig := runCommandForTest(t, []string{"list", "--config", invalidConfigPath}, workingDirectory)
+	if invalidConfig.exitCode != runtimeExitCode {
+		t.Fatalf("invalid config exitCode = %d, want %d", invalidConfig.exitCode, runtimeExitCode)
+	}
+	if !strings.Contains(invalidConfig.stderr, "parse configuration file") {
+		t.Fatalf("stderr %q does not explain invalid explicit config file", invalidConfig.stderr)
+	}
+}
+
+func TestRunCommand_ConfigFlagDoesNotLoadForUtilityCommands(t *testing.T) {
+	workingDirectory := t.TempDir()
+	missingConfigPath := filepath.Join(workingDirectory, "missing.yaml")
+
+	versionResult := runCommandForTest(t, []string{"--config", missingConfigPath, "version"}, workingDirectory)
+	if versionResult.exitCode != 0 || !strings.HasPrefix(versionResult.stdout, "switchlet ") {
+		t.Fatalf("version result = %#v, want success without loading config", versionResult)
+	}
+
+	completionResult := runCommandForTest(t, []string{"--config", missingConfigPath, "completion", "bash"}, workingDirectory)
+	if completionResult.exitCode != 0 || !strings.Contains(completionResult.stdout, "# bash completion for switchlet") {
+		t.Fatalf("completion result = %#v, want script without loading config", completionResult)
+	}
+
+	for _, testCase := range []struct {
+		name string
+		args []string
+	}{
+		{name: "init", args: []string{"init", "--config", missingConfigPath}},
+		{name: "version", args: []string{"version", "--config", missingConfigPath}},
+		{name: "completion", args: []string{"completion", "--config", missingConfigPath, "bash"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, workingDirectory)
+			if result.exitCode != usageExitCode {
+				t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, usageExitCode, result.stdout, result.stderr)
+			}
+			if !strings.Contains(result.stderr, `unsupported flag "--config"`) {
+				t.Fatalf("stderr %q does not reject subcommand --config", result.stderr)
+			}
+		})
+	}
+}
+
+func TestRunCommand_ConfigFlagPreservesDashPrefixedProfileAfterDelimiter(t *testing.T) {
+	projectRoot := t.TempDir()
+	configPath := writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config/runtime.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: "-Local"
+    values:
+      - target: database
+        value: postgres://local
+`)+"\n")
+	writeFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://old"}}`)
+
+	result := runCommandForTest(t, []string{"inspect", "--config", configPath, "--", "-Local"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "Profile: -Local") {
+		t.Fatalf("stdout %q does not inspect dash-prefixed profile", result.stdout)
+	}
+}
+
+func TestRunCommand_JSONOutputsIncludeSchemaVersion(t *testing.T) {
+	projectRoot := writeMinimalCommandProject(t)
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "list", args: []string{"list", "--json"}},
+		{name: "inspect", args: []string{"inspect", "Local", "--json"}},
+		{name: "apply", args: []string{"apply", "Local", "--dry-run", "--json"}},
+		{name: "status", args: []string{"status", "--json"}},
+		{name: "diff", args: []string{"diff", "Local", "--json"}},
+		{name: "doctor", args: []string{"doctor", "--json"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != 0 {
+				t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+			}
+			assertJSONSchemaVersion(t, result.stdout)
+		})
+	}
+}
+
+func TestRunCommand_JSONErrorsIncludeSchemaVersion(t *testing.T) {
+	projectRoot := writeMinimalCommandProject(t)
+
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "runtime", args: []string{"inspect", "Missing", "--json"}},
+		{name: "usage", args: []string{"status", "--short", "--json"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode == 0 {
+				t.Fatalf("exitCode = 0, want failure (stdout: %q, stderr: %q)", result.stdout, result.stderr)
+			}
+			if result.stderr != "" {
+				t.Fatalf("stderr = %q, want JSON error on stdout", result.stderr)
+			}
+			assertJSONSchemaVersion(t, result.stdout)
+		})
+	}
+}
+
 func TestRunCommand_ListHelpWritesSubcommandUsageWithoutLoadingConfiguration(t *testing.T) {
 	result := runCommandForTest(t, []string{"list", "--help"}, t.TempDir())
 	if result.exitCode != 0 {
@@ -1263,6 +1487,66 @@ profiles:
 	writeFile(t, projectRoot, "config/runtime.json", `{"services":{"backend":{"baseUrl":"https://old.example.test"}}}`)
 
 	return projectRoot
+}
+
+func writeConfigSelectionProjects(t *testing.T) (workingDirectory string, explicitConfigPath string) {
+	t.Helper()
+
+	workspace := t.TempDir()
+	discoveredRoot := filepath.Join(workspace, "discovered")
+	explicitRoot := filepath.Join(workspace, "explicit")
+	workingDirectory = filepath.Join(discoveredRoot, "sub")
+
+	writeFile(t, discoveredRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config/runtime.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Default
+    values:
+      - target: database
+        value: postgres://default
+`)+"\n")
+	writeFile(t, discoveredRoot, "config/runtime.json", `{"database":{"url":"postgres://default"}}`)
+	writeFile(t, discoveredRoot, "sub/.keep", "")
+
+	explicitConfigPath = writeFile(t, explicitRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: config/runtime.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Explicit
+    values:
+      - target: database
+        value: postgres://explicit
+`)+"\n")
+	writeFile(t, explicitRoot, "config/runtime.json", `{"database":{"url":"postgres://explicit"}}`)
+
+	return workingDirectory, explicitConfigPath
+}
+
+func assertJSONSchemaVersion(t *testing.T, stdout string) {
+	t.Helper()
+
+	var payload struct {
+		SchemaVersion int `json:"schemaVersion"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("unmarshal JSON output: %v\noutput: %q", err, stdout)
+	}
+	if payload.SchemaVersion != commandJSONSchemaVersion {
+		t.Fatalf("schemaVersion = %d, want %d", payload.SchemaVersion, commandJSONSchemaVersion)
+	}
 }
 
 func openTerminalLikeFile(t *testing.T, flag int) *os.File {

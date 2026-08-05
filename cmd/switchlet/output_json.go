@@ -7,6 +7,8 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
+const commandJSONSchemaVersion = 1
+
 func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
 	encodedProfiles := make([]profileJSON, 0, len(profiles))
 	for _, profileItem := range profiles {
@@ -14,20 +16,23 @@ func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
 	}
 
 	return writeJSON(output, struct {
-		Profiles []profileJSON `json:"profiles"`
-	}{Profiles: encodedProfiles})
+		SchemaVersion int           `json:"schemaVersion"`
+		Profiles      []profileJSON `json:"profiles"`
+	}{SchemaVersion: commandJSONSchemaVersion, Profiles: encodedProfiles})
 }
 
 func writeInspectJSON(output io.Writer, profileItem app.ProfileItem) error {
 	return writeJSON(output, struct {
-		Profile profileJSON `json:"profile"`
-	}{Profile: profileJSONFromItem(profileItem)})
+		SchemaVersion int         `json:"schemaVersion"`
+		Profile       profileJSON `json:"profile"`
+	}{SchemaVersion: commandJSONSchemaVersion, Profile: profileJSONFromItem(profileItem)})
 }
 
 func writeApplyJSON(output io.Writer, result app.Result) error {
 	return writeJSON(output, struct {
-		Result applyResultJSON `json:"result"`
-	}{Result: applyResultJSON{
+		SchemaVersion int             `json:"schemaVersion"`
+		Result        applyResultJSON `json:"result"`
+	}{SchemaVersion: commandJSONSchemaVersion, Result: applyResultJSON{
 		ProfileName: result.ProfileName,
 		Status:      applyResultStatus(result),
 		TargetPath:  result.TargetPath,
@@ -57,8 +62,9 @@ func writeStatusJSONWithExpectation(output io.Writer, status app.StatusCompariso
 	}
 
 	return writeJSON(output, struct {
-		Result statusResultJSON `json:"result"`
-	}{Result: statusResultJSON{
+		SchemaVersion int              `json:"schemaVersion"`
+		Result        statusResultJSON `json:"result"`
+	}{SchemaVersion: commandJSONSchemaVersion, Result: statusResultJSON{
 		Command:             "status",
 		Status:              string(status.Status),
 		CurrentProfile:      status.CurrentProfile,
@@ -75,8 +81,9 @@ func writeStatusJSONWithExpectation(output io.Writer, status app.StatusCompariso
 
 func writeDiffJSON(output io.Writer, diff app.ProfileDiff) error {
 	return writeJSON(output, struct {
-		Result diffResultJSON `json:"result"`
-	}{Result: diffResultJSON{
+		SchemaVersion int            `json:"schemaVersion"`
+		Result        diffResultJSON `json:"result"`
+	}{SchemaVersion: commandJSONSchemaVersion, Result: diffResultJSON{
 		Command:        "diff",
 		ProfileName:    diff.ProfileName,
 		Protected:      diff.Protected,
@@ -92,8 +99,9 @@ func writeDoctorJSON(output io.Writer, report doctorReport) error {
 	status := doctorReportStatus(report)
 
 	return writeJSON(output, struct {
-		Result doctorResultJSON `json:"result"`
-	}{Result: doctorResultJSON{
+		SchemaVersion int              `json:"schemaVersion"`
+		Result        doctorResultJSON `json:"result"`
+	}{SchemaVersion: commandJSONSchemaVersion, Result: doctorResultJSON{
 		Command:     "doctor",
 		Status:      status,
 		Healthy:     status == "ok",

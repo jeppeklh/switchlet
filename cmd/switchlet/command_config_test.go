@@ -1,8 +1,11 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
 )
 
 func TestRunCommand_ConfigHelpWritesUsageWithoutLaunchingEditor(t *testing.T) {
@@ -58,5 +61,25 @@ func TestRunCommand_ConfigRequiresInteractiveTerminal(t *testing.T) {
 	}
 	if !strings.Contains(result.stderr, "interactive-only") || !strings.Contains(result.stderr, "stdin and stdout") {
 		t.Fatalf("stderr %q does not explain interactive-only config editing", result.stderr)
+	}
+}
+
+func TestConfigEditorModelForWorkingDirectoryUsesExplicitConfigPath(t *testing.T) {
+	workingDirectory, explicitConfigPath := writeConfigSelectionProjects(t)
+	relativeConfigPath, err := filepath.Rel(workingDirectory, explicitConfigPath)
+	if err != nil {
+		t.Fatalf("make relative config path: %v", err)
+	}
+
+	model, err := configEditorModelForWorkingDirectory(workingDirectory, configeditor.Options{}, projectLoadOptions{ConfigPath: relativeConfigPath})
+	if err != nil {
+		t.Fatalf("configEditorModelForWorkingDirectory returned error: %v", err)
+	}
+	view := model.View()
+	if !strings.Contains(view, "Explicit") {
+		t.Fatalf("View() = %q, want explicit config profile", view)
+	}
+	if strings.Contains(view, "Default") {
+		t.Fatalf("View() = %q, must not show discovered project profile", view)
 	}
 }

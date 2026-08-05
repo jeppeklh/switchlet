@@ -2,15 +2,15 @@ package main
 
 func usageText() string {
 	return `Usage:
-	  switchlet                                      Launch the profile switcher
+	  switchlet [--config <path>]                    Launch the profile switcher
 	  switchlet init [--overwrite]                   Guided setup for a .switchlet.yaml in the current directory
-	  switchlet config                               Edit .switchlet.yaml in a full-screen configuration editor
-	  switchlet list [--json]                        List configured profiles and target counts without launching the TUI
-	  switchlet inspect <profile-name> [--json]      Inspect one configured profile and its planned target changes
+	  switchlet config [--config <path>]             Edit .switchlet.yaml in a full-screen configuration editor
+	  switchlet list [--json] [--config <path>]      List configured profiles and target counts without launching the TUI
+	  switchlet inspect <profile-name> [flags]       Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
 	  switchlet status [flags]                       Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [flags]          Compare one profile with current managed values
-	  switchlet doctor [--json]                      Check project health without writing files
+	  switchlet doctor [--json] [--config <path>]    Check project health without writing files
 	  switchlet version                              Show version information
 	  switchlet completion <shell>                   Generate a shell completion script
 	  switchlet help [command]                       Show help text
@@ -22,8 +22,10 @@ func usageText() string {
 	Non-interactive flags:
 	  --json               Write machine-readable JSON for list, inspect, apply, status, diff, or doctor
 	  --short              Write concise text output for status
+	  --name               Write only the current complete profile name for status
 	  --patch              Write read-only managed patch text for diff
 	  --expect             Assert that status matches one expected profile
+	  --config             Load a specific .switchlet.yaml for project-reading commands
 	  --exit-code          Return non-zero from diff when the selected profile would change files
 	  --dry-run            Preview apply impact without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
@@ -31,6 +33,7 @@ func usageText() string {
 
 	Examples:
 	  switchlet
+	  switchlet --config ../other/.switchlet.yaml
 	  switchlet init
 	  switchlet init --overwrite
 	  switchlet config
@@ -39,6 +42,7 @@ func usageText() string {
 	  switchlet apply Local --dry-run
 	  switchlet status
 	  switchlet status --short
+	  switchlet status --name
 	  switchlet status --expect Local
 	  switchlet diff Local
 	  switchlet diff Local --exit-code
@@ -77,7 +81,7 @@ func completionHelpText() string {
 
 func configHelpText() string {
 	return `Usage:
-	  switchlet config
+	  switchlet config [--config <path>]
 
 	Open the interactive configuration editor for the discovered .switchlet.yaml.
 	The editor is a full-screen terminal workflow for editing profiles and managed
@@ -88,6 +92,7 @@ func configHelpText() string {
 
 	Examples:
 	  switchlet config
+	  switchlet config --config ../other/.switchlet.yaml
 `
 }
 
@@ -106,7 +111,7 @@ func versionHelpText() string {
 
 func statusHelpText() string {
 	return `Usage:
-	  switchlet status [--json] [--short] [--expect <profile-name>]
+	  switchlet status [--json] [--short] [--expect <profile-name>] [--name] [--config <path>]
 
 	Compare current managed target values with configured profiles without writing files.
 	Use --expect to return success only when exactly that profile is the current
@@ -115,21 +120,25 @@ func statusHelpText() string {
 	Flags:
 	  --json       Write machine-readable JSON output
 	  --short      Write a concise current-profile summary; cannot be combined with --json or --expect
+	  --name       Write only the current complete profile name; cannot be combined with --json, --short, or --expect
 	  --expect     Assert that the current complete profile matches the named profile
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet status
 	  switchlet status --short
+	  switchlet status --name
 	  switchlet status --expect Local
 	  switchlet status --expect=-Local
 	  switchlet status --json
+	  switchlet status --config ../other/.switchlet.yaml
 `
 }
 
 func diffHelpText() string {
 	return `Usage:
-	  switchlet diff <profile-name> [--json] [--patch] [--exit-code]
+	  switchlet diff <profile-name> [--json] [--patch] [--exit-code] [--config <path>]
 
 	Compare one configured profile with current managed target values without writing files.
 	Diff is read-only and does not require --allow-protected for protected profiles.
@@ -141,6 +150,7 @@ func diffHelpText() string {
 	  --json       Write machine-readable JSON output
 	  --patch      Write managed patch text; cannot be combined with --json
 	  --exit-code  Return non-zero when the selected profile differs from current managed values
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
@@ -149,12 +159,13 @@ func diffHelpText() string {
 	  switchlet diff Local --json
 	  switchlet diff Local --exit-code
 	  switchlet diff Local --patch
+	  switchlet diff Local --config ../other/.switchlet.yaml
 `
 }
 
 func doctorHelpText() string {
 	return `Usage:
-	  switchlet doctor [--json]
+	  switchlet doctor [--json] [--config <path>]
 
 	Run read-only project health checks without writing target files, temporary
 	target files, or .switchlet.yaml.
@@ -166,11 +177,13 @@ func doctorHelpText() string {
 
 	Flags:
 	  --json       Write machine-readable JSON output
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet doctor
 	  switchlet doctor --json
+	  switchlet doctor --config ../other/.switchlet.yaml
 `
 }
 
@@ -209,40 +222,44 @@ func initHelpText() string {
 
 func listHelpText() string {
 	return `Usage:
-	  switchlet list [--json]
+	  switchlet list [--json] [--config <path>]
 
 	List configured profiles, availability, and included target counts without launching the TUI.
 
 	Flags:
 	  --json       Write machine-readable JSON output
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet list
 	  switchlet list --json
+	  switchlet list --config ../other/.switchlet.yaml
 `
 }
 
 func inspectHelpText() string {
 	return `Usage:
-	  switchlet inspect <profile-name> [--json]
+	  switchlet inspect <profile-name> [--json] [--config <path>]
 
 	Inspect one configured profile by name, including planned targets and safe display values.
 
 	Flags:
 	  --json       Write machine-readable JSON output
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet inspect Local
 	  switchlet inspect -- -Local
 	  switchlet inspect Local --json
+	  switchlet inspect Local --config ../other/.switchlet.yaml
 `
 }
 
 func applyHelpText() string {
 	return `Usage:
-	  switchlet apply <profile-name> [--json] [--dry-run] [--allow-protected]
+	  switchlet apply <profile-name> [--json] [--dry-run] [--allow-protected] [--config <path>]
 
 	Apply one configured profile by name. A profile may update one or more configured targets.
 
@@ -253,6 +270,7 @@ func applyHelpText() string {
 	  --json               Write machine-readable JSON output
 	  --dry-run            Preview would-update, already-matching, unavailable, and omitted targets without writing files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+	  --config             Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color           Disable styled command output
 
 	Examples:
@@ -260,5 +278,6 @@ func applyHelpText() string {
 	  switchlet apply --dry-run -- -Local
 	  switchlet apply Production --dry-run --allow-protected
 	  switchlet apply Local --dry-run --json
+	  switchlet apply Local --config ../other/.switchlet.yaml
 `
 }

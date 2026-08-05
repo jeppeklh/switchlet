@@ -14,6 +14,7 @@ import (
 type statusCommandOptions struct {
 	jsonOutput      bool
 	shortOutput     bool
+	nameOutput      bool
 	expectedProfile string
 }
 
@@ -31,15 +32,16 @@ type doctorReport struct {
 	Checks      []app.HealthCheck
 }
 
-func runListCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runListCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, listHelpText())
 		return err
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	commandLoadOptions := loadOptions
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions)
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "list: %v\n\n%s", err, listHelpText())
 	}
@@ -47,7 +49,7 @@ func runListCommand(workingDirectory string, args []string, output io.Writer, ou
 		return usageCommandError(outputOptions, jsonOutput, "list does not accept a profile name\n\n%s", listHelpText())
 	}
 
-	project, err := loadProject(workingDirectory)
+	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
 		return runtimeCommandError(outputOptions, jsonOutput, err)
 	}
@@ -60,26 +62,27 @@ func runListCommand(workingDirectory string, args []string, output io.Writer, ou
 	return writeListText(output, profiles)
 }
 
-func runInspectCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runInspectCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, inspectHelpText())
 		return err
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	commandLoadOptions := loadOptions
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions)
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "inspect: %v\n\n%s", err, inspectHelpText())
 	}
 	if len(positionals) == 0 {
-		return noProfileUsageCommandError(workingDirectory, "inspect", outputOptions, jsonOutput)
+		return noProfileUsageCommandError(workingDirectory, "inspect", outputOptions, jsonOutput, commandLoadOptions)
 	}
 	if len(positionals) != 1 {
 		return usageCommandError(outputOptions, jsonOutput, "inspect requires exactly one profile name\n\n%s", inspectHelpText())
 	}
 
-	project, err := loadProject(workingDirectory)
+	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
 		return runtimeCommandError(outputOptions, jsonOutput, err)
 	}
@@ -101,32 +104,33 @@ func runInspectCommand(workingDirectory string, args []string, output io.Writer,
 	return writeInspectText(output, profileItem, project.ProjectRoot)
 }
 
-func runApplyCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runApplyCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, applyHelpText())
 		return err
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	commandLoadOptions := loadOptions
 	allowProtected := false
 	dryRun := false
 
-	positionals, err := parseArguments(args, map[string]*bool{
+	positionals, err := parseProjectArguments(args, map[string]*bool{
 		"--json":            &jsonOutput,
 		"--dry-run":         &dryRun,
 		"--allow-protected": &allowProtected,
-	}, &outputOptions)
+	}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "apply: %v\n\n%s", err, applyHelpText())
 	}
 	if len(positionals) == 0 {
-		return noProfileUsageCommandError(workingDirectory, "apply", outputOptions, jsonOutput)
+		return noProfileUsageCommandError(workingDirectory, "apply", outputOptions, jsonOutput, commandLoadOptions)
 	}
 	if len(positionals) != 1 {
 		return usageCommandError(outputOptions, jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
 	}
 
-	project, err := loadProject(workingDirectory)
+	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
 		return runtimeCommandError(outputOptions, jsonOutput, err)
 	}
@@ -147,18 +151,28 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer, o
 	return writeApplyText(output, result, project.ProjectRoot)
 }
 
-func runStatusCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runStatusCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, statusHelpText())
 		return err
 	}
 
-	options, positionals, err := parseStatusCommandArguments(args, &outputOptions)
+	commandLoadOptions := loadOptions
+	options, positionals, err := parseStatusCommandArguments(args, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, options.jsonOutput, "status: %v\n\n%s", err, statusHelpText())
 	}
+	if options.jsonOutput && options.nameOutput {
+		return usageCommandError(outputOptions, options.jsonOutput, "status --name cannot be combined with --json\n\n%s", statusHelpText())
+	}
 	if options.jsonOutput && options.shortOutput {
 		return usageCommandError(outputOptions, options.jsonOutput, "status --short cannot be combined with --json\n\n%s", statusHelpText())
+	}
+	if options.nameOutput && options.shortOutput {
+		return usageCommandError(outputOptions, options.jsonOutput, "status --name cannot be combined with --short\n\n%s", statusHelpText())
+	}
+	if options.expectedProfile != "" && options.nameOutput {
+		return usageCommandError(outputOptions, options.jsonOutput, "status --expect cannot be combined with --name\n\n%s", statusHelpText())
 	}
 	if options.expectedProfile != "" && options.shortOutput {
 		return usageCommandError(outputOptions, options.jsonOutput, "status --expect cannot be combined with --short\n\n%s", statusHelpText())
@@ -167,7 +181,7 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 		return usageCommandError(outputOptions, options.jsonOutput, "status does not accept a profile name\n\n%s", statusHelpText())
 	}
 
-	project, err := loadProject(workingDirectory)
+	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
 		return runtimeCommandError(outputOptions, options.jsonOutput, err)
 	}
@@ -194,6 +208,9 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 	if options.shortOutput {
 		return writeStatusShortText(output, status)
 	}
+	if options.nameOutput {
+		return writeStatusNameText(output, status, outputOptions)
+	}
 
 	if err := writeStatusText(output, status, project.ProjectRoot, outputOptions); err != nil {
 		return err
@@ -210,17 +227,18 @@ func runStatusCommand(workingDirectory string, args []string, output io.Writer, 
 	return nil
 }
 
-func runDiffCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runDiffCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, diffHelpText())
 		return err
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	commandLoadOptions := loadOptions
 	patchOutput := false
 	exitCode := false
 
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput, "--patch": &patchOutput, "--exit-code": &exitCode}, &outputOptions)
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput, "--patch": &patchOutput, "--exit-code": &exitCode}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "diff: %v\n\n%s", err, diffHelpText())
 	}
@@ -228,13 +246,13 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 		return usageCommandError(outputOptions, jsonOutput, "diff --patch cannot be combined with --json\n\n%s", diffHelpText())
 	}
 	if len(positionals) == 0 {
-		return noProfileUsageCommandError(workingDirectory, "diff", outputOptions, jsonOutput)
+		return noProfileUsageCommandError(workingDirectory, "diff", outputOptions, jsonOutput, commandLoadOptions)
 	}
 	if len(positionals) != 1 {
 		return usageCommandError(outputOptions, jsonOutput, "diff requires exactly one profile name\n\n%s", diffHelpText())
 	}
 
-	project, err := loadProject(workingDirectory)
+	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
 		return runtimeCommandError(outputOptions, jsonOutput, err)
 	}
@@ -282,14 +300,15 @@ func runDiffCommand(workingDirectory string, args []string, output io.Writer, ou
 	return nil
 }
 
-func runDoctorCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions) error {
+func runDoctorCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
 	if wantsHelpFlag(args) {
 		_, err := io.WriteString(output, doctorHelpText())
 		return err
 	}
 
 	jsonOutput := containsJSONFlag(args)
-	positionals, err := parseArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions)
+	commandLoadOptions := loadOptions
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "doctor: %v\n\n%s", err, doctorHelpText())
 	}
@@ -297,7 +316,7 @@ func runDoctorCommand(workingDirectory string, args []string, output io.Writer, 
 		return usageCommandError(outputOptions, jsonOutput, "doctor does not accept a positional argument\n\n%s", doctorHelpText())
 	}
 
-	report := buildDoctorReport(workingDirectory)
+	report := buildDoctorReport(workingDirectory, commandLoadOptions)
 	if jsonOutput {
 		if err := writeDoctorJSON(output, report); err != nil {
 			return err
@@ -319,19 +338,48 @@ func runDoctorCommand(workingDirectory string, args []string, output io.Writer, 
 	return nil
 }
 
-func parseStatusCommandArguments(args []string, outputOptions *commandOutputOptions) (statusCommandOptions, []string, error) {
-	args = parseCommandOutputOptions(args, outputOptions)
+func parseStatusCommandArguments(args []string, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) (statusCommandOptions, []string, error) {
 	options := statusCommandOptions{jsonOutput: containsJSONFlag(args)}
 	positionals := make([]string, 0, len(args))
 
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
+		if arg == "--" {
+			positionals = append(positionals, args[index+1:]...)
+			break
+		}
+		if arg == noColorFlag {
+			if outputOptions != nil {
+				outputOptions.NoColor = true
+			}
+			continue
+		}
+		if arg == configFlag {
+			if index+1 >= len(args) {
+				return options, nil, fmt.Errorf("%s requires a path", configFlag)
+			}
+			if err := setConfigPathOption(loadOptions, args[index+1]); err != nil {
+				return options, nil, err
+			}
+			index++
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, configFlag+"="); ok {
+			if err := setConfigPathOption(loadOptions, value); err != nil {
+				return options, nil, err
+			}
+			continue
+		}
 		if arg == "--json" {
 			options.jsonOutput = true
 			continue
 		}
 		if arg == "--short" {
 			options.shortOutput = true
+			continue
+		}
+		if arg == "--name" {
+			options.nameOutput = true
 			continue
 		}
 		if value, ok := strings.CutPrefix(arg, "--expect="); ok {
@@ -356,7 +404,7 @@ func parseStatusCommandArguments(args []string, outputOptions *commandOutputOpti
 			continue
 		}
 		if len(arg) > 0 && arg[0] == '-' {
-			return options, nil, unsupportedFlagError(arg, []string{"--expect", "--json", "--no-color", "--short"})
+			return options, nil, unsupportedFlagError(arg, []string{"--config", "--expect", "--json", "--name", "--no-color", "--short"})
 		}
 
 		positionals = append(positionals, arg)
@@ -430,10 +478,10 @@ func managedPatchPreviewHasDiffExitFailure(preview app.ManagedPatchPreview) bool
 	return false
 }
 
-func buildDoctorReport(workingDirectory string) doctorReport {
+func buildDoctorReport(workingDirectory string, loadOptions projectLoadOptions) doctorReport {
 	report := doctorReport{}
 
-	configPath, err := config.Discover(workingDirectory)
+	configPath, err := selectedConfigPath(workingDirectory, loadOptions)
 	if err != nil {
 		report.Checks = append(report.Checks, app.HealthCheck{
 			Name:    "configuration_discovery",
@@ -445,10 +493,14 @@ func buildDoctorReport(workingDirectory string) doctorReport {
 
 	report.ConfigPath = configPath
 	report.ProjectRoot = filepath.Dir(configPath)
+	discoveryMessage := "found .switchlet.yaml"
+	if loadOptions.ConfigPath != "" {
+		discoveryMessage = "using explicit configuration file"
+	}
 	report.Checks = append(report.Checks, app.HealthCheck{
 		Name:    "configuration_discovery",
 		Status:  app.HealthCheckOK,
-		Message: "found .switchlet.yaml",
+		Message: discoveryMessage,
 	})
 
 	loadedConfig, err := config.Load(configPath)

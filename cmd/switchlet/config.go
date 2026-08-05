@@ -7,16 +7,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
-	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
 )
 
-func runConfigCommand(workingDirectory string, input io.Reader, output io.Writer) error {
+func runConfigCommand(workingDirectory string, loadOptions projectLoadOptions, input io.Reader, output io.Writer) error {
 	if !shouldUseConfigEditor(input, output) {
 		return fmt.Errorf("switchlet config is interactive-only in Version 0.19 and requires stdin and stdout to be terminals")
 	}
 
-	result, err := runConfigEditorForWorkingDirectory(workingDirectory, input, output)
+	result, err := runConfigEditorForWorkingDirectory(workingDirectory, loadOptions, input, output)
 	if err != nil {
 		return err
 	}
@@ -33,8 +32,8 @@ func runConfigCommand(workingDirectory string, input io.Reader, output io.Writer
 	return err
 }
 
-func runConfigEditorForWorkingDirectory(workingDirectory string, input io.Reader, output io.Writer) (configeditor.Result, error) {
-	model, err := configEditorModelForWorkingDirectory(workingDirectory, configeditor.Options{})
+func runConfigEditorForWorkingDirectory(workingDirectory string, loadOptions projectLoadOptions, input io.Reader, output io.Writer) (configeditor.Result, error) {
+	model, err := configEditorModelForWorkingDirectory(workingDirectory, configeditor.Options{}, loadOptions)
 	if err != nil {
 		return configeditor.Result{}, err
 	}
@@ -42,13 +41,13 @@ func runConfigEditorForWorkingDirectory(workingDirectory string, input io.Reader
 	return runConfigEditorModel(model, input, output)
 }
 
-func configEditorModelForWorkingDirectory(workingDirectory string, options configeditor.Options) (configeditor.Model, error) {
-	model, _, err := configEditorModelAndWorkflowForWorkingDirectory(workingDirectory, options)
+func configEditorModelForWorkingDirectory(workingDirectory string, options configeditor.Options, loadOptions ...projectLoadOptions) (configeditor.Model, error) {
+	model, _, err := configEditorModelAndWorkflowForWorkingDirectory(workingDirectory, options, loadOptions...)
 	return model, err
 }
 
-func configEditorModelAndWorkflowForWorkingDirectory(workingDirectory string, options configeditor.Options) (configeditor.Model, app.ConfigEditWorkflow, error) {
-	configPath, err := config.Discover(workingDirectory)
+func configEditorModelAndWorkflowForWorkingDirectory(workingDirectory string, options configeditor.Options, optionsList ...projectLoadOptions) (configeditor.Model, app.ConfigEditWorkflow, error) {
+	configPath, err := selectedConfigPath(workingDirectory, firstProjectLoadOptions(optionsList))
 	if err != nil {
 		return configeditor.Model{}, app.ConfigEditWorkflow{}, err
 	}

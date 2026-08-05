@@ -112,8 +112,9 @@ func commandFailure(outputOptions commandOutputOptions, jsonOutput bool, exitCod
 	}
 
 	encodedError, err := json.Marshal(struct {
-		Error commandErrorJSON `json:"error"`
-	}{Error: commandErrorJSON{Kind: kind, Message: message}})
+		SchemaVersion int              `json:"schemaVersion"`
+		Error         commandErrorJSON `json:"error"`
+	}{SchemaVersion: commandJSONSchemaVersion, Error: commandErrorJSON{Kind: kind, Message: message}})
 	if err != nil {
 		return fmt.Errorf("serialize command error: %w", err)
 	}
@@ -141,8 +142,8 @@ type commandErrorJSON struct {
 	Message string `json:"message"`
 }
 
-func noProfileUsageCommandError(workingDirectory string, commandName string, outputOptions commandOutputOptions, jsonOutput bool) error {
-	application, err := loadApplication(workingDirectory)
+func noProfileUsageCommandError(workingDirectory string, commandName string, outputOptions commandOutputOptions, jsonOutput bool, options ...projectLoadOptions) error {
+	application, err := loadApplication(workingDirectory, options...)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "No profile specified.\n\n%s", profileCommandHelpText(commandName))
 	}

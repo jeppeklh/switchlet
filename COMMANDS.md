@@ -6,22 +6,24 @@ Command-only reference for the `switchlet` CLI.
 
 | Command | Purpose |
 |---|---|
-| `switchlet` | Launch the interactive profile picker. |
+| `switchlet [--config <path>]` | Launch the interactive profile picker. |
 | `switchlet init [--overwrite]` | Create `.switchlet.yaml` in the current directory. |
-| `switchlet config` | Edit the discovered `.switchlet.yaml` in the configuration editor. |
-| `switchlet list [--json]` | List configured profiles. |
-| `switchlet inspect <profile-name> [--json]` | Inspect one profile and its planned target changes. |
+| `switchlet config [--config <path>]` | Edit `.switchlet.yaml` in the configuration editor. |
+| `switchlet list [--json] [--config <path>]` | List configured profiles. |
+| `switchlet inspect <profile-name> [flags]` | Inspect one profile and its planned target changes. |
 | `switchlet apply <profile-name> [flags]` | Apply one configured profile. |
 | `switchlet status [flags]` | Compare current managed values with configured profiles. |
 | `switchlet diff <profile-name> [flags]` | Compare one profile with current managed values. |
-| `switchlet doctor [--json]` | Check project health without writing files. |
+| `switchlet doctor [--json] [--config <path>]` | Check project health without writing files. |
 | `switchlet version` / `switchlet --version` | Show version information. |
 | `switchlet completion <shell>` | Generate a shell completion script. |
 | `switchlet help [command]` | Show general or command-specific help. |
 
 Switchlet discovers `.switchlet.yaml` by searching upward from the current
-working directory. Relative target paths are resolved from the directory that
-contains `.switchlet.yaml`.
+working directory by default. Use `--config <path>` with project-reading
+commands to load a specific configuration file. Relative `--config` paths
+resolve from the current working directory. Relative target paths still resolve
+from the directory that contains the selected `.switchlet.yaml`.
 
 ## Setup Commands
 
@@ -32,6 +34,7 @@ configuration.
 
 ```bash
 switchlet
+switchlet --config ../other/.switchlet.yaml
 ```
 
 This command requires stdin and stdout to be interactive terminals. In scripts,
@@ -56,10 +59,12 @@ parent directory. The setup flow supports JSON, YAML, TOML, and dotenv targets.
 
 ### `switchlet config`
 
-Opens the interactive configuration editor for the discovered `.switchlet.yaml`.
+Opens the interactive configuration editor for the discovered or selected
+`.switchlet.yaml`.
 
 ```bash
 switchlet config
+switchlet config --config ../other/.switchlet.yaml
 ```
 
 The editor works on an in-memory draft and writes only from the save review.
@@ -76,6 +81,7 @@ Lists configured profiles, availability, protection, and target counts.
 ```bash
 switchlet list
 switchlet list --json
+switchlet list --config ../other/.switchlet.yaml
 switchlet list --no-color
 ```
 
@@ -87,6 +93,7 @@ Shows one profile's planned target changes without writing files.
 switchlet inspect Local
 switchlet inspect -- -Local
 switchlet inspect Local --json
+switchlet inspect Local --config ../other/.switchlet.yaml
 switchlet inspect Local --no-color
 ```
 
@@ -100,6 +107,7 @@ switchlet apply Local --dry-run
 switchlet apply --dry-run -- -Local
 switchlet apply Production --allow-protected
 switchlet apply Local --dry-run --json
+switchlet apply Local --config ../other/.switchlet.yaml
 ```
 
 | Flag | Description |
@@ -107,6 +115,7 @@ switchlet apply Local --dry-run --json
 | `--dry-run` | Preview would-update, already-matching, unavailable, and omitted targets without writing target files. |
 | `--allow-protected` | Explicitly allow non-interactive apply for protected profiles. |
 | `--json` | Write machine-readable JSON output. |
+| `--config <path>` | Load a specific `.switchlet.yaml` instead of discovering upward. |
 | `--no-color` | Disable styled command output. |
 
 Protected profiles are never applied silently. Non-interactive apply requires
@@ -133,10 +142,12 @@ files.
 ```bash
 switchlet status
 switchlet status --short
+switchlet status --name
 switchlet status --json
 switchlet status --expect Local
 switchlet status --expect=Local
 switchlet status --expect=-Local
+switchlet status --config ../other/.switchlet.yaml
 switchlet status --no-color
 ```
 
@@ -147,6 +158,12 @@ results when they omit configured targets.
 
 Use `--short` for a one-line human-readable current-state summary. It is
 value-safe and cannot be combined with `--json`.
+
+Use `--name` for script-friendly current-profile output. It prints exactly the
+current complete profile name and a trailing newline when one complete profile
+matches. It exits non-zero for no complete match, ambiguous complete matches,
+configuration failures, and target-read failures. It cannot be combined with
+`--json`, `--short`, or `--expect`.
 
 Use `--expect <profile-name>` or `--expect=<profile-name>` for scripts that
 need to assert the current complete profile. It exits `0` only when exactly the
@@ -165,6 +182,7 @@ switchlet diff -- -Staging
 switchlet diff Staging --json
 switchlet diff Staging --exit-code
 switchlet diff Staging --patch
+switchlet diff Staging --config ../other/.switchlet.yaml
 switchlet diff Staging --no-color
 switchlet diff Staging --patch | delta
 ```
@@ -187,6 +205,7 @@ target files, or `.switchlet.yaml`.
 ```bash
 switchlet doctor
 switchlet doctor --json
+switchlet doctor --config ../other/.switchlet.yaml
 ```
 
 Doctor checks configuration discovery, configuration loading and schema
@@ -224,9 +243,11 @@ switchlet diff Local --json
 switchlet doctor --json
 ```
 
-JSON output includes profile names, target names, files, selectors,
-availability, and safe errors. It does not include raw current target values or
-raw resolved profile values.
+JSON output includes top-level `schemaVersion: 1`, profile names, target names,
+files, selectors, availability, and safe errors. The schema version describes
+Switchlet command JSON output, not the `.switchlet.yaml` configuration schema.
+JSON output does not include raw current target values or raw resolved profile
+values.
 
 `apply --dry-run --json` also includes an additive `preview` object with
 would-update, already-matching, unavailable, and omitted target categories.
@@ -240,6 +261,18 @@ switchlet status --short
 ```
 
 Short status output is value-safe and cannot be combined with `--json`.
+
+### Name Status
+
+Use `--name` with `status` when a script needs only the current complete profile
+name:
+
+```bash
+switchlet status --name
+```
+
+Name status output is value-safe and cannot be combined with `--json`,
+`--short`, or `--expect`.
 
 ### Managed Patch
 

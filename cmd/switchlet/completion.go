@@ -22,23 +22,25 @@ type completionFlagSpec struct {
 var completionCommands = []completionCommandSpec{
 	{Name: "help", Description: "Show help text"},
 	{Name: "init", Description: "Guided setup for a .switchlet.yaml", Flags: []completionFlagSpec{{Name: "--overwrite", Description: "Replace an existing .switchlet.yaml without prompting"}}},
-	{Name: "config", Description: "Edit .switchlet.yaml in the configuration editor"},
-	{Name: "list", Description: "List configured profiles", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--no-color", Description: "Disable styled command output"}}},
-	{Name: "inspect", Description: "Inspect one configured profile", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "config", Description: "Edit .switchlet.yaml in the configuration editor", Flags: []completionFlagSpec{{Name: "--config", Description: "Load a specific .switchlet.yaml"}}},
+	{Name: "list", Description: "List configured profiles", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--config", Description: "Load a specific .switchlet.yaml"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "inspect", Description: "Inspect one configured profile", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--config", Description: "Load a specific .switchlet.yaml"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "apply", Description: "Apply one configured profile", Flags: []completionFlagSpec{
 		{Name: "--json", Description: "Write machine-readable JSON output"},
 		{Name: "--dry-run", Description: "Validate without writing target files"},
 		{Name: "--allow-protected", Description: "Allow non-interactive apply for a protected profile"},
+		{Name: "--config", Description: "Load a specific .switchlet.yaml"},
 		{Name: "--no-color", Description: "Disable styled command output"},
 	}},
-	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--short", Description: "Write a concise current-profile summary"}, {Name: "--expect", Description: "Assert the current complete profile"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "status", Description: "Compare current managed values", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--short", Description: "Write a concise current-profile summary"}, {Name: "--name", Description: "Write only the current complete profile name"}, {Name: "--expect", Description: "Assert the current complete profile"}, {Name: "--config", Description: "Load a specific .switchlet.yaml"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "diff", Description: "Compare one profile with current managed values", Flags: []completionFlagSpec{
 		{Name: "--json", Description: "Write machine-readable JSON output"},
 		{Name: "--patch", Description: "Write read-only managed patch text"},
 		{Name: "--exit-code", Description: "Return non-zero when the profile would change files"},
+		{Name: "--config", Description: "Load a specific .switchlet.yaml"},
 		{Name: "--no-color", Description: "Disable styled command output"},
 	}},
-	{Name: "doctor", Description: "Check project health", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--no-color", Description: "Disable styled command output"}}},
+	{Name: "doctor", Description: "Check project health", Flags: []completionFlagSpec{{Name: "--json", Description: "Write machine-readable JSON output"}, {Name: "--config", Description: "Load a specific .switchlet.yaml"}, {Name: "--no-color", Description: "Disable styled command output"}}},
 	{Name: "version", Description: "Show version information"},
 	{Name: "completion", Description: "Generate a shell completion script"},
 }
@@ -105,7 +107,7 @@ func bashCompletionScript() string {
 	builder.WriteString("    cur=\"${COMP_WORDS[COMP_CWORD]}\"\n")
 	builder.WriteString("\n")
 	builder.WriteString("    if [[ ${COMP_CWORD} -eq 1 ]]; then\n")
-	fmt.Fprintf(&builder, "        COMPREPLY=( $(compgen -W %q -- \"$cur\") )\n", strings.Join(append([]string{"--help", "--version", noColorFlag}, completionCommandNames()...), " "))
+	fmt.Fprintf(&builder, "        COMPREPLY=( $(compgen -W %q -- \"$cur\") )\n", strings.Join(append([]string{"--help", "--version", configFlag, noColorFlag}, completionCommandNames()...), " "))
 	builder.WriteString("        return 0\n")
 	builder.WriteString("    fi\n")
 	builder.WriteString("\n")
@@ -185,6 +187,7 @@ func zshCompletionScript() string {
 	builder.WriteString("  _arguments -C \\\n")
 	builder.WriteString("    '(-h --help)'{-h,--help}'[Show help text]' \\\n")
 	builder.WriteString("    '--version[Show version information]' \\\n")
+	fmt.Fprintf(&builder, "    '%s[Load a specific .switchlet.yaml]:config file:_files' \\\n", configFlag)
 	fmt.Fprintf(&builder, "    '%s[Disable styled command output]' \\\n", noColorFlag)
 	builder.WriteString("    '1:command:->command' \\\n")
 	builder.WriteString("    '*::argument:->argument'\n")
@@ -282,6 +285,7 @@ func fishCompletionScript() string {
 	builder.WriteString("complete -c switchlet -f\n")
 	builder.WriteString("complete -c switchlet -s h -l help -d 'Show help text'\n")
 	builder.WriteString("complete -c switchlet -l version -d 'Show version information'\n")
+	fmt.Fprintf(&builder, "complete -c switchlet -l %s -r -d 'Load a specific .switchlet.yaml'\n", strings.TrimPrefix(configFlag, "--"))
 	fmt.Fprintf(&builder, "complete -c switchlet -l %s -d 'Disable styled command output'\n", strings.TrimPrefix(noColorFlag, "--"))
 	builder.WriteString("complete -c switchlet -n '__switchlet_profile_completion_needed' -a '(__switchlet_complete_profiles)' -d 'Profile'\n")
 	for _, command := range completionCommands {
@@ -315,8 +319,8 @@ func completionFlagNames(flags []completionFlagSpec) []string {
 	return flagNames
 }
 
-func writeProfileNameCompletions(output io.Writer, workingDirectory string) error {
-	profileNames, err := loadProfileCompletionNames(workingDirectory)
+func writeProfileNameCompletions(output io.Writer, workingDirectory string, loadOptions projectLoadOptions) error {
+	profileNames, err := loadProfileCompletionNames(workingDirectory, loadOptions)
 	if err != nil {
 		return nil
 	}
@@ -330,8 +334,8 @@ func writeProfileNameCompletions(output io.Writer, workingDirectory string) erro
 	return nil
 }
 
-func loadProfileCompletionNames(workingDirectory string) ([]string, error) {
-	configPath, err := config.Discover(workingDirectory)
+func loadProfileCompletionNames(workingDirectory string, loadOptions projectLoadOptions) ([]string, error) {
+	configPath, err := selectedConfigPath(workingDirectory, loadOptions)
 	if err != nil {
 		return nil, err
 	}

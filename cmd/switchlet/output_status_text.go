@@ -91,6 +91,20 @@ func writeStatusShortText(output io.Writer, status app.StatusComparison) error {
 	}
 }
 
+func writeStatusNameText(output io.Writer, status app.StatusComparison, outputOptions commandOutputOptions) error {
+	if status.Status == app.StatusComparisonMatched {
+		_, err := fmt.Fprintln(output, status.CurrentProfile)
+		return err
+	}
+
+	message := "No complete profile matches current managed values."
+	if status.Status == app.StatusComparisonAmbiguous {
+		message = "Current profile is ambiguous; multiple complete profiles match."
+	}
+
+	return commandError{message: message, exitCode: runtimeExitCode, outputOptions: outputOptions}
+}
+
 func profileMatchNames(matches []app.ProfileMatch) []string {
 	names := make([]string, 0, len(matches))
 	for _, match := range matches {

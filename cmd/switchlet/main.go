@@ -20,6 +20,7 @@ const (
 	runtimeExitCode = 1
 	usageExitCode   = 2
 	noColorFlag     = "--no-color"
+	configFlag      = "--config"
 )
 
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
@@ -33,11 +34,16 @@ var (
 
 type loadedProject struct {
 	Application app.Application
+	ConfigPath  string
 	ProjectRoot string
 }
 
 type commandOutputOptions struct {
 	NoColor bool
+}
+
+type projectLoadOptions struct {
+	ConfigPath string
 }
 
 func main() {
@@ -63,19 +69,24 @@ func runCommand(args []string, workingDirectory string, runProgram func(tea.Mode
 
 func runCommandWithTerminalRunner(args []string, workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
 	outputOptions := defaultCommandOutputOptions(output)
-	args = parseLeadingCommandOutputOptions(args, &outputOptions)
+	loadOptions := projectLoadOptions{}
+	var err error
+	args, err = parseLeadingCommandOptions(args, &outputOptions, &loadOptions)
+	if err != nil {
+		return usageCommandError(outputOptions, false, "%v\n\n%s", err, usageText())
+	}
 
 	if len(args) == 0 {
 		if !terminalInteractionAvailable(input, output) {
 			return mainPickerRequiresTerminalError(outputOptions)
 		}
 
-		return runInteractiveCommandWithTerminalRunner(workingDirectory, runProgram, input, output)
+		return runInteractiveCommandWithTerminalRunner(workingDirectory, runProgram, input, output, loadOptions)
 	}
 
 	switch args[0] {
 	case profileCompletionCommandName:
-		return writeProfileNameCompletions(output, workingDirectory)
+		return writeProfileNameCompletions(output, workingDirectory, loadOptions)
 	case "help", "-h", "--help":
 		return writeHelp(output, args[1:], outputOptions)
 	case "--version":
@@ -139,7 +150,8 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 			return err
 		}
 
-		positionals, err := parseArguments(args[1:], map[string]*bool{}, &outputOptions)
+		configLoadOptions := loadOptions
+		positionals, err := parseProjectArguments(args[1:], map[string]*bool{}, &outputOptions, &configLoadOptions)
 		if err != nil {
 			return usageCommandError(outputOptions, false, "config: %v\n\n%s", err, configHelpText())
 		}
@@ -147,19 +159,19 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 			return usageCommandError(outputOptions, false, "config does not accept a positional argument\n\n%s", configHelpText())
 		}
 
-		return runConfigCommand(workingDirectory, input, output)
+		return runConfigCommand(workingDirectory, configLoadOptions, input, output)
 	case "list":
-		return runListCommand(workingDirectory, args[1:], output, outputOptions)
+		return runListCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "inspect":
-		return runInspectCommand(workingDirectory, args[1:], output, outputOptions)
+		return runInspectCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "apply":
-		return runApplyCommand(workingDirectory, args[1:], output, outputOptions)
+		return runApplyCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "status":
-		return runStatusCommand(workingDirectory, args[1:], output, outputOptions)
+		return runStatusCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "diff":
-		return runDiffCommand(workingDirectory, args[1:], output, outputOptions)
+		return runDiffCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "doctor":
-		return runDoctorCommand(workingDirectory, args[1:], output, outputOptions)
+		return runDoctorCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	default:
 		return usageCommandError(outputOptions, false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
@@ -178,13 +190,35 @@ func commandOutputSupportsStyling(output io.Writer) bool {
 	return isTerminalFile(outputFile)
 }
 
-func parseLeadingCommandOutputOptions(args []string, outputOptions *commandOutputOptions) []string {
-	for len(args) > 0 && args[0] == noColorFlag {
-		outputOptions.NoColor = true
-		args = args[1:]
+func parseLeadingCommandOptions(args []string, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) ([]string, error) {
+	for len(args) > 0 {
+		arg := args[0]
+		switch {
+		case arg == noColorFlag:
+			if outputOptions != nil {
+				outputOptions.NoColor = true
+			}
+			args = args[1:]
+		case arg == configFlag:
+			if len(args) < 2 {
+				return nil, fmt.Errorf("%s requires a path", configFlag)
+			}
+			if err := setConfigPathOption(loadOptions, args[1]); err != nil {
+				return nil, err
+			}
+			args = args[2:]
+		case strings.HasPrefix(arg, configFlag+"="):
+			configPath := strings.TrimPrefix(arg, configFlag+"=")
+			if err := setConfigPathOption(loadOptions, configPath); err != nil {
+				return nil, err
+			}
+			args = args[1:]
+		default:
+			return args, nil
+		}
 	}
 
-	return args
+	return args, nil
 }
 
 func adaptTerminalProgramRunner(runProgram func(tea.Model) error) terminalProgramRunner {
@@ -264,21 +298,21 @@ func runInteractiveCommand(workingDirectory string, runProgram func(tea.Model) e
 	return runInteractiveCommandWithTerminalRunner(workingDirectory, adaptTerminalProgramRunner(runProgram), nil, nil)
 }
 
-func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer) error {
-	project, err := loadProject(workingDirectory)
+func runInteractiveCommandWithTerminalRunner(workingDirectory string, runProgram terminalProgramRunner, input io.Reader, output io.Writer, options ...projectLoadOptions) error {
+	project, err := loadProject(workingDirectory, options...)
 	if err != nil {
 		return err
 	}
 
-	if _, err := runProgram(newInteractiveSessionModel(workingDirectory, project.Application, project.ProjectRoot)); err != nil {
+	if _, err := runProgram(newInteractiveSessionModel(workingDirectory, project.Application, project.ProjectRoot, project.ConfigPath)); err != nil {
 		return fmt.Errorf("run terminal UI: %w", err)
 	}
 
 	return nil
 }
 
-func loadApplication(workingDirectory string) (app.Application, error) {
-	project, err := loadProject(workingDirectory)
+func loadApplication(workingDirectory string, options ...projectLoadOptions) (app.Application, error) {
+	project, err := loadProject(workingDirectory, options...)
 	if err != nil {
 		return app.Application{}, err
 	}
@@ -286,8 +320,9 @@ func loadApplication(workingDirectory string) (app.Application, error) {
 	return project.Application, nil
 }
 
-func loadProject(workingDirectory string) (loadedProject, error) {
-	configPath, err := config.Discover(workingDirectory)
+func loadProject(workingDirectory string, options ...projectLoadOptions) (loadedProject, error) {
+	loadOptions := firstProjectLoadOptions(options)
+	configPath, err := selectedConfigPath(workingDirectory, loadOptions)
 	if err != nil {
 		return loadedProject{}, err
 	}
@@ -302,7 +337,41 @@ func loadProject(workingDirectory string) (loadedProject, error) {
 		return loadedProject{}, err
 	}
 
-	return loadedProject{Application: application, ProjectRoot: filepath.Dir(configPath)}, nil
+	return loadedProject{Application: application, ConfigPath: configPath, ProjectRoot: filepath.Dir(configPath)}, nil
+}
+
+func firstProjectLoadOptions(options []projectLoadOptions) projectLoadOptions {
+	if len(options) == 0 {
+		return projectLoadOptions{}
+	}
+
+	return options[0]
+}
+
+func selectedConfigPath(workingDirectory string, loadOptions projectLoadOptions) (string, error) {
+	if loadOptions.ConfigPath == "" {
+		return config.Discover(workingDirectory)
+	}
+
+	return resolveExplicitConfigPath(workingDirectory, loadOptions.ConfigPath)
+}
+
+func resolveExplicitConfigPath(workingDirectory string, configPath string) (string, error) {
+	if strings.TrimSpace(configPath) == "" {
+		return "", fmt.Errorf("%s requires a path", configFlag)
+	}
+
+	path := configPath
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workingDirectory, path)
+	}
+
+	resolvedPath, err := filepath.Abs(path)
+	if err != nil {
+		return "", fmt.Errorf("resolve configuration path %q: %w", configPath, err)
+	}
+
+	return resolvedPath, nil
 }
 
 func startFullScreenProgram(output io.Writer) terminalProgramRunner {
@@ -358,6 +427,67 @@ func parseArguments(args []string, allowedFlags map[string]*bool, outputOptions 
 	return positionals, nil
 }
 
+func parseProjectArguments(args []string, allowedFlags map[string]*bool, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) ([]string, error) {
+	positionals := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			positionals = append(positionals, args[index+1:]...)
+			break
+		}
+		if arg == noColorFlag {
+			if outputOptions != nil {
+				outputOptions.NoColor = true
+			}
+			continue
+		}
+		if arg == configFlag {
+			if index+1 >= len(args) {
+				return nil, fmt.Errorf("%s requires a path", configFlag)
+			}
+			if err := setConfigPathOption(loadOptions, args[index+1]); err != nil {
+				return nil, err
+			}
+			index++
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, configFlag+"="); ok {
+			if err := setConfigPathOption(loadOptions, value); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") {
+			positionals = append(positionals, arg)
+			continue
+		}
+
+		flagValue, ok := allowedFlags[arg]
+		if !ok {
+			return nil, unsupportedFlagError(arg, allowedProjectFlagNames(allowedFlags, outputOptions, loadOptions))
+		}
+
+		*flagValue = true
+	}
+
+	return positionals, nil
+}
+
+func setConfigPathOption(loadOptions *projectLoadOptions, configPath string) error {
+	if loadOptions == nil {
+		return unsupportedFlagError(configFlag, nil)
+	}
+	if strings.TrimSpace(configPath) == "" {
+		return fmt.Errorf("%s requires a path", configFlag)
+	}
+	if loadOptions.ConfigPath != "" {
+		return fmt.Errorf("%s can be provided only once", configFlag)
+	}
+
+	loadOptions.ConfigPath = configPath
+	return nil
+}
+
 func parseCommandOutputOptions(args []string, outputOptions *commandOutputOptions) []string {
 	if outputOptions == nil {
 		return args
@@ -393,11 +523,25 @@ func allowedFlagNames(allowedFlags map[string]*bool, outputOptions *commandOutpu
 	return flagNames
 }
 
+func allowedProjectFlagNames(allowedFlags map[string]*bool, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) []string {
+	flagNames := allowedFlagNames(allowedFlags, outputOptions)
+	if loadOptions != nil {
+		flagNames = append(flagNames, configFlag)
+		sort.Strings(flagNames)
+	}
+
+	return flagNames
+}
+
 func containsJSONFlag(args []string) bool {
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		if arg == "--" {
 			return false
+		}
+		if arg == configFlag {
+			index++
+			continue
 		}
 		if arg == "--expect" {
 			index++
@@ -416,6 +560,10 @@ func wantsHelpFlag(args []string) bool {
 		arg := args[index]
 		if arg == "--" {
 			return false
+		}
+		if arg == configFlag {
+			index++
+			continue
 		}
 		if arg == "--expect" {
 			index++
