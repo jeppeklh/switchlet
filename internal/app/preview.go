@@ -136,6 +136,14 @@ func (application Application) managedPatchPreviewForConfiguredProfile(configure
 		if !ok {
 			return ManagedPatchPreview{}, fmt.Errorf("managed patch preview for profile %q did not include target %q", resolvedProfile.Name, target.Name)
 		}
+		switch hunk.Status {
+		case ManagedPatchStatusWouldUpdate:
+			preview.WouldUpdateCount++
+		case ManagedPatchStatusAlreadyMatches:
+			preview.AlreadyMatchingCount++
+		case ManagedPatchStatusUnavailable:
+			preview.UnavailableCount++
+		}
 		preview.Files = appendManagedPatchHunk(preview.Files, groupIndexesByFile, hunk)
 	}
 

@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +43,8 @@ func TestCompactPathForDisplay_KeepsRelativePathWhenItFits(t *testing.T) {
 }
 
 func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
-	targetFile := "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json"
+	projectRoot := t.TempDir()
+	targetFile := writeTargetFile(t, projectRoot, "very/long/project/path/with/many/segments/configuration/appsettings.Development.json", "{\"services\":{\"database\":{\"primary\":{\"connectionStrings\":{\"defaultConnection\":{\"value\":\"https://old.example.test\"}}}}}}\n")
 	target := config.Target{File: targetFile, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"}
 	profile := config.Profile{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}
 	model := New(app.New(target, []config.Profile{profile}))
@@ -60,11 +62,8 @@ func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
 	assertTargetFilenameVisible(t, "inspection", model.View(), "appsettings.Development.json")
 	assertVisibleWidth(t, model.View(), 80)
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
+	model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 	assertTargetFilenameVisible(t, "confirmation", model.View(), "appsettings.Development.json")
 	assertVisibleWidth(t, model.View(), 80)
 
@@ -82,7 +81,8 @@ func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
 }
 
 func TestView_LongYAMLTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
-	targetFile := "/very/long/project/path/with/many/segments/worker/configuration/config.yaml"
+	projectRoot := t.TempDir()
+	targetFile := writeTargetFile(t, projectRoot, "very/long/project/path/with/many/segments/worker/configuration/config.yaml", "services:\n  worker:\n    queue:\n      primary:\n        endpoint:\n          with:\n            many:\n              segments: https://old.example.test\n")
 	target := config.Target{Name: "workerQueue", File: targetFile, Type: config.TargetTypeYAML, YAMLPath: "services.worker.queue.primary.endpoint.with.many.segments"}
 	profile := config.Profile{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}
 	model := New(app.New(target, []config.Profile{profile}))
@@ -100,11 +100,8 @@ func TestView_LongYAMLTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T
 	assertTargetFilenameVisible(t, "inspection", model.View(), "config.yaml")
 	assertVisibleWidth(t, model.View(), 80)
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
+	model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 	assertTargetFilenameVisible(t, "confirmation", model.View(), "config.yaml")
 	assertVisibleWidth(t, model.View(), 80)
 
@@ -138,7 +135,8 @@ func TestView_LongYAMLTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T
 }
 
 func TestView_LongTOMLTargetPathAndSelectorStayContainedAcrossMainSurfaces(t *testing.T) {
-	targetFile := "/very/long/project/path/with/many/segments/services/configuration/development.toml"
+	projectRoot := t.TempDir()
+	targetFile := writeTargetFile(t, projectRoot, "very/long/project/path/with/many/segments/services/configuration/development.toml", "[services.worker.queues.primary.connection.endpoint.with.many]\nsegments = \"https://old.example.test\"\n")
 	target := config.Target{Name: "serviceEndpoint", File: targetFile, Type: config.TargetTypeTOML, TOMLPath: "services.worker.queues.primary.connection.endpoint.with.many.segments"}
 	profile := config.Profile{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}
 	model := New(app.New(target, []config.Profile{profile}))
@@ -159,11 +157,8 @@ func TestView_LongTOMLTargetPathAndSelectorStayContainedAcrossMainSurfaces(t *te
 	assertTargetFilenameVisible(t, "inspection", model.View(), "development.toml")
 	assertVisibleWidth(t, model.View(), 80)
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
+	model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 	assertTargetFilenameVisible(t, "confirmation", model.View(), "development.toml")
 	assertVisibleWidth(t, model.View(), 80)
 
@@ -448,10 +443,11 @@ func TestView_MultiTargetInspectionGroupsTargetsAndMasksValues(t *testing.T) {
 }
 
 func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
-	databasePath := "/workspace/backend/appsettings.Development.json"
-	workerPath := "/workspace/worker/config.yaml"
-	servicePath := "/workspace/services/development.toml"
-	frontendPath := "/workspace/frontend/.env.local"
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"Server=old;Database=App;Password=old-secret;"}}`)
+	workerPath := writeTargetFile(t, projectRoot, "worker/config.yaml", "queue:\n  endpoint: https://queue.old.example.test\n")
+	servicePath := writeTargetFile(t, projectRoot, "services/development.toml", "[services.api]\nendpoint = \"https://service.old.example.test\"\n")
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=https://api.old.example.test\n")
 	model := New(app.NewWithTargets(
 		[]config.Target{
 			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
@@ -471,33 +467,29 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 		}},
 	))
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 
 	view := model.View()
 	for _, expected := range []string{
 		"Confirmation",
-		"Changes: 4 targets",
-		"This will update configured targets only.",
+		"Apply summary",
+		"Would update: 4 targets",
+		"Already matching: 0 targets",
+		"Only included managed targets are in scope.",
 		"Resolved values are intentionally hidden.",
-		databasePath,
+		filepath.Base(databasePath),
 		"Managed value",
 		"database [json]",
 		"Selector",
 		"database.url",
-		workerPath,
+		filepath.Base(workerPath),
 		"workerQueue [yaml]",
 		"queue.endpoint",
-		servicePath,
+		filepath.Base(servicePath),
 		"serviceEndpoint [toml]",
 		"services.api.endpoint",
-		frontendPath,
+		filepath.Base(frontendPath),
 		"frontendApi [dotenv]",
 		"VITE_API_URL",
 	} {
@@ -508,6 +500,82 @@ func TestView_MultiTargetConfirmationListsTargetsWithoutValues(t *testing.T) {
 	for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test", "https://service.production.example.test", "https://api.production.example.test"} {
 		if strings.Contains(view, forbidden) {
 			t.Fatalf("View() = %q, must not contain resolved value %q", view, forbidden)
+		}
+	}
+}
+
+func TestView_ProtectedConfirmationSummarizesUnavailableAndOmittedTargetsWithoutValues(t *testing.T) {
+	model := New(app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: "backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: "frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+			{Name: "workerQueue", File: "worker/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "queue.endpoint"},
+		},
+		[]config.Profile{{
+			Name:      "Production",
+			Protected: true,
+			Values: []config.ProfileValue{
+				{Target: "database", ValueFromEnv: stringPointer("PRODUCTION_DATABASE_URL")},
+				{Target: "frontendApi", Value: stringPointer("https://api.production.example.test")},
+			},
+		}},
+	))
+	model.state = confirmState
+	model.confirmationPreview = &app.ManagedPatchPreview{
+		ProfileName:          "Production",
+		Protected:            true,
+		Complete:             false,
+		TargetCount:          3,
+		IncludedTargetCount:  2,
+		WouldUpdateCount:     1,
+		AlreadyMatchingCount: 0,
+		UnavailableCount:     1,
+		OmittedTargetCount:   1,
+		Partial:              true,
+		Files: []app.ManagedPatchFileGroup{
+			{
+				TargetFile: "backend/appsettings.Development.json",
+				Hunks: []app.ManagedPatchHunk{{
+					TargetDescriptor:        app.TargetDescriptor{TargetName: "database", TargetFile: "backend/appsettings.Development.json", TargetType: config.TargetTypeJSON, SelectorName: "jsonPath", Selector: "database.url"},
+					Status:                  app.ManagedPatchStatusUnavailable,
+					Available:               false,
+					EnvironmentVariableName: "PRODUCTION_DATABASE_URL",
+					UnavailableReason:       "environment variable \"PRODUCTION_DATABASE_URL\" is missing or empty",
+				}},
+			},
+			{
+				TargetFile: "frontend/.env.local",
+				Hunks: []app.ManagedPatchHunk{{
+					TargetDescriptor: app.TargetDescriptor{TargetName: "frontendApi", TargetFile: "frontend/.env.local", TargetType: config.TargetTypeDotenv, SelectorName: "key", Selector: "VITE_API_URL"},
+					Status:           app.ManagedPatchStatusWouldUpdate,
+					Available:        true,
+				}},
+			},
+		},
+	}
+
+	view := model.View()
+	for _, expected := range []string{
+		"Apply summary",
+		"Would update: 1 target",
+		"Already matching: 0 targets",
+		"Unavailable: 1 target",
+		"Omitted targets: 1 target unchanged",
+		"Environment variable",
+		"PRODUCTION_DATABASE_URL",
+		"Resolve unavailable values before confirming.",
+		"n/Esc Cancel",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want confirmation detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "Enter/y Confirm") {
+		t.Fatalf("View() = %q, must not advertise confirmation while values are unavailable", view)
+	}
+	for _, forbidden := range []string{"https://api.production.example.test", hiddenValuePlaceholder, "Password=****"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain value detail %q", view, forbidden)
 		}
 	}
 }
@@ -768,11 +836,14 @@ func TestUpdate_IgnoresStaleApplyResult(t *testing.T) {
 
 func TestView_MultiTargetViewsFitHostileDimensions(t *testing.T) {
 	t.Setenv("LONG_DATABASE_URL", "Server=very-long-hostname.example.test;Database=Application;Password=super-secret;")
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "very/long/project/path/backend/appsettings.Development.json", `{"services":{"database":{"primary":{"connectionStrings":{"defaultConnection":{"value":"https://old.example.test"}}}}}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "very/long/project/path/frontend/.env.local", "VITE_APPLICATION_BACKEND_API_URL=https://api.old.example.test\n")
 
 	model := New(app.NewWithTargets(
 		[]config.Target{
-			{Name: "database-with-a-very-long-target-name", File: "/very/long/project/path/backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
-			{Name: "frontend-api-with-a-very-long-target-name", File: "/very/long/project/path/frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
+			{Name: "database-with-a-very-long-target-name", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
+			{Name: "frontend-api-with-a-very-long-target-name", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
 		},
 		[]config.Profile{{
 			Name:      "Production profile with a very long display name",
@@ -808,8 +879,8 @@ func TestView_MultiTargetViewsFitHostileDimensions(t *testing.T) {
 		assertVisibleWidth(t, inspectionModel.View(), size.width)
 		assertVisibleHeight(t, inspectionModel.View(), size.height)
 
-		updatedModel, _ = inspectionModel.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		confirmationModel := updatedModel.(Model)
+		confirmationModel, command := startProtectedConfirmation(t, inspectionModel, tea.KeyMsg{Type: tea.KeyEnter})
+		confirmationModel = resolveProtectedConfirmation(t, confirmationModel, command)
 		assertVisibleWidth(t, confirmationModel.View(), size.width)
 		assertVisibleHeight(t, confirmationModel.View(), size.height)
 	}

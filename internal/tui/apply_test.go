@@ -28,17 +28,10 @@ func TestUpdate_ProtectedProfileConfirmationAppliesSelectedProfileWithEnter(t *t
 		[]config.Profile{{Name: "Production", Value: stringPointer("postgres://new"), Protected: true}},
 	))
 
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
+
 	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
-
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if command == nil {
 		t.Fatal("command is nil, want apply command after confirmation")
 	}
@@ -80,19 +73,52 @@ func TestUpdate_ProtectedProfileConfirmationStillAcceptsY(t *testing.T) {
 		[]config.Profile{{Name: "Production", Value: stringPointer("postgres://new"), Protected: true}},
 	))
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
-
-	updatedModel, command = model.Update(runeKey('y'))
+	_, command = model.Update(runeKey('y'))
 	if command == nil {
 		t.Fatal("command is nil, want apply command after y confirmation")
+	}
+}
+
+func TestUpdate_ProtectedProfileConfirmationShowsLoadingBeforeReadySummary(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+
+	model := New(app.New(
+		config.Target{File: targetPath, JSONPath: "database.primary.url"},
+		[]config.Profile{{Name: "Production", Value: stringPointer("postgres://new"), Protected: true}},
+	))
+
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	loadingView := model.View()
+	for _, expected := range []string{"Reviewing protected apply impact...", "Resolved values are intentionally hidden.", "n/Esc Cancel", "q Quit"} {
+		if !strings.Contains(loadingView, expected) {
+			t.Fatalf("loading confirmation View() = %q, want %q", loadingView, expected)
+		}
+	}
+	if strings.Contains(loadingView, "Enter/y Confirm") {
+		t.Fatalf("loading confirmation View() = %q, must not advertise confirmation before the summary is ready", loadingView)
+	}
+
+	model = resolveProtectedConfirmation(t, model, command)
+	readyView := model.View()
+	for _, expected := range []string{"Apply summary", "Would update: 1 target", "Already matching: 0 targets", "Only included managed targets are in scope.", "Affected targets", "Enter/y Confirm"} {
+		if !strings.Contains(readyView, expected) {
+			t.Fatalf("ready confirmation View() = %q, want %q", readyView, expected)
+		}
+	}
+	if strings.Contains(readyView, "postgres://new") || strings.Contains(readyView, "postgres://old") {
+		t.Fatalf("ready confirmation View() = %q, must not reveal managed values", readyView)
 	}
 }
 
@@ -236,19 +262,16 @@ func TestUpdate_SpaceProtectedConfirmationAppliesAndReturnsToList(t *testing.T) 
 		[]config.Profile{{Name: "Production", Value: stringPointer("new"), Protected: true}},
 	))
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeySpace})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before protected Space apply")
-	}
-	if model.state != confirmState || model.confirmExits {
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	if model.confirmExits {
 		t.Fatalf("model after protected Space = %#v, want stay-open confirmation", model)
 	}
+	model = resolveProtectedConfirmation(t, model, command)
 	if !strings.Contains(model.View(), "After apply, return to the profile list.") {
 		t.Fatalf("confirmation View() = %q, want stay-open completion copy", model.View())
 	}
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	model = updatedModel.(Model)
 	if command == nil {
 		t.Fatal("command is nil, want apply command after protected confirmation")

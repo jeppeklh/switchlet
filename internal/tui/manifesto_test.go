@@ -14,13 +14,18 @@ import (
 
 func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 	t.Setenv("LONG_DATABASE_URL", "Server=very-long-host.example.test;Database=Application;Password=super-secret;")
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "very/long/project/path/backend/appsettings.Development.json", `{"services":{"database":{"primary":{"connectionStrings":{"defaultConnection":{"value":"https://old.example.test"}}}}}}`)
+	workerPath := writeTargetFile(t, projectRoot, "very/long/project/path/worker/configuration/config.yaml", "services:\n  worker:\n    queue:\n      primary:\n        endpoint:\n          with:\n            many:\n              segments: https://queue.old.example.test\n")
+	servicePath := writeTargetFile(t, projectRoot, "very/long/project/path/services/configuration/development.toml", "[services.api.endpoint.with.many]\nsegments = \"https://service.old.example.test\"\n")
+	frontendPath := writeTargetFile(t, projectRoot, "very/long/project/path/frontend/.env.local", "VITE_APPLICATION_BACKEND_API_URL=https://api.old.example.test\n")
 
 	baseModel := New(app.NewWithTargets(
 		[]config.Target{
-			{Name: "database-with-a-very-long-target-name", File: "/very/long/project/path/backend/appsettings.Development.json", Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
-			{Name: "worker-queue-with-a-very-long-target-name", File: "/very/long/project/path/worker/configuration/config.yaml", Type: config.TargetTypeYAML, YAMLPath: "services.worker.queue.primary.endpoint.with.many.segments"},
-			{Name: "service-endpoint-with-a-very-long-target-name", File: "/very/long/project/path/services/configuration/development.toml", Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint.with.many.segments"},
-			{Name: "frontend-api-with-a-very-long-target-name", File: "/very/long/project/path/frontend/.env.local", Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
+			{Name: "database-with-a-very-long-target-name", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "services.database.primary.connectionStrings.defaultConnection.value"},
+			{Name: "worker-queue-with-a-very-long-target-name", File: workerPath, Type: config.TargetTypeYAML, YAMLPath: "services.worker.queue.primary.endpoint.with.many.segments"},
+			{Name: "service-endpoint-with-a-very-long-target-name", File: servicePath, Type: config.TargetTypeTOML, TOMLPath: "services.api.endpoint.with.many.segments"},
+			{Name: "frontend-api-with-a-very-long-target-name", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_APPLICATION_BACKEND_API_URL"},
 		},
 		[]config.Profile{{
 			Name:      "Production profile with a very long display name",
@@ -77,11 +82,8 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 
 		t.Run(strings.Join([]string{"confirmation", sizeLabel(size.width, size.height)}, "_"), func(t *testing.T) {
 			model := resizedMainModel(t, baseModel, size.width, size.height)
-			updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			if command != nil {
-				t.Fatal("command is not nil, want confirmation before apply")
-			}
-			model = updatedModel.(Model)
+			loadingModel, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+			model = resolveProtectedConfirmation(t, loadingModel, command)
 			view := model.View()
 			assertManifestoMainView(t, view, size.width, size.height, "Cancel")
 			for _, forbidden := range []string{"super-secret", "Password=****", "https://queue.production.example.test/with/a/long/path", "https://service.production.example.test/with/a/long/path", "https://api.production.example.test/with/a/long/path"} {
@@ -137,16 +139,12 @@ func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
 			config.Target{},
 			[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
 		))
-		updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-		model = updatedModel.(Model)
-		if command != nil {
-			t.Fatal("command is not nil, want confirmation before apply")
-		}
+		model, _ = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 		if !strings.Contains(model.View(), "n/Esc Cancel") || !strings.Contains(model.View(), "q Quit") {
 			t.Fatalf("confirmation View() = %q, want advertised cancel keys", model.View())
 		}
 
-		updatedModel, command = model.Update(key)
+		updatedModel, command := model.Update(key)
 		model = updatedModel.(Model)
 		if command != nil {
 			t.Fatalf("command is not nil after %q, want return to list without quitting", key.String())
@@ -160,12 +158,8 @@ func TestUpdate_CommandBarsMatchAdvertisedReturnAndCancelKeys(t *testing.T) {
 		config.Target{},
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
 	))
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	updatedModel, command = model.Update(runeKey('q'))
+	model, _ = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	updatedModel, command := model.Update(runeKey('q'))
 	model = updatedModel.(Model)
 	if command == nil {
 		t.Fatal("command is nil, want q to quit from advertised confirmation view")
@@ -233,11 +227,7 @@ func TestView_MainCommandBarsDoNotAdvertiseCtrlCAndSecondaryQQuits(t *testing.T)
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;"), Protected: true}},
 	))
 	model = resizedMainModel(t, model, 120, 32)
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before protected apply")
-	}
+	model, _ = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
 	views["confirmation"] = model.View()
 
 	model = New(app.New(

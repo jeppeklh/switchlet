@@ -278,6 +278,57 @@ func appendManagedPatchOmittedTargets(lines []string, descriptors []app.TargetDe
 	return append(lines, targetDescriptorDetailLines(descriptors, projectRoot, maxLineWidth)...)
 }
 
+func confirmationSummaryLines(preview app.ManagedPatchPreview) []string {
+	lines := []string{
+		"",
+		RenderSectionHeading("Apply summary"),
+		RenderKeyValue("Would update", targetCountLabel(preview.WouldUpdateCount)),
+		RenderKeyValue("Already matching", targetCountLabel(preview.AlreadyMatchingCount)),
+	}
+	if preview.UnavailableCount > 0 {
+		lines = append(lines, RenderKeyValue("Unavailable", targetCountLabel(preview.UnavailableCount)))
+	}
+	if preview.OmittedTargetCount > 0 {
+		lines = append(lines, RenderKeyValue("Omitted targets", targetCountLabel(preview.OmittedTargetCount)+" unchanged"))
+	}
+
+	return lines
+}
+
+func confirmationTargetLines(preview app.ManagedPatchPreview, projectRoot string, maxLineWidth int) []string {
+	if len(preview.Files) == 0 {
+		return []string{"No affected targets."}
+	}
+
+	lines := make([]string, 0, len(preview.Files)*4)
+	for groupIndex, group := range preview.Files {
+		if groupIndex > 0 {
+			lines = append(lines, "")
+		}
+		lines = append(lines, targetFileLabel(group.TargetFile, projectRoot, maxLineWidth))
+		for _, hunk := range group.Hunks {
+			lines = append(lines, confirmationTargetHunkLines(hunk, maxLineWidth)...)
+		}
+	}
+
+	return lines
+}
+
+func confirmationTargetHunkLines(hunk app.ManagedPatchHunk, maxLineWidth int) []string {
+	fields := targetDescriptorFields(hunk.TargetDescriptor, false, "")
+	if !hunk.Available {
+		fields = append(fields, DetailField{Label: "Availability", Value: "Unavailable"})
+		if hunk.EnvironmentVariableName != "" {
+			fields = append(fields, DetailField{Label: "Environment variable", Value: hunk.EnvironmentVariableName})
+		}
+		if hunk.UnavailableReason != "" {
+			fields = append(fields, DetailField{Label: "Reason", Value: hunk.UnavailableReason})
+		}
+	}
+
+	return renderIndentedDetailFields("  ", fields, maxLineWidth)
+}
+
 func finalResultChangeLines(changes []app.PlannedChange, projectRoot string) []string {
 	if len(changes) == 0 {
 		return []string{"No target changes."}
@@ -552,6 +603,35 @@ func (model Model) comparisonFailureError(kind comparisonRequestKind, profileNam
 		Context:  context,
 		Reason:   reason,
 		Recovery: "Fix the target or profile, then return and try again.",
+		Cause:    cause,
+	}
+}
+
+func (model Model) protectedConfirmationError(profileName string, cause error) RecoverableError {
+	context := []string{
+		RenderKeyValue("Profile", profileName),
+		RenderKeyValue("Protection", "Required"),
+	}
+	if targetFailure, ok := app.TargetFailureFromError(cause); ok {
+		context = append(context, "", RenderKeyValue("Managed value", targetNameLabel(targetFailure.TargetName)+targetTypeBadge(string(targetFailure.TargetType))))
+		if targetFailure.TargetFile != "" {
+			context = append(context, RenderKeyValue("File", model.compactTargetFileValue(targetFailure.TargetFile, "File")))
+		}
+		if targetFailure.Selector != "" {
+			context = append(context, RenderKeyValue("Selector", fitValueForLabel(targetFailure.Selector, secondaryPanelContentWidth(model.width), "Selector")))
+		}
+	}
+
+	reason := "Switchlet could not review the protected apply impact."
+	if cause != nil {
+		reason = cause.Error()
+	}
+
+	return RecoverableError{
+		Problem:  fmt.Sprintf("Could not review protected profile %q.", profileName),
+		Context:  context,
+		Reason:   reason,
+		Recovery: "Return to the profile list, fix the target or profile, then try again. Press any key to return.",
 		Cause:    cause,
 	}
 }

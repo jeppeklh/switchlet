@@ -51,30 +51,32 @@ const (
 
 // Model is the Bubble Tea model for the Switchlet terminal interface.
 type Model struct {
-	application       app.Application
-	projectRoot       string
-	profiles          []app.ProfileItem
-	cursor            int
-	width             int
-	height            int
-	state             viewState
-	profileFilter     string
-	searchInput       string
-	searchCursor      int
-	searchStartCursor int
-	scrollOffset      int
-	valuesVisible     bool
-	recoverableError  RecoverableError
-	successResult     *app.Result
-	applyingProfile   string
-	applyExits        bool
-	applyRequestID    int
-	confirmExits      bool
-	currentProfiles   map[string]struct{}
-	currentRequestID  int
-	currentDetection  currentProfileDetectionState
-	configRequested   bool
-	helpOpen          bool
+	application           app.Application
+	projectRoot           string
+	profiles              []app.ProfileItem
+	cursor                int
+	width                 int
+	height                int
+	state                 viewState
+	profileFilter         string
+	searchInput           string
+	searchCursor          int
+	searchStartCursor     int
+	scrollOffset          int
+	valuesVisible         bool
+	recoverableError      RecoverableError
+	successResult         *app.Result
+	applyingProfile       string
+	applyExits            bool
+	applyRequestID        int
+	confirmExits          bool
+	confirmationPreview   *app.ManagedPatchPreview
+	confirmationRequestID int
+	currentProfiles       map[string]struct{}
+	currentRequestID      int
+	currentDetection      currentProfileDetectionState
+	configRequested       bool
+	helpOpen              bool
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -214,6 +216,10 @@ func (model Model) selectedProfile() (app.ProfileItem, bool) {
 	}
 
 	return selectedProfile, true
+}
+
+func (model Model) confirmationReady() bool {
+	return model.confirmationPreview != nil && model.confirmationPreview.Complete
 }
 
 func (model Model) activeProfileFilter() string {

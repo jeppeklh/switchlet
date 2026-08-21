@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -84,8 +85,11 @@ func TestUpdate_OpensInspectionAndReturnsToList(t *testing.T) {
 }
 
 func TestUpdate_ValueRevealTogglesInInspectionAndIsIgnoredInConfirmationAndError(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", "{\"service\":{\"baseUrl\":\"https://old.example.test\"}}\n")
+
 	model := New(app.New(
-		config.Target{},
+		config.Target{File: targetPath, JSONPath: "service.baseUrl"},
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}},
 	))
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
@@ -115,14 +119,8 @@ func TestUpdate_ValueRevealTogglesInInspectionAndIsIgnoredInConfirmationAndError
 		t.Fatalf("inspection View() = %q, want hide command", model.View())
 	}
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want protected profile confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
+	model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 	confirmationView := model.View()
 	if strings.Contains(confirmationView, "v Reveal values") || strings.Contains(confirmationView, "v Hide values") {
 		t.Fatalf("confirmation View() = %q, must not advertise value reveal", confirmationView)
@@ -285,21 +283,16 @@ func TestUpdate_InspectionScrollsLongProfileDetailWithoutMovingProfileCursor(t *
 }
 
 func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
-	target := config.Target{File: "/tmp/config.json", JSONPath: "service.baseUrl"}
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", "{\"service\":{\"baseUrl\":\"https://old.example.test\"}}\n")
+	target := config.Target{File: targetPath, JSONPath: "service.baseUrl"}
 	model := New(app.New(
 		target,
 		[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Database=App;Password=super-secret;"), Protected: true}},
 	))
 
-	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-
-	if command != nil {
-		t.Fatal("command is not nil, want no apply command before confirmation")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 
 	view := model.View()
 	if !strings.Contains(view, "Confirmation") {
@@ -308,14 +301,16 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 	if !strings.Contains(view, "Profile: Production") {
 		t.Fatalf("View() = %q, want protected profile name", view)
 	}
-	if !strings.Contains(view, "File") || !strings.Contains(view, "/tmp/config.json") {
+	if !strings.Contains(view, filepath.Base(targetPath)) {
 		t.Fatalf("View() = %q, want target file", view)
 	}
 	if !strings.Contains(view, "Selector") || !strings.Contains(view, "service.baseUrl") {
 		t.Fatalf("View() = %q, want target JSON path", view)
 	}
-	if !strings.Contains(view, "configured target value") {
-		t.Fatalf("View() = %q, want generic confirmation text", view)
+	for _, expected := range []string{"Apply summary", "Would update: 1 target", "Already matching: 0 targets", "Only included managed targets are in scope.", "Resolved values are intentionally hidden.", "Affected targets"} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want confirmation detail %q", view, expected)
+		}
 	}
 	if !strings.Contains(view, "Press Enter or y to confirm.") {
 		t.Fatalf("View() = %q, want explicit Enter confirmation guidance", view)
@@ -336,7 +331,7 @@ func TestUpdate_ProtectedProfileRequiresConfirmationAndCancels(t *testing.T) {
 		t.Fatalf("View() = %q, want inactive selected profile context", view)
 	}
 
-	updatedModel, command = model.Update(runeKey('n'))
+	updatedModel, command := model.Update(runeKey('n'))
 	model = updatedModel.(Model)
 
 	if command != nil {
@@ -389,10 +384,12 @@ func TestView_InspectionUsesApplyAndReturnHelpForProtectedProfiles(t *testing.T)
 
 func TestView_InspectionAndConfirmationStayWithinTerminalWidth(t *testing.T) {
 	t.Setenv("LONG_PROTECTED_PROFILE_VALUE", "Server=prod.example.test;Database=Application;Password=super-secret;")
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "very/long/project/path/with/many/segments/configuration/appsettings.Development.json", "{\"services\":{\"database\":{\"primary\":{\"connectionStrings\":{\"defaultConnection\":{\"value\":\"https://old.example.test\"}}}}}}\n")
 
 	model := New(app.New(
 		config.Target{
-			File:     "/very/long/project/path/with/many/segments/configuration/appsettings.Development.json",
+			File:     targetPath,
 			JSONPath: "services.database.primary.connectionStrings.defaultConnection.value",
 		},
 		[]config.Profile{{
@@ -412,13 +409,7 @@ func TestView_InspectionAndConfirmationStayWithinTerminalWidth(t *testing.T) {
 	}
 	assertVisibleWidth(t, model.View(), 80)
 
-	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	model = updatedModel.(Model)
-	if command != nil {
-		t.Fatal("command is not nil, want confirmation before apply")
-	}
-	if model.state != confirmState {
-		t.Fatalf("state = %d, want confirmState", model.state)
-	}
+	model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = resolveProtectedConfirmation(t, model, command)
 	assertVisibleWidth(t, model.View(), 80)
 }

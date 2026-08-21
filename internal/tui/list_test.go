@@ -562,8 +562,17 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
+			projectRoot := t.TempDir()
+			target := testCase.target
+			switch target.Type {
+			case config.TargetTypeYAML:
+				target.File = writeTargetFile(t, projectRoot, target.File, "queue:\n  endpoint: https://old.example.test\n")
+			case config.TargetTypeTOML:
+				target.File = writeTargetFile(t, projectRoot, target.File, "[services.api]\nendpoint = \"https://old.example.test\"\n")
+			}
+
 			model := New(app.New(
-				testCase.target,
+				target,
 				[]config.Profile{{Name: "Production", Value: stringPointer("Server=prod;Password=super-secret;"), Protected: true}},
 			))
 
@@ -571,8 +580,8 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 			for _, expected := range []string{
 				"Profile contents",
 				"Target",
-				testCase.target.Name,
-				testCase.target.File,
+				target.Name,
+				filepath.Base(target.File),
 				"Selector",
 				testCase.selector,
 				"Value",
@@ -597,8 +606,8 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 			inspectionView := model.View()
 			for _, expected := range []string{
 				"Profile detail",
-				"Managed value  " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
-				testCase.target.File,
+				"Managed value  " + target.Name + " [" + string(target.Type) + "]",
+				filepath.Base(target.File),
 				"Selector",
 				testCase.selector,
 				"Masked value: hidden literal value",
@@ -611,23 +620,20 @@ func TestView_PathTargetSingleTargetContextUsesSelectorFieldLabel(t *testing.T) 
 				t.Fatalf("inspection View() = %q, must not contain unmasked secret", inspectionView)
 			}
 
-			updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
-			model = updatedModel.(Model)
-			if command != nil {
-				t.Fatal("command is not nil, want confirmation before apply")
-			}
-			if model.state != confirmState {
-				t.Fatalf("state = %d, want confirmState", model.state)
-			}
+			model, command = startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+			model = resolveProtectedConfirmation(t, model, command)
 
 			confirmationView := model.View()
 			for _, expected := range []string{
 				"Confirmation",
-				"Managed value  " + testCase.target.Name + " [" + string(testCase.target.Type) + "]",
-				testCase.target.File,
+				"Apply summary",
+				"Would update: 1 target",
+				"Already matching: 0 targets",
+				"Managed value  " + target.Name + " [" + string(target.Type) + "]",
+				filepath.Base(target.File),
 				"Selector",
 				testCase.selector,
-				"resolved value is intentionally hidden",
+				"Resolved values are intentionally hidden.",
 			} {
 				if !strings.Contains(confirmationView, expected) {
 					t.Fatalf("confirmation View() = %q, want %s confirmation context %q", confirmationView, testCase.name, expected)

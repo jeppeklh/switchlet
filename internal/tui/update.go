@@ -15,6 +15,13 @@ type applyCompletedMsg struct {
 	err       error
 }
 
+type confirmationPreviewCompletedMsg struct {
+	requestID int
+	profile   string
+	result    app.ManagedPatchPreview
+	err       error
+}
+
 type statusComparisonCompletedMsg struct {
 	requestID int
 	result    app.StatusComparison
@@ -44,6 +51,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
 	case applyCompletedMsg:
 		return model.handleApplyCompleted(message)
+	case confirmationPreviewCompletedMsg:
+		return model.handleConfirmationPreviewCompleted(message)
 	case statusComparisonCompletedMsg:
 		return model.handleStatusComparisonCompleted(message)
 	case diffPreviewCompletedMsg:
@@ -137,6 +146,8 @@ func (model Model) handleTooSmallTerminalKey(message tea.KeyMsg) (tea.Model, tea
 		switch model.state {
 		case searchState, inspectState, confirmState, statusLoadingState, statusReadyState, diffLoadingState, diffReadyState, comparisonErrorState:
 			model.state = listState
+			model.confirmExits = false
+			model.confirmationPreview = nil
 			model.clearComparisonState()
 		}
 
@@ -208,6 +219,30 @@ func (model Model) handleCurrentProfileDetected(message currentProfileDetectedMs
 
 	model.updateCurrentProfile(message.result)
 	model.currentDetection = currentProfileDetectionReady
+	return model, nil
+}
+
+func (model Model) handleConfirmationPreviewCompleted(message confirmationPreviewCompletedMsg) (tea.Model, tea.Cmd) {
+	if model.state != confirmState || message.requestID != model.confirmationRequestID {
+		return model, nil
+	}
+
+	selectedProfile, ok := model.selectedProfile()
+	if !ok || selectedProfile.Name != message.profile {
+		return model, nil
+	}
+	if message.err != nil {
+		model.state = errorState
+		model.recoverableError = model.protectedConfirmationError(message.profile, message.err)
+		model.confirmationPreview = nil
+		model.confirmExits = false
+		model.resetScrollOffset()
+		return model, nil
+	}
+
+	result := message.result
+	model.confirmationPreview = &result
+	model.clampScrollOffset()
 	return model, nil
 }
 
@@ -620,15 +655,26 @@ func (model Model) handleInspectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
+		return updatedModel, nil
+	}
+
 	switch {
 	case matchesKey(message, keyQuit):
 		model.confirmExits = false
+		model.confirmationPreview = nil
 		return model, tea.Quit
 	case matchesKey(message, keyCancel, keyEscape):
 		model.state = listState
 		model.confirmExits = false
+		model.confirmationPreview = nil
+		model.resetScrollOffset()
 		return model, nil
 	case matchesKey(message, keyConfirm, keyEnter):
+		if !model.confirmationReady() {
+			return model, nil
+		}
+
 		model.refreshProfiles()
 
 		selectedProfile, ok := model.selectedProfile()
@@ -638,6 +684,7 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if !selectedProfile.Available {
 			model.state = errorState
 			model.recoverableError = model.unavailableProfileError(selectedProfile)
+			model.confirmationPreview = nil
 			return model, nil
 		}
 
@@ -661,6 +708,7 @@ func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	model.state = listState
 	model.recoverableError = RecoverableError{}
+	model.confirmationPreview = nil
 	model.resetScrollOffset()
 	model.refreshProfiles()
 	return model, nil
@@ -681,8 +729,10 @@ func (model Model) applyOrConfirmSelectedProfile(exitAfterApply bool) (tea.Model
 	if selectedProfile.Protected {
 		model.state = confirmState
 		model.confirmExits = exitAfterApply
+		model.confirmationPreview = nil
+		model.confirmationRequestID++
 		model.resetScrollOffset()
-		return model, nil
+		return model, previewProtectedConfirmation(model.application, selectedProfile.Name, model.confirmationRequestID)
 	}
 
 	return model.startApplyingSelectedProfile(selectedProfile, exitAfterApply)
@@ -693,6 +743,7 @@ func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem,
 	model.applyExits = exitAfterApply
 	model.applyRequestID++
 	model.confirmExits = false
+	model.confirmationPreview = nil
 	model.recoverableError = RecoverableError{}
 	model.successResult = nil
 	model.state = listState
@@ -859,6 +910,13 @@ func compareStatus(application app.Application, requestID int) tea.Cmd {
 		}
 
 		return statusComparisonCompletedMsg{requestID: requestID, result: result}
+	}
+}
+
+func previewProtectedConfirmation(application app.Application, profileName string, requestID int) tea.Cmd {
+	return func() tea.Msg {
+		result, err := application.ManagedPatchPreviewByName(profileName, app.PreviewOptions{ValueVisibility: app.ValueVisibilityHidden})
+		return confirmationPreviewCompletedMsg{requestID: requestID, profile: profileName, result: result, err: err}
 	}
 }
 

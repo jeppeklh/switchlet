@@ -15,11 +15,11 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 		{
 			name:  "bash",
 			shell: "bash",
-				expected: []string{
-					"# bash completion for switchlet",
-					"_switchlet_completion",
-					"__switchlet_completion_context",
-					"inspect|diff)",
+			expected: []string{
+				"# bash completion for switchlet",
+				"_switchlet_completion",
+				"__switchlet_completion_context",
+				"inspect|diff)",
 				`"${COMP_WORDS[COMP_CWORD-1]}" == "--expect"`,
 				`"${COMP_WORDS[COMP_CWORD-1]}" == "--expect-current"`,
 				"while IFS= read -r candidate",

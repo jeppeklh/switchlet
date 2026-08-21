@@ -64,7 +64,7 @@ func (model Model) currentHelpActions() []Action {
 		}
 		return model.withFocusedPanelScroll(shell, 1).Actions
 	case confirmState:
-		return model.confirmationActions()
+		return model.withFocusedPanelScroll(model.confirmationShell(), 1).Actions
 	case errorState:
 		return model.withFocusedPanelScroll(model.errorShell(), 1).Actions
 	case statusLoadingState, statusReadyState:
@@ -634,38 +634,45 @@ func (model Model) inspectionShell() (Shell, bool) {
 }
 
 func (model Model) confirmationView() string {
+	return RenderShell(model.withFocusedPanelScroll(model.confirmationShell(), 1))
+}
+
+func (model Model) confirmationShell() Shell {
 	selectedProfile, ok := model.selectedProfile()
 	if !ok {
-		return model.listView()
+		return Shell{Headerless: true, Panels: []Panel{{Title: "Confirmation", Lines: []string{"No profile selected."}, Focused: true}}, Actions: model.confirmationActions(), Width: model.width, Height: model.height}
 	}
 
+	panelWidth := secondaryPanelContentWidth(model.width)
 	lines := []string{
 		RenderKeyValue("Profile", selectedProfile.Name),
 		RenderKeyValue("Protection", "Required"),
 	}
-	if shouldShowTargetCount(selectedProfile) {
-		lines = append(lines, RenderKeyValue("Changes", changeCountLabel(selectedProfile.TargetCount, selectedProfile.TotalTargets)))
+	if model.confirmationPreview == nil {
 		lines = append(lines,
 			"",
-			"This will update configured targets only.",
+			"Reviewing protected apply impact...",
+			"Resolved values are intentionally hidden.",
+		)
+	} else {
+		lines = append(lines, confirmationSummaryLines(*model.confirmationPreview)...)
+		lines = append(lines,
+			"",
+			"Only included managed targets are in scope.",
 			"Resolved values are intentionally hidden.",
 			"",
 			"Affected targets",
 		)
-		lines = append(lines, profileValueTargetLines(selectedProfile.Values, model.projectRoot, secondaryPanelContentWidth(model.width))...)
-		lines = append(lines, "", model.confirmationCompletionLine(), "Press Enter or y to confirm.")
-	} else {
-		lines = appendSingleTargetContextLines(lines, selectedProfile, model)
-		lines = append(lines,
-			"",
-			"This will update only the configured target value.",
-			"The resolved value is intentionally hidden.",
-			model.confirmationCompletionLine(),
-			"Press Enter or y to confirm.",
-		)
+		lines = append(lines, confirmationTargetLines(*model.confirmationPreview, model.projectRoot, panelWidth)...)
+		lines = append(lines, "")
+		if model.confirmationReady() {
+			lines = append(lines, model.confirmationCompletionLine(), "Press Enter or y to confirm.")
+		} else {
+			lines = append(lines, "Resolve unavailable values before confirming.")
+		}
 	}
 
-	return RenderShell(Shell{
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{
 			model.profilePanel(RowInactiveSelected, false),
@@ -674,11 +681,16 @@ func (model Model) confirmationView() string {
 		Actions: model.confirmationActions(),
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}
 }
 
 func (model Model) confirmationActions() []Action {
-	return AppendHelpAction([]Action{{Key: "Enter/y", Label: "Confirm", Priority: ActionPriorityPrimary}, {Key: "n/Esc", Label: "Cancel", Priority: ActionPriorityPrimary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}})
+	actions := []Action{{Key: "n/Esc", Label: "Cancel", Priority: ActionPriorityPrimary}, {Key: "q", Label: "Quit", Priority: ActionPriorityCritical}}
+	if model.confirmationReady() {
+		actions = append([]Action{{Key: "Enter/y", Label: "Confirm", Priority: ActionPriorityPrimary}}, actions...)
+	}
+
+	return AppendHelpAction(actions)
 }
 
 func enterActionLabel(profile app.ProfileItem) string {
@@ -753,6 +765,8 @@ func (model Model) focusedScrollablePanelShell() (Shell, int, bool) {
 	case inspectState:
 		shell, ok := model.inspectionShell()
 		return shell, 1, ok
+	case confirmState:
+		return model.confirmationShell(), 1, true
 	case errorState:
 		return model.errorShell(), 1, true
 	case statusLoadingState, statusReadyState:

@@ -82,6 +82,39 @@ func runeKey(value rune) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{value}}
 }
 
+func startProtectedConfirmation(t *testing.T, model Model, key tea.KeyMsg) (Model, tea.Cmd) {
+	t.Helper()
+
+	updatedModel, command := model.Update(key)
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want protected confirmation preview command")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+
+	return model, command
+}
+
+func resolveProtectedConfirmation(t *testing.T, model Model, command tea.Cmd) Model {
+	t.Helper()
+
+	updatedModel, followUpCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if followUpCommand != nil {
+		t.Fatal("followUpCommand is not nil, want ready confirmation state")
+	}
+	if model.state != confirmState {
+		t.Fatalf("state = %d, want confirmState", model.state)
+	}
+	if model.confirmationPreview == nil {
+		t.Fatal("confirmationPreview is nil, want ready confirmation summary")
+	}
+
+	return model
+}
+
 func lineContains(view string, values ...string) bool {
 	for _, line := range strings.Split(view, "\n") {
 		matched := true

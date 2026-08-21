@@ -188,15 +188,18 @@ const (
 
 // ManagedPatchPreview describes selected-profile diff data for managed patch rendering.
 type ManagedPatchPreview struct {
-	ProfileName         string
-	Protected           bool
-	Complete            bool
-	TargetCount         int
-	IncludedTargetCount int
-	OmittedTargetCount  int
-	Partial             bool
-	Files               []ManagedPatchFileGroup
-	OmittedTargets      []TargetDescriptor
+	ProfileName          string
+	Protected            bool
+	Complete             bool
+	TargetCount          int
+	IncludedTargetCount  int
+	WouldUpdateCount     int
+	AlreadyMatchingCount int
+	UnavailableCount     int
+	OmittedTargetCount   int
+	Partial              bool
+	Files                []ManagedPatchFileGroup
+	OmittedTargets       []TargetDescriptor
 }
 
 // ManagedPatchFileGroup contains managed patch hunks for one target file.

@@ -155,6 +155,9 @@ func TestApplication_ManagedPatchPreviewByName_GroupsHunksAndKeepsDiffCompatible
 	if preview.ProfileName != "Staging" || !preview.Protected || !preview.Complete {
 		t.Fatalf("preview = %#v, want protected complete Staging preview", preview)
 	}
+	if preview.WouldUpdateCount != 1 || preview.AlreadyMatchingCount != 1 || preview.UnavailableCount != 0 {
+		t.Fatalf("preview counts = would-update:%d already-matching:%d unavailable:%d, want 1/1/0", preview.WouldUpdateCount, preview.AlreadyMatchingCount, preview.UnavailableCount)
+	}
 	if !preview.Partial || preview.IncludedTargetCount != 2 || preview.OmittedTargetCount != 1 || preview.TargetCount != 3 {
 		t.Fatalf("preview counts = %#v, want 2 included and 1 omitted", preview)
 	}
@@ -235,6 +238,9 @@ func TestApplication_ManagedPatchPreviewByName_UnavailableValueDoesNotRevealCurr
 
 	if preview.Complete {
 		t.Fatal("preview.Complete = true, want false")
+	}
+	if preview.WouldUpdateCount != 0 || preview.AlreadyMatchingCount != 0 || preview.UnavailableCount != 1 {
+		t.Fatalf("preview counts = would-update:%d already-matching:%d unavailable:%d, want 0/0/1", preview.WouldUpdateCount, preview.AlreadyMatchingCount, preview.UnavailableCount)
 	}
 	if len(preview.Files) != 1 || len(preview.Files[0].Hunks) != 1 {
 		t.Fatalf("Files = %#v, want one unavailable hunk", preview.Files)
