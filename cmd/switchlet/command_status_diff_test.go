@@ -1497,6 +1497,58 @@ profiles:
 	}
 }
 
+func TestRunCommand_DoctorStrictReturnsNonZeroForWarningsWithoutChangingWarningStatus(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://old
+      - target: frontendApi
+        value: http://localhost:5173
+  - name: Staging
+    values:
+      - target: database
+        valueFromEnv: SWITCHLET_TEST_MISSING_DATABASE_URL
+      - target: frontendApi
+        value: https://api.staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"doctor", "--strict", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d for strict warning failure", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty string for JSON doctor report", result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Status  string `json:"status"`
+			Healthy bool   `json:"healthy"`
+			Checks  []struct {
+				Name   string `json:"name"`
+				Status string `json:"status"`
+			} `json:"checks"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal strict doctor JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.Status != "warning" || payload.Result.Healthy {
+		t.Fatalf("doctor result = %#v, want warning report with healthy=false", payload.Result)
+	}
+	availabilityWarning := false
+	for _, check := range payload.Result.Checks {
+		if check.Name == "profile_availability" && check.Status == "warning" {
+			availabilityWarning = true
+		}
+	}
+	if !availabilityWarning {
+		t.Fatalf("checks = %#v, want profile availability warning preserved under --strict", payload.Result.Checks)
+	}
+}
+
 func TestRunCommand_StatusTargetReadFailureReturnsSecretSafeJSONError(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"password":"current-secret"}}`)

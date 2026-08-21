@@ -52,7 +52,7 @@ func TestInstalledBinary_SmokeWorkflow(t *testing.T) {
 	if completionResult.exitCode != 0 {
 		t.Fatalf("switchlet completion bash exitCode = %d, want 0\nstdout: %q\nstderr: %q", completionResult.exitCode, completionResult.stdout, completionResult.stderr)
 	}
-	if !strings.Contains(completionResult.stdout, "switchlet __complete-profile-names") {
+	if !strings.Contains(completionResult.stdout, `switchlet "${completion_load_args[@]}" __complete-profile-names`) {
 		t.Fatalf("completion stdout %q does not include dynamic profile completion hook", completionResult.stdout)
 	}
 

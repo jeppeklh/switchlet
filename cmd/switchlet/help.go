@@ -10,7 +10,8 @@ func usageText() string {
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
 	  switchlet status [flags]                       Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [flags]          Compare one profile with current managed values
-	  switchlet doctor [--json] [--config <path>]    Check project health without writing files
+	  switchlet doctor [flags]                       Check project health without writing files
+	  switchlet targets [flags]                      List configured targets without revealing managed values
 	  switchlet version                              Show version information
 	  switchlet completion <shell>                   Generate a shell completion script
 	  switchlet help [command]                       Show help text
@@ -25,10 +26,12 @@ func usageText() string {
 	  --name               Write only the current complete profile name for status
 	  --patch              Write read-only managed patch text for diff
 	  --expect             Assert that status matches one expected profile
+	  --expect-current     Assert the current complete profile before apply or dry run
 	  --config             Load a specific .switchlet.yaml for project-reading commands
 	  --exit-code          Return non-zero from diff when the selected profile would change files
 	  --dry-run            Preview apply impact without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+	  --strict             Return non-zero from doctor when warnings are present
 	  --no-color           Disable styled command output; also honored through NO_COLOR
 
 	Examples:
@@ -40,6 +43,7 @@ func usageText() string {
 	  switchlet list
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
+	  switchlet apply Staging --expect-current Local
 	  switchlet status
 	  switchlet status --short
 	  switchlet status --name
@@ -48,6 +52,8 @@ func usageText() string {
 	  switchlet diff Local --exit-code
 	  switchlet diff Local --patch
 	  switchlet doctor
+	  switchlet doctor --strict
+	  switchlet targets
 	  switchlet version
 	  switchlet completion bash
 	  switchlet help apply
@@ -69,6 +75,9 @@ func completionHelpText() string {
 
 	Dynamic profile completion loads configuration schema only. It does not read
 	target files, resolve environment variables, or inspect current managed values.
+	Leading global options such as --config and --no-color may appear before the
+	command name. When --config is present, dynamic profile completion uses that
+	explicit configuration path.
 	Script generation itself does not load .switchlet.yaml.
 	Supported shells: bash, zsh, fish.
 
@@ -165,7 +174,7 @@ func diffHelpText() string {
 
 func doctorHelpText() string {
 	return `Usage:
-	  switchlet doctor [--json] [--config <path>]
+	  switchlet doctor [--json] [--strict] [--config <path>]
 
 	Run read-only project health checks without writing target files, temporary
 	target files, or .switchlet.yaml.
@@ -177,13 +186,34 @@ func doctorHelpText() string {
 
 	Flags:
 	  --json       Write machine-readable JSON output
+	  --strict     Return non-zero when warnings are present
 	  --config     Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color   Disable styled command output
 
 	Examples:
 	  switchlet doctor
 	  switchlet doctor --json
+	  switchlet doctor --strict
 	  switchlet doctor --config ../other/.switchlet.yaml
+`
+}
+
+func targetsHelpText() string {
+	return `Usage:
+	  switchlet targets [--json] [--config <path>]
+
+	List configured target names, files, target types, and selectors without
+	revealing managed values.
+
+	Flags:
+	  --json       Write machine-readable JSON output
+	  --config     Load a specific .switchlet.yaml instead of discovering upward
+	  --no-color   Disable styled command output
+
+	Examples:
+	  switchlet targets
+	  switchlet targets --json
+	  switchlet targets --config ../other/.switchlet.yaml
 `
 }
 
@@ -259,9 +289,11 @@ func inspectHelpText() string {
 
 func applyHelpText() string {
 	return `Usage:
-	  switchlet apply <profile-name> [--json] [--dry-run] [--allow-protected] [--config <path>]
+	  switchlet apply <profile-name> [--json] [--dry-run] [--allow-protected] [--expect-current <profile-name>] [--config <path>]
 
 	Apply one configured profile by name. A profile may update one or more configured targets.
+	Use --expect-current to refuse apply or dry run unless the current complete
+	profile matches the expected profile name.
 
 	Protected profiles in the interactive TUI already prompt for confirmation.
 	Use --allow-protected only for non-interactive switchlet apply.
@@ -270,11 +302,13 @@ func applyHelpText() string {
 	  --json               Write machine-readable JSON output
 	  --dry-run            Preview would-update, already-matching, unavailable, and omitted targets without writing files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
+	  --expect-current     Require the current complete profile to match before apply or dry run
 	  --config             Load a specific .switchlet.yaml instead of discovering upward
 	  --no-color           Disable styled command output
 
 	Examples:
 	  switchlet apply Local --dry-run
+	  switchlet apply Staging --expect-current Local
 	  switchlet apply --dry-run -- -Local
 	  switchlet apply Production --dry-run --allow-protected
 	  switchlet apply Local --dry-run --json

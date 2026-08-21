@@ -111,6 +111,16 @@ func writeDoctorJSON(output io.Writer, report doctorReport) error {
 	}})
 }
 
+func writeTargetsJSON(output io.Writer, targets []app.TargetDescriptor) error {
+	return writeJSON(output, struct {
+		SchemaVersion int               `json:"schemaVersion"`
+		Result        targetsResultJSON `json:"result"`
+	}{SchemaVersion: commandJSONSchemaVersion, Result: targetsResultJSON{
+		Command: "targets",
+		Targets: targetDescriptorJSONFromDescriptors(targets),
+	}})
+}
+
 func writeJSON(output io.Writer, value any) error {
 	encoder := json.NewEncoder(output)
 	encoder.SetEscapeHTML(false)
@@ -257,6 +267,11 @@ type doctorResultJSON struct {
 	ConfigPath  string            `json:"configPath"`
 	ProjectRoot string            `json:"projectRoot"`
 	Checks      []healthCheckJSON `json:"checks"`
+}
+
+type targetsResultJSON struct {
+	Command string                 `json:"command"`
+	Targets []targetDescriptorJSON `json:"targets"`
 }
 
 type healthCheckJSON struct {

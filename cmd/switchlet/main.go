@@ -26,8 +26,8 @@ const (
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
 
 var (
-	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "version", "completion"}
-	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "version", "completion"}
+	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "targets", "version", "completion"}
+	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "targets", "version", "completion"}
 	buildVersion   = ""
 	isTerminalFile = func(file *os.File) bool { return isatty.IsTerminal(file.Fd()) }
 )
@@ -172,6 +172,8 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 		return runDiffCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "doctor":
 		return runDoctorCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
+	case "targets":
+		return runTargetsCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	default:
 		return usageCommandError(outputOptions, false, "%s\n\n%s", unknownCommandMessage(args[0]), usageText())
 	}
@@ -263,6 +265,8 @@ func helpTextForTopic(topic string, outputOptions commandOutputOptions) (string,
 		return diffHelpText(), nil
 	case "doctor":
 		return doctorHelpText(), nil
+	case "targets":
+		return targetsHelpText(), nil
 	case "version":
 		return versionHelpText(), nil
 	case "completion":
@@ -547,6 +551,10 @@ func containsJSONFlag(args []string) bool {
 			index++
 			continue
 		}
+		if arg == "--expect-current" {
+			index++
+			continue
+		}
 		if arg == "--json" {
 			return true
 		}
@@ -566,6 +574,10 @@ func wantsHelpFlag(args []string) bool {
 			continue
 		}
 		if arg == "--expect" {
+			index++
+			continue
+		}
+		if arg == "--expect-current" {
 			index++
 			continue
 		}

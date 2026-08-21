@@ -205,6 +205,19 @@ func formatUnavailableProfileMessage(profileItem app.ProfileItem) string {
 	return builder.String()
 }
 
+func formatApplyExpectationMessage(profileName string, expectation statusExpectationResult) string {
+	var builder strings.Builder
+	fmt.Fprintf(&builder, "Refusing to apply profile %q because current managed values did not satisfy --expect-current.", profileName)
+	if expectation.ExpectedProfile != "" {
+		fmt.Fprintf(&builder, "\n\nExpected current profile:\n%s", expectation.ExpectedProfile)
+	}
+	if expectation.Message != "" {
+		fmt.Fprintf(&builder, "\n\nReason:\n%s", expectation.Message)
+	}
+	builder.WriteString("\n\nHint:\nRun `switchlet status` to inspect current managed values, then retry the apply.")
+	return builder.String()
+}
+
 func unavailableProfileValues(profileItem app.ProfileItem) []app.ProfileValueItem {
 	unavailableValues := make([]app.ProfileValueItem, 0)
 	for _, valueItem := range profileItem.Values {

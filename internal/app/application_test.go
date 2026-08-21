@@ -273,6 +273,31 @@ func TestApplication_InspectProfileByName_ReturnsErrorForUnknownProfile(t *testi
 	}
 }
 
+func TestApplication_Targets_ReturnConfiguredTargetDescriptorsInOrder(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/config.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=http://localhost:5173\n")
+
+	application := app.NewWithTargets(
+		[]config.Target{
+			{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeDotenv, Key: "VITE_API_URL"},
+		},
+		nil,
+	)
+
+	targets := application.Targets()
+	if len(targets) != 2 {
+		t.Fatalf("len(Targets()) = %d, want 2", len(targets))
+	}
+	if targets[0].TargetName != "database" || targets[0].TargetFile != databasePath || targets[0].TargetType != config.TargetTypeJSON || targets[0].SelectorName != "jsonPath" || targets[0].Selector != "database.url" {
+		t.Fatalf("Targets()[0] = %#v, want database JSON descriptor", targets[0])
+	}
+	if targets[1].TargetName != "frontendApi" || targets[1].TargetFile != frontendPath || targets[1].TargetType != config.TargetTypeDotenv || targets[1].SelectorName != "key" || targets[1].Selector != "VITE_API_URL" {
+		t.Fatalf("Targets()[1] = %#v, want frontend dotenv descriptor", targets[1])
+	}
+}
+
 func TestApplication_ApplyProfile_AppliesEnvironmentProfile(t *testing.T) {
 	t.Setenv("MYAPPLICATION_SERVICE_URL", "https://env.example.test")
 

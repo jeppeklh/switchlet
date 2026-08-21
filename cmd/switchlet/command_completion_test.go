@@ -1,6 +1,7 @@
 package main
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -14,25 +15,30 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 		{
 			name:  "bash",
 			shell: "bash",
-			expected: []string{
-				"# bash completion for switchlet",
-				"_switchlet_completion",
-				"inspect|apply|diff",
+				expected: []string{
+					"# bash completion for switchlet",
+					"_switchlet_completion",
+					"__switchlet_completion_context",
+					"inspect|diff)",
 				`"${COMP_WORDS[COMP_CWORD-1]}" == "--expect"`,
+				`"${COMP_WORDS[COMP_CWORD-1]}" == "--expect-current"`,
 				"while IFS= read -r candidate",
 				"COMPREPLY+=(\"$candidate\")",
 				"compopt -o filenames",
-				"switchlet __complete-profile-names",
+				`switchlet "${completion_load_args[@]}" __complete-profile-names`,
 				"complete -F _switchlet_completion switchlet",
 				"--dry-run",
+				"--expect-current",
 				"--config",
 				"--short",
 				"--name",
 				"--expect",
 				"--patch",
 				"--exit-code",
+				"--strict",
 				"--no-color",
 				"doctor",
+				"targets",
 				"bash zsh fish",
 			},
 		},
@@ -41,19 +47,24 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 			shell: "zsh",
 			expected: []string{
 				"#compdef switchlet",
+				"switchlet_completion_load_args",
 				"_switchlet_profile_names",
 				"inspect|apply|diff",
-				`"${words[2]}" == status`,
+				`"$switchlet_completion_command_name" == status`,
 				`"${words[CURRENT-1]}" == "--expect"`,
+				`"${words[CURRENT-1]}" == "--expect-current"`,
 				"profiles=(\"${(@f)output}\")",
 				"compadd -a profiles",
-				"switchlet __complete-profile-names",
+				`completion_command+=("__complete-profile-names")`,
 				"apply:Apply one configured profile",
 				"doctor:Check project health",
+				"targets:List configured targets",
 				"--allow-protected[Allow non-interactive apply for a protected profile]",
+				"--expect-current[Require the current complete profile before apply or dry run]",
 				"--short[Write a concise current-profile summary]",
 				"--name[Write only the current complete profile name]",
 				"--expect[Assert the current complete profile]",
+				"--strict[Return non-zero when warnings are present]",
 				"--config[Load a specific .switchlet.yaml]",
 				"--exit-code[Return non-zero when the profile would change files]",
 				"--no-color[Disable styled command output]",
@@ -65,22 +76,28 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 			shell: "fish",
 			expected: []string{
 				"# fish completion for switchlet",
+				"__switchlet_completion_command_context",
+				"__switchlet_completion_load_args",
 				"__switchlet_complete_profiles",
 				"case inspect apply diff",
-				`if test "$tokens[2]" = status`,
+				`if test "$__switchlet_command_name" = status`,
 				`test "$previous" = "--expect"`,
+				`test "$previous" = "--expect-current"`,
 				"-a '(__switchlet_complete_profiles)'",
-				"switchlet __complete-profile-names",
+				"switchlet $__switchlet_completion_load_args __complete-profile-names",
 				"__switchlet_profile_completion_needed",
 				"complete -c switchlet -n '__fish_use_subcommand' -a \"completion\"",
 				"complete -c switchlet -n '__fish_seen_subcommand_from init' -l overwrite",
 				"complete -c switchlet -n '__fish_seen_subcommand_from list' -l config",
+				"complete -c switchlet -n '__fish_seen_subcommand_from apply' -l expect-current",
 				"complete -c switchlet -n '__fish_seen_subcommand_from status' -l short",
 				"complete -c switchlet -n '__fish_seen_subcommand_from status' -l name",
 				"complete -c switchlet -n '__fish_seen_subcommand_from status' -l expect",
 				"complete -c switchlet -n '__fish_seen_subcommand_from diff' -l patch",
 				"complete -c switchlet -n '__fish_seen_subcommand_from diff' -l exit-code",
+				"complete -c switchlet -n '__fish_seen_subcommand_from doctor' -l strict",
 				"complete -c switchlet -n '__fish_seen_subcommand_from doctor' -l json",
+				"complete -c switchlet -n '__fish_seen_subcommand_from targets' -l json",
 				"complete -c switchlet -l no-color -d 'Disable styled command output'",
 			},
 		},
@@ -167,6 +184,25 @@ func TestRunCommand_ProfileCompletionIsQuietWhenConfigurationCannotLoad(t *testi
 			t.Fatalf("stdout = %q, stderr = %q, want both empty", result.stdout, result.stderr)
 		}
 	})
+}
+
+func TestRunCommand_ProfileCompletionUsesExplicitConfigWhenProvided(t *testing.T) {
+	workingDirectory, explicitConfigPath := writeConfigSelectionProjects(t)
+	relativeConfigPath, err := filepath.Rel(workingDirectory, explicitConfigPath)
+	if err != nil {
+		t.Fatalf("make relative config path: %v", err)
+	}
+
+	result := runCommandForTest(t, []string{"--config", relativeConfigPath, profileCompletionCommandName}, workingDirectory)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if result.stdout != "Explicit\n" {
+		t.Fatalf("stdout = %q, want explicit-config profile list", result.stdout)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty", result.stderr)
+	}
 }
 
 func TestRunCommand_CompletionRejectsUnsupportedShell(t *testing.T) {

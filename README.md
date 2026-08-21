@@ -63,9 +63,12 @@ Common CLI workflows:
 
 ```bash
 switchlet list
+switchlet targets
 switchlet apply Local --dry-run
+switchlet apply Staging --expect-current Local
 switchlet apply Local
 switchlet status
+switchlet doctor --strict
 switchlet diff Local
 ```
 
@@ -89,6 +92,8 @@ switchlet config
 - File replacements preserve permissions and use same-directory temporary files.
 - Protected profiles require confirmation, or `--allow-protected` in
   non-interactive use.
+- Non-interactive apply can assert the current complete profile with
+  `--expect-current` before any writes begin.
 - Normal text and JSON output avoid raw current and replacement values.
 
 ## Reference

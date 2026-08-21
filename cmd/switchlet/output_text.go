@@ -30,6 +30,15 @@ func writeListText(output io.Writer, profiles []app.ProfileItem) error {
 	return nil
 }
 
+func writeTargetsText(output io.Writer, targets []app.TargetDescriptor, projectRoot string, outputOptions commandOutputOptions) error {
+	styles := defaultCommandOutputStyles(outputOptions)
+	if _, err := fmt.Fprintln(output, styles.title.Render("Switchlet targets")); err != nil {
+		return err
+	}
+
+	return writeTargetDescriptorSection(output, styles, "Targets", targets, projectRoot)
+}
+
 func writeInspectText(output io.Writer, profileItem app.ProfileItem, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "Profile: %s\n", profileItem.Name); err != nil {
 		return err

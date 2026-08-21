@@ -18,6 +18,15 @@ type statusCommandOptions struct {
 	expectedProfile string
 }
 
+type applyCommandOptions struct {
+	jsonOutput                 bool
+	dryRun                     bool
+	allowProtected             bool
+	expectedCurrentProfile     string
+	expectCurrentBeforeProfile bool
+	profileAfterDelimiter      bool
+}
+
 type statusExpectationResult struct {
 	ExpectedProfile  string
 	Matched          bool
@@ -110,41 +119,53 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer, o
 		return err
 	}
 
-	jsonOutput := containsJSONFlag(args)
 	commandLoadOptions := loadOptions
-	allowProtected := false
-	dryRun := false
-
-	positionals, err := parseProjectArguments(args, map[string]*bool{
-		"--json":            &jsonOutput,
-		"--dry-run":         &dryRun,
-		"--allow-protected": &allowProtected,
-	}, &outputOptions, &commandLoadOptions)
+	options, positionals, err := parseApplyCommandArguments(args, &outputOptions, &commandLoadOptions)
 	if err != nil {
-		return usageCommandError(outputOptions, jsonOutput, "apply: %v\n\n%s", err, applyHelpText())
+		return usageCommandError(outputOptions, options.jsonOutput, "apply: %v\n\n%s", err, applyHelpText())
 	}
 	if len(positionals) == 0 {
-		return noProfileUsageCommandError(workingDirectory, "apply", outputOptions, jsonOutput, commandLoadOptions)
+		return noProfileUsageCommandError(workingDirectory, "apply", outputOptions, options.jsonOutput, commandLoadOptions)
 	}
 	if len(positionals) != 1 {
-		return usageCommandError(outputOptions, jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
+		return usageCommandError(outputOptions, options.jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
+	}
+	if options.expectedCurrentProfile != "" && options.expectCurrentBeforeProfile && !options.profileAfterDelimiter {
+		return usageCommandError(outputOptions, options.jsonOutput, "apply: --expect-current must follow the profile name\n\n%s", applyHelpText())
 	}
 
 	project, err := loadProject(workingDirectory, commandLoadOptions)
 	if err != nil {
-		return runtimeCommandError(outputOptions, jsonOutput, err)
+		return runtimeCommandError(outputOptions, options.jsonOutput, err)
 	}
 
 	profileName := positionals[0]
-	result, err := project.Application.ApplyProfileByNameWithOptions(profileName, app.ApplyOptions{
-		DryRun:         dryRun,
-		AllowProtected: allowProtected,
-	})
-	if err != nil {
-		return applyCommandError(outputOptions, jsonOutput, project.Application, profileName, err, project.ProjectRoot)
+	if options.expectedCurrentProfile != "" {
+		profiles := project.Application.Profiles()
+		if !profileNameExists(profiles, profileName) {
+			return runtimeCommandErrorWithMessage(outputOptions, options.jsonOutput, app.ErrProfileNotFound, formatMissingProfileMessage(profileName, profiles))
+		}
+
+		status, err := project.Application.CompareStatus()
+		if err != nil {
+			return comparisonCommandError(outputOptions, options.jsonOutput, "apply", err, project.ProjectRoot)
+		}
+
+		expectation := evaluateStatusExpectation(status, profiles, options.expectedCurrentProfile)
+		if !expectation.Matched {
+			return runtimeCommandErrorWithMessage(outputOptions, options.jsonOutput, errors.New(expectation.Message), formatApplyExpectationMessage(profileName, expectation))
+		}
 	}
 
-	if jsonOutput {
+	result, err := project.Application.ApplyProfileByNameWithOptions(profileName, app.ApplyOptions{
+		DryRun:         options.dryRun,
+		AllowProtected: options.allowProtected,
+	})
+	if err != nil {
+		return applyCommandError(outputOptions, options.jsonOutput, project.Application, profileName, err, project.ProjectRoot)
+	}
+
+	if options.jsonOutput {
 		return writeApplyJSON(output, result)
 	}
 
@@ -307,8 +328,9 @@ func runDoctorCommand(workingDirectory string, args []string, output io.Writer, 
 	}
 
 	jsonOutput := containsJSONFlag(args)
+	strict := false
 	commandLoadOptions := loadOptions
-	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions, &commandLoadOptions)
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput, "--strict": &strict}, &outputOptions, &commandLoadOptions)
 	if err != nil {
 		return usageCommandError(outputOptions, jsonOutput, "doctor: %v\n\n%s", err, doctorHelpText())
 	}
@@ -321,7 +343,7 @@ func runDoctorCommand(workingDirectory string, args []string, output io.Writer, 
 		if err := writeDoctorJSON(output, report); err != nil {
 			return err
 		}
-		if doctorReportHasFailures(report) {
+		if doctorReportHasFailures(report) || (strict && doctorReportHasWarnings(report)) {
 			return silentCommandError(runtimeExitCode, outputOptions, true)
 		}
 
@@ -331,11 +353,118 @@ func runDoctorCommand(workingDirectory string, args []string, output io.Writer, 
 	if err := writeDoctorText(output, report, outputOptions); err != nil {
 		return err
 	}
-	if doctorReportHasFailures(report) {
+	if doctorReportHasFailures(report) || (strict && doctorReportHasWarnings(report)) {
 		return silentCommandError(runtimeExitCode, outputOptions, false)
 	}
 
 	return nil
+}
+
+func runTargetsCommand(workingDirectory string, args []string, output io.Writer, outputOptions commandOutputOptions, loadOptions projectLoadOptions) error {
+	if wantsHelpFlag(args) {
+		_, err := io.WriteString(output, targetsHelpText())
+		return err
+	}
+
+	jsonOutput := containsJSONFlag(args)
+	commandLoadOptions := loadOptions
+	positionals, err := parseProjectArguments(args, map[string]*bool{"--json": &jsonOutput}, &outputOptions, &commandLoadOptions)
+	if err != nil {
+		return usageCommandError(outputOptions, jsonOutput, "targets: %v\n\n%s", err, targetsHelpText())
+	}
+	if len(positionals) != 0 {
+		return usageCommandError(outputOptions, jsonOutput, "targets does not accept a positional argument\n\n%s", targetsHelpText())
+	}
+
+	project, err := loadProject(workingDirectory, commandLoadOptions)
+	if err != nil {
+		return runtimeCommandError(outputOptions, jsonOutput, err)
+	}
+
+	targets := project.Application.Targets()
+	if jsonOutput {
+		return writeTargetsJSON(output, targets)
+	}
+
+	return writeTargetsText(output, targets, project.ProjectRoot, outputOptions)
+}
+
+func parseApplyCommandArguments(args []string, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) (applyCommandOptions, []string, error) {
+	options := applyCommandOptions{jsonOutput: containsJSONFlag(args)}
+	positionals := make([]string, 0, len(args))
+
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
+		if arg == "--" {
+			options.profileAfterDelimiter = true
+			positionals = append(positionals, args[index+1:]...)
+			break
+		}
+		if arg == noColorFlag {
+			if outputOptions != nil {
+				outputOptions.NoColor = true
+			}
+			continue
+		}
+		if arg == configFlag {
+			if index+1 >= len(args) {
+				return options, nil, fmt.Errorf("%s requires a path", configFlag)
+			}
+			if err := setConfigPathOption(loadOptions, args[index+1]); err != nil {
+				return options, nil, err
+			}
+			index++
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, configFlag+"="); ok {
+			if err := setConfigPathOption(loadOptions, value); err != nil {
+				return options, nil, err
+			}
+			continue
+		}
+		if arg == "--json" {
+			options.jsonOutput = true
+			continue
+		}
+		if arg == "--dry-run" {
+			options.dryRun = true
+			continue
+		}
+		if arg == "--allow-protected" {
+			options.allowProtected = true
+			continue
+		}
+		if value, ok := strings.CutPrefix(arg, "--expect-current="); ok {
+			if options.expectedCurrentProfile != "" {
+				return options, nil, fmt.Errorf("--expect-current can be provided only once")
+			}
+			if value == "" {
+				return options, nil, fmt.Errorf("--expect-current requires a profile name")
+			}
+			options.expectedCurrentProfile = value
+			options.expectCurrentBeforeProfile = len(positionals) == 0
+			continue
+		}
+		if arg == "--expect-current" {
+			if options.expectedCurrentProfile != "" {
+				return options, nil, fmt.Errorf("--expect-current can be provided only once")
+			}
+			if index+1 >= len(args) || args[index+1] == "" {
+				return options, nil, fmt.Errorf("--expect-current requires a profile name")
+			}
+			options.expectedCurrentProfile = args[index+1]
+			options.expectCurrentBeforeProfile = len(positionals) == 0
+			index++
+			continue
+		}
+		if len(arg) > 0 && arg[0] == '-' {
+			return options, nil, unsupportedFlagError(arg, []string{"--allow-protected", "--config", "--dry-run", "--expect-current", "--json", "--no-color"})
+		}
+
+		positionals = append(positionals, arg)
+	}
+
+	return options, positionals, nil
 }
 
 func parseStatusCommandArguments(args []string, outputOptions *commandOutputOptions, loadOptions *projectLoadOptions) (statusCommandOptions, []string, error) {

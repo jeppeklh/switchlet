@@ -65,6 +65,11 @@ func (application Application) Profiles() []ProfileItem {
 	return items
 }
 
+// Targets returns configured target descriptors without exposing managed values.
+func (application Application) Targets() []TargetDescriptor {
+	return targetDescriptors(application.targets)
+}
+
 // InspectProfileByName returns one resolved profile in a display-safe form.
 func (application Application) InspectProfileByName(profileName string) (ProfileItem, error) {
 	configuredProfile, err := application.profileByName(profileName)

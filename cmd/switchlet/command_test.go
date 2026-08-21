@@ -244,6 +244,7 @@ func TestRunCommand_ConfigFlagLoadsExplicitProjectAndResolvesTargetsFromConfigDi
 		{name: "status", args: []string{"status", "--config", relativeConfigPath, "--short"}, expected: []string{"Current profile: Explicit"}},
 		{name: "diff", args: []string{"diff", "--config", relativeConfigPath, "Explicit"}, expected: []string{"Switchlet diff", "Already matches", "config/runtime.json"}},
 		{name: "doctor", args: []string{"doctor", "--config", relativeConfigPath}, expected: []string{"Switchlet doctor", "using explicit configuration file", "[ok] configuration_loading"}},
+		{name: "targets", args: []string{"targets", "--config", relativeConfigPath}, expected: []string{"Switchlet targets", "config/runtime.json", "database [json]"}},
 	}
 
 	for _, testCase := range tests {
@@ -412,6 +413,7 @@ func TestRunCommand_JSONOutputsIncludeSchemaVersion(t *testing.T) {
 		{name: "status", args: []string{"status", "--json"}},
 		{name: "diff", args: []string{"diff", "Local", "--json"}},
 		{name: "doctor", args: []string{"doctor", "--json"}},
+		{name: "targets", args: []string{"targets", "--json"}},
 	}
 
 	for _, testCase := range tests {
@@ -921,8 +923,18 @@ func TestRunCommand_HelpListsDoctorCommand(t *testing.T) {
 	if result.exitCode != 0 {
 		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stdout, "switchlet doctor [--json]") {
+	if !strings.Contains(result.stdout, "switchlet doctor [flags]") {
 		t.Fatalf("stdout %q does not list doctor command", result.stdout)
+	}
+}
+
+func TestRunCommand_HelpListsTargetsCommand(t *testing.T) {
+	result := runCommandForTest(t, []string{"help"}, t.TempDir())
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, "switchlet targets [flags]") {
+		t.Fatalf("stdout %q does not list targets command", result.stdout)
 	}
 }
 
@@ -1256,6 +1268,207 @@ profiles:
 	}
 	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
 		t.Fatal("target file changed during protected dry run")
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentRejectsProfileAfterFlagWithoutDelimiter(t *testing.T) {
+	result := runCommandForTest(t, []string{"apply", "--expect-current", "Local", "Staging"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	if !strings.Contains(result.stderr, "--expect-current must follow the profile name") {
+		t.Fatalf("stderr %q does not explain the documented flag order", result.stderr)
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentAppliesOnlyWhenCurrentProfileMatches(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://local.example.test"}`)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: serviceUrl
+
+profiles:
+  - name: Local
+    value: https://local.example.test
+  - name: Staging
+    value: https://staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--expect-current", "Local"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, `Applied profile "Staging"`) {
+		t.Fatalf("stdout %q does not confirm guarded apply success", result.stdout)
+	}
+	if strings.Contains(result.stdout, "https://staging.example.test") {
+		t.Fatalf("stdout %q must not contain the applied raw value", result.stdout)
+	}
+	if !strings.Contains(string(readFileBytes(t, targetPath)), "https://staging.example.test") {
+		t.Fatalf("target file %q was not updated by guarded apply", string(readFileBytes(t, targetPath)))
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentMismatchReturnsJSONErrorWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://local.example.test"}`)
+	originalContents := readFileBytes(t, targetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: serviceUrl
+
+profiles:
+  - name: Local
+    value: https://local.example.test
+  - name: Staging
+    value: https://staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "Staging", "--expect-current", "Staging", "--json"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, runtimeExitCode)
+	}
+	if result.stderr != "" {
+		t.Fatalf("stderr = %q, want empty string for JSON error", result.stderr)
+	}
+
+	var payload struct {
+		Error struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal guarded apply JSON error: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Error.Kind != "runtime" {
+		t.Fatalf("error.kind = %q, want runtime", payload.Error.Kind)
+	}
+	for _, expected := range []string{"did not satisfy --expect-current", "Expected current profile:", "Staging", `current complete profile is "Local"`} {
+		if !strings.Contains(payload.Error.Message, expected) {
+			t.Fatalf("error.message %q does not contain %q", payload.Error.Message, expected)
+		}
+	}
+	if strings.Contains(payload.Error.Message, "https://staging.example.test") || strings.Contains(payload.Error.Message, "https://local.example.test") {
+		t.Fatalf("error.message %q must not contain raw managed values", payload.Error.Message)
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed after guarded apply mismatch")
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentSupportsDryRunProtectedProfilesAndDashPrefixedNames(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://local.example.test"}`)
+	originalContents := readFileBytes(t, targetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: serviceUrl
+
+profiles:
+  - name: "-Local"
+    value: https://local.example.test
+  - name: "-Production"
+    value: https://prod.example.test
+    protected: true
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "--dry-run", "--allow-protected", "--expect-current", "-Local", "--", "-Production"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	if !strings.Contains(result.stdout, `Dry run successful for profile "-Production"`) {
+		t.Fatalf("stdout %q does not confirm guarded dry run", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "No changes were written.") {
+		t.Fatalf("stdout %q does not confirm no-write dry run", result.stdout)
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed during guarded protected dry run")
+	}
+}
+
+func TestRunCommand_TargetsListsConfiguredTargetsWithoutValues(t *testing.T) {
+	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local-secret
+      - target: frontendApi
+        value: http://localhost:5173/secret
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"targets"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+	for _, expected := range []string{"Switchlet targets", "backend/appsettings.Development.json", "database [json]", "jsonPath", "database.url", "frontend/.env.local", "frontendApi [dotenv]", "key", "VITE_API_URL"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173", "postgres://local-secret", "http://localhost:5173/secret"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
+	}
+}
+
+func TestRunCommand_TargetsJSONOutputsDescriptorsWithoutValues(t *testing.T) {
+	projectRoot, databasePath, frontendPath := writeVersionThreeCommandProject(t, strings.TrimSpace(`
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://local-secret
+      - target: frontendApi
+        value: http://localhost:5173/secret
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"targets", "--json"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
+	}
+
+	var payload struct {
+		Result struct {
+			Command string `json:"command"`
+			Targets []struct {
+				TargetName   string `json:"targetName"`
+				TargetFile   string `json:"targetFile"`
+				TargetType   string `json:"targetType"`
+				SelectorName string `json:"selectorName"`
+				Selector     string `json:"selector"`
+			} `json:"targets"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+		t.Fatalf("unmarshal targets JSON: %v\noutput: %q", err, result.stdout)
+	}
+	if payload.Result.Command != "targets" || len(payload.Result.Targets) != 2 {
+		t.Fatalf("targets result = %#v, want two target descriptors", payload.Result)
+	}
+	if payload.Result.Targets[0].TargetName != "database" || payload.Result.Targets[0].TargetFile != databasePath || payload.Result.Targets[0].TargetType != "json" || payload.Result.Targets[0].SelectorName != "jsonPath" || payload.Result.Targets[0].Selector != "database.url" {
+		t.Fatalf("targets[0] = %#v, want database JSON descriptor", payload.Result.Targets[0])
+	}
+	if payload.Result.Targets[1].TargetName != "frontendApi" || payload.Result.Targets[1].TargetFile != frontendPath || payload.Result.Targets[1].TargetType != "dotenv" || payload.Result.Targets[1].SelectorName != "key" || payload.Result.Targets[1].Selector != "VITE_API_URL" {
+		t.Fatalf("targets[1] = %#v, want frontend dotenv descriptor", payload.Result.Targets[1])
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173", "postgres://local-secret", "http://localhost:5173/secret"} {
+		if strings.Contains(result.stdout, forbidden) {
+			t.Fatalf("stdout %q must not contain raw value %q", result.stdout, forbidden)
+		}
 	}
 }
 

@@ -14,7 +14,8 @@ Command-only reference for the `switchlet` CLI.
 | `switchlet apply <profile-name> [flags]` | Apply one configured profile. |
 | `switchlet status [flags]` | Compare current managed values with configured profiles. |
 | `switchlet diff <profile-name> [flags]` | Compare one profile with current managed values. |
-| `switchlet doctor [--json] [--config <path>]` | Check project health without writing files. |
+| `switchlet doctor [flags]` | Check project health without writing files. |
+| `switchlet targets [flags]` | List configured targets without revealing managed values. |
 | `switchlet version` / `switchlet --version` | Show version information. |
 | `switchlet completion <shell>` | Generate a shell completion script. |
 | `switchlet help [command]` | Show general or command-specific help. |
@@ -104,6 +105,7 @@ Applies one configured profile by name.
 ```bash
 switchlet apply Local
 switchlet apply Local --dry-run
+switchlet apply Staging --expect-current Local
 switchlet apply --dry-run -- -Local
 switchlet apply Production --allow-protected
 switchlet apply Local --dry-run --json
@@ -114,12 +116,19 @@ switchlet apply Local --config ../other/.switchlet.yaml
 |---|---|
 | `--dry-run` | Preview would-update, already-matching, unavailable, and omitted targets without writing target files. |
 | `--allow-protected` | Explicitly allow non-interactive apply for protected profiles. |
+| `--expect-current <profile>` | Refuse apply or dry run unless the current complete profile matches the expected profile. |
 | `--json` | Write machine-readable JSON output. |
 | `--config <path>` | Load a specific `.switchlet.yaml` instead of discovering upward. |
 | `--no-color` | Disable styled command output. |
 
 Protected profiles are never applied silently. Non-interactive apply requires
 `--allow-protected` for protected profiles.
+
+`--expect-current` uses the same complete-profile semantics as
+`switchlet status --expect`. It exits non-zero without writing files when the
+expected profile is missing, no complete profile matches, a different complete
+profile matches, multiple complete profiles match, or current target values
+cannot be read safely.
 
 For profiles that update multiple target files, Switchlet prepares every target
 file before replacing any file. It then runs a write preflight for each affected
@@ -205,6 +214,7 @@ target files, or `.switchlet.yaml`.
 ```bash
 switchlet doctor
 switchlet doctor --json
+switchlet doctor --strict
 switchlet doctor --config ../other/.switchlet.yaml
 ```
 
@@ -214,6 +224,24 @@ comparison availability. Missing or invalid configuration and target-read
 failures return non-zero. Unavailable environment-backed profile values are
 reported as warnings. Failed and warning checks include a value-safe recovery
 hint when Switchlet can identify a clear next step.
+
+Use `--strict` when warnings should fail CI or shell automation. It preserves
+the same doctor report data and statuses, but changes the exit code to non-zero
+when warnings are present.
+
+### `switchlet targets`
+
+Lists configured target names, files, target types, and selectors without
+revealing managed values.
+
+```bash
+switchlet targets
+switchlet targets --json
+switchlet targets --config ../other/.switchlet.yaml
+```
+
+This command is inventory-only. It does not resolve profile values or expose raw
+current or replacement values.
 
 ## Output Modes
 
@@ -242,6 +270,7 @@ switchlet apply Local --dry-run --json
 switchlet status --json
 switchlet diff Local --json
 switchlet doctor --json
+switchlet targets --json
 ```
 
 JSON output includes top-level `schemaVersion: 1`, profile names, target names,
@@ -320,7 +349,10 @@ Completion includes static commands and flags. For `inspect`, `apply`, `diff`,
 and `status --expect`, the generated scripts dynamically complete profile names
 from the discovered `.switchlet.yaml` when one is available. Dynamic profile
 completion loads configuration schema only; it does not read target files,
-resolve environment variables, or inspect current managed values.
+resolve environment variables, or inspect current managed values. Leading global
+options such as `--config <path>` and `--no-color` may appear before the command
+name. When `--config` is present, dynamic profile completion uses that explicit
+configuration path.
 
 ## Examples
 
@@ -329,10 +361,13 @@ switchlet init
 switchlet list
 switchlet inspect Local
 switchlet apply Local --dry-run
+switchlet apply Staging --expect-current Local
 switchlet apply Local
 switchlet status
 switchlet doctor
+switchlet doctor --strict
 switchlet diff Local
+switchlet targets
 switchlet version
 switchlet completion bash
 switchlet help apply
@@ -343,5 +378,5 @@ switchlet help apply
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Runtime, configuration, validation, or target-read failure; failed `status --expect`; or `diff --exit-code` detected changes or unavailable values. |
+| `1` | Runtime, configuration, validation, or target-read failure; failed `status --expect`; failed `apply --expect-current`; `doctor --strict` warnings; or `diff --exit-code` detected changes or unavailable values. |
 | `2` | Command-usage failure. |
