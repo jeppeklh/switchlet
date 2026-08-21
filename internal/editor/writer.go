@@ -17,6 +17,10 @@ var (
 const preflightContents = "switchlet preflight\n"
 
 func writeFileAtomically(targetPath string, contents []byte, permissions fs.FileMode) (returnErr error) {
+	if _, err := statRegularTargetFile(targetPath); err != nil {
+		return err
+	}
+
 	targetDirectory := filepath.Dir(targetPath)
 	temporaryFile, err := os.CreateTemp(targetDirectory, tempFilePattern(targetPath))
 	if err != nil {
@@ -66,6 +70,10 @@ func writeFileAtomically(targetPath string, contents []byte, permissions fs.File
 }
 
 func preflightAtomicWrite(targetPath string, permissions fs.FileMode) (returnErr error) {
+	if _, err := statRegularTargetFile(targetPath); err != nil {
+		return err
+	}
+
 	targetDirectory := filepath.Dir(targetPath)
 	temporaryFile, err := os.CreateTemp(targetDirectory, tempFilePattern(targetPath))
 	if err != nil {

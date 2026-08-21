@@ -80,3 +80,17 @@ func containsTempFile(t *testing.T, directoryPath string, prefix string) bool {
 
 	return false
 }
+
+func createSymlinkOrSkip(t *testing.T, rootDir string, relativePath string, targetPath string) string {
+	t.Helper()
+
+	linkPath := filepath.Join(rootDir, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		t.Fatalf("create parent directories for symlink %q: %v", linkPath, err)
+	}
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("symlink creation not supported in this environment: %v", err)
+	}
+
+	return linkPath
+}

@@ -428,6 +428,67 @@ func TestReadTargetValues_ReturnsTargetSpecificErrorsWithoutWriting(t *testing.T
 	}
 }
 
+func TestReadTargetValue_RejectsDirectoryTargetPathWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetDirectory := filepath.Join(projectRoot, "config")
+	if err := os.MkdirAll(targetDirectory, 0o755); err != nil {
+		t.Fatalf("create target directory: %v", err)
+	}
+
+	_, err := ReadTargetValue(config.Target{
+		Name:     "database",
+		File:     targetDirectory,
+		Type:     config.TargetTypeJSON,
+		JSONPath: "database.url",
+	})
+	if err == nil {
+		t.Fatal("ReadTargetValue returned nil error, want directory target-path failure")
+	}
+	for _, expected := range []string{`target "database"`, `jsonPath "database.url"`, `is a directory`} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ReadTargetValue returned error %q, want substring %q", err, expected)
+		}
+	}
+	if containsTempFile(t, filepath.Dir(targetDirectory), tempFilePrefix(targetDirectory)) {
+		t.Fatal("directory target-path read created a temporary file")
+	}
+}
+
+func TestReadTargetValue_RejectsSymlinkTargetPathWithoutWriting(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://current"}}`)
+	linkPath := createSymlinkOrSkip(t, projectRoot, "config/runtime-link.json", realTargetPath)
+	originalContents := readFile(t, realTargetPath)
+
+	_, err := ReadTargetValue(config.Target{
+		Name:     "database",
+		File:     linkPath,
+		Type:     config.TargetTypeJSON,
+		JSONPath: "database.url",
+	})
+	if err == nil {
+		t.Fatal("ReadTargetValue returned nil error, want symlink target-path failure")
+	}
+	for _, expected := range []string{`target "database"`, `jsonPath "database.url"`, `is a symlink`} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ReadTargetValue returned error %q, want substring %q", err, expected)
+		}
+	}
+	if !bytes.Equal(readFile(t, realTargetPath), originalContents) {
+		t.Fatal("symlink destination changed during failed current-value read")
+	}
+	if containsTempFile(t, filepath.Dir(linkPath), tempFilePrefix(linkPath)) {
+		t.Fatal("symlink target-path read created a temporary file")
+	}
+	linkInfo, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("lstat symlink path: %v", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink path mode = %v, want symlink", linkInfo.Mode())
+	}
+}
+
 func TestReadTargetValues_RejectsMixedTargetTypesInOneFile(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://current"},"queue":{"endpoint":"current"}}`)
@@ -603,6 +664,55 @@ func TestApplyTargetChanges_PreflightFailurePreventsEveryReplacementAndCleansTem
 		if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
 			t.Fatalf("preflight temporary file for %q was not cleaned up", targetPath)
 		}
+	}
+}
+
+func TestPreparedChangesWrite_RejectsSymlinkTargetPathBeforeReplacement(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://old"}}`)
+	preparedChanges, err := PrepareTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		Value:  "postgres://new",
+	}})
+	if err != nil {
+		t.Fatalf("PrepareTargetChanges returned error: %v", err)
+	}
+
+	replacementTargetPath := writeTargetFile(t, projectRoot, "config/replacement.json", `{"database":{"url":"postgres://replacement"}}`)
+	originalReplacementContents := readFile(t, replacementTargetPath)
+	if err := os.Remove(targetPath); err != nil {
+		t.Fatalf("remove original target file: %v", err)
+	}
+	if err := os.Symlink(replacementTargetPath, targetPath); err != nil {
+		t.Skipf("symlink creation not supported in this environment: %v", err)
+	}
+
+	err = preparedChanges.Write()
+	if err == nil {
+		t.Fatal("PreparedChanges.Write returned nil error, want symlink preflight failure")
+	}
+	var preflightErr PreflightError
+	if !errors.As(err, &preflightErr) {
+		t.Fatalf("PreparedChanges.Write returned error %q, want PreflightError", err)
+	}
+	if preflightErr.TargetFile != targetPath {
+		t.Fatalf("PreflightError.TargetFile = %q, want %q", preflightErr.TargetFile, targetPath)
+	}
+	if !strings.Contains(err.Error(), "is a symlink") {
+		t.Fatalf("PreparedChanges.Write returned error %q, want symlink failure", err)
+	}
+	if !bytes.Equal(readFile(t, replacementTargetPath), originalReplacementContents) {
+		t.Fatal("symlink destination changed after prepared write preflight failure")
+	}
+	linkInfo, err := os.Lstat(targetPath)
+	if err != nil {
+		t.Fatalf("lstat target path: %v", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("target path mode = %v, want symlink", linkInfo.Mode())
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("symlink preflight failure left a temporary file behind")
 	}
 }
 

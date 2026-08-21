@@ -121,3 +121,39 @@ func TestUpdateStringValue_SyncFailureLeavesOriginalFileIntactAndCleansTemporary
 		t.Fatal("temporary file was not cleaned up after sync failure")
 	}
 }
+
+func TestUpdateStringValue_RejectsSymlinkTargetPathAndLeavesDestinationUntouched(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeTargetFile(t, projectRoot, "config/runtime.json", strings.TrimSpace(`
+{
+  "database": {
+    "primary": {
+      "url": "postgres://old"
+    }
+  }
+}
+`)+"\n")
+	linkPath := createSymlinkOrSkip(t, projectRoot, "config/runtime-link.json", realTargetPath)
+	originalContents := readFile(t, realTargetPath)
+
+	err := UpdateStringValue(linkPath, "database.primary.url", "postgres://new")
+	if err == nil {
+		t.Fatal("UpdateStringValue returned nil error, want symlink target-path failure")
+	}
+	if !strings.Contains(err.Error(), "is a symlink") {
+		t.Fatalf("UpdateStringValue returned error %q, want symlink failure", err)
+	}
+	if !bytes.Equal(readFile(t, realTargetPath), originalContents) {
+		t.Fatal("symlink destination changed after rejected update")
+	}
+	linkInfo, err := os.Lstat(linkPath)
+	if err != nil {
+		t.Fatalf("lstat symlink path: %v", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("symlink path mode = %v, want symlink", linkInfo.Mode())
+	}
+	if containsTempFile(t, filepath.Dir(linkPath), tempFilePrefix(linkPath)) {
+		t.Fatal("symlink update created a temporary file")
+	}
+}

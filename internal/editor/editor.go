@@ -123,16 +123,9 @@ func prepareStringValueUpdate(targetPath string, jsonPath string, replacementVal
 var readTargetFile = readTargetFileFromDisk
 
 func readTargetFileFromDisk(targetPath string) ([]byte, fs.FileInfo, error) {
-	if targetPath == "" {
-		return nil, nil, fmt.Errorf("target path must be set")
-	}
-
-	targetInfo, err := os.Stat(targetPath)
+	targetInfo, err := statRegularTargetFile(targetPath)
 	if err != nil {
-		return nil, nil, fmt.Errorf("stat target file %q: %w", targetPath, err)
-	}
-	if targetInfo.IsDir() {
-		return nil, nil, fmt.Errorf("target file %q is a directory", targetPath)
+		return nil, nil, err
 	}
 
 	contents, err := os.ReadFile(targetPath)

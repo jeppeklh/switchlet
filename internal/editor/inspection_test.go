@@ -140,6 +140,28 @@ func TestDiscoverTargetFileCandidates_DoesNotHideGitignoredLocalTargetFiles(t *t
 	}
 }
 
+func TestDiscoverTargetFileCandidates_SkipsSymlinkCandidates(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	realTargetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://runtime.example.test"}`)
+	createSymlinkOrSkip(t, projectRoot, "config/runtime-link.json", realTargetPath)
+
+	candidates, err := DiscoverTargetFileCandidates(projectRoot)
+	if err != nil {
+		t.Fatalf("DiscoverTargetFileCandidates returned error: %v", err)
+	}
+
+	gotRelativePaths := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		gotRelativePaths = append(gotRelativePaths, candidate.RelativePath)
+	}
+
+	wantRelativePaths := []string{filepath.Join("config", "runtime.json")}
+	if !reflect.DeepEqual(gotRelativePaths, wantRelativePaths) {
+		t.Fatalf("relative paths = %#v, want %#v", gotRelativePaths, wantRelativePaths)
+	}
+}
+
 func TestInspectStringTargets_ReturnsHierarchicalNodes(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", strings.TrimSpace(`

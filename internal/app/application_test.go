@@ -756,6 +756,52 @@ func TestApplication_ValidateStartup_ReturnsErrorForNonStringTargetValue(t *test
 	}
 }
 
+func TestApplication_ValidateStartup_ReturnsErrorForSymlinkTargetFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://old"}}`)
+	linkPath := createSymlinkOrSkip(t, projectRoot, "config/runtime-link.json", realTargetPath)
+
+	application := app.New(
+		config.Target{File: linkPath, JSONPath: "database.url"},
+		nil,
+	)
+
+	err := application.ValidateStartup()
+	if err == nil {
+		t.Fatal("ValidateStartup returned nil error, want symlink target-path failure")
+	}
+	for _, expected := range []string{`validate configured targets`, `target "default"`, `type "json"`, `jsonPath "database.url"`, `is a symlink`} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ValidateStartup returned error %q, want substring %q", err, expected)
+		}
+	}
+}
+
+func TestApplication_ApplyProfile_ReturnsErrorForSymlinkTargetFile(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://old"}}`)
+	linkPath := createSymlinkOrSkip(t, projectRoot, "config/runtime-link.json", realTargetPath)
+	originalContents := readFile(t, realTargetPath)
+
+	application := app.New(
+		config.Target{File: linkPath, JSONPath: "database.url"},
+		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://new")}},
+	)
+
+	_, err := application.ApplyProfileByName("Local")
+	if err == nil {
+		t.Fatal("ApplyProfileByName returned nil error, want symlink target-path failure")
+	}
+	for _, expected := range []string{`apply profile "Local"`, `target "default"`, `type "json"`, `jsonPath "database.url"`, `is a symlink`} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ApplyProfileByName returned error %q, want substring %q", err, expected)
+		}
+	}
+	if !bytes.Equal(readFile(t, realTargetPath), originalContents) {
+		t.Fatal("symlink destination changed after rejected apply")
+	}
+}
+
 func writeTargetFile(t *testing.T, rootDir string, relativePath string, contents string) string {
 	t.Helper()
 
@@ -795,4 +841,18 @@ func decodeJSONRoot(t *testing.T, contents []byte) map[string]any {
 
 func stringPointer(value string) *string {
 	return &value
+}
+
+func createSymlinkOrSkip(t *testing.T, rootDir string, relativePath string, targetPath string) string {
+	t.Helper()
+
+	linkPath := filepath.Join(rootDir, filepath.FromSlash(relativePath))
+	if err := os.MkdirAll(filepath.Dir(linkPath), 0o755); err != nil {
+		t.Fatalf("create parent directories for symlink %q: %v", linkPath, err)
+	}
+	if err := os.Symlink(targetPath, linkPath); err != nil {
+		t.Skipf("symlink creation not supported in this environment: %v", err)
+	}
+
+	return linkPath
 }

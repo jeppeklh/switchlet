@@ -1381,6 +1381,42 @@ profiles:
 	}
 }
 
+func TestRunCommand_DoctorReportsSymlinkTargetValidationFailureWithoutLeakingValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeFile(t, projectRoot, "backend/runtime.json", `{"database":{"url":"postgres://old","password":"current-secret"}}`)
+	createSymlinkOrSkip(t, projectRoot, "backend/appsettings.Development.json", realTargetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: backend/appsettings.Development.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://resolved-secret
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"doctor"}, projectRoot)
+	if result.exitCode != runtimeExitCode {
+		t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+	}
+	for _, expected := range []string{"[failed] startup_target_validation", "database [json]", "backend/appsettings.Development.json", "database.url", "is a symlink", "[skipped] current_state_comparison"} {
+		if !strings.Contains(result.stdout, expected) {
+			t.Fatalf("stdout %q does not contain %q", result.stdout, expected)
+		}
+	}
+	for _, forbidden := range []string{"current-secret", "resolved-secret"} {
+		if strings.Contains(result.stdout, forbidden) || strings.Contains(result.stderr, forbidden) {
+			t.Fatalf("doctor output must not contain raw value %q (stdout: %q, stderr: %q)", forbidden, result.stdout, result.stderr)
+		}
+	}
+}
+
 func TestRunCommand_DoctorReportsUnavailableEnvironmentProfilesAsWarning(t *testing.T) {
 	projectRoot, _, _ := writeVersionThreeCommandProject(t, strings.TrimSpace(`
 profiles:
@@ -1558,6 +1594,76 @@ profiles:
 		if strings.Contains(result.stderr, forbidden) {
 			t.Fatalf("stderr %q must not contain raw value %q", result.stderr, forbidden)
 		}
+	}
+}
+
+func TestRunCommand_StatusAndDiffRejectSymlinkTargetPathsSafely(t *testing.T) {
+	projectRoot := t.TempDir()
+	realTargetPath := writeFile(t, projectRoot, "backend/runtime.json", `{"database":{"url":"postgres://old","password":"current-secret"}}`)
+	linkPath := createSymlinkOrSkip(t, projectRoot, "backend/appsettings.Development.json", realTargetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: database
+    file: backend/appsettings.Development.json
+    type: json
+    jsonPath: database.url
+
+profiles:
+  - name: Local
+    values:
+      - target: database
+        value: postgres://resolved-secret
+`)+"\n")
+
+	tests := []struct {
+		name       string
+		args       []string
+		jsonOutput bool
+	}{
+		{name: "status json", args: []string{"status", "--json"}, jsonOutput: true},
+		{name: "diff text", args: []string{"diff", "Local"}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			result := runCommandForTest(t, testCase.args, projectRoot)
+			if result.exitCode != runtimeExitCode {
+				t.Fatalf("exitCode = %d, want %d (stdout: %q, stderr: %q)", result.exitCode, runtimeExitCode, result.stdout, result.stderr)
+			}
+
+			message := result.stderr
+			if testCase.jsonOutput {
+				if result.stderr != "" {
+					t.Fatalf("stderr = %q, want empty string for JSON error", result.stderr)
+				}
+				var payload struct {
+					Error struct {
+						Kind    string `json:"kind"`
+						Message string `json:"message"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+					t.Fatalf("unmarshal JSON error: %v\noutput: %q", err, result.stdout)
+				}
+				if payload.Error.Kind != "runtime" {
+					t.Fatalf("error.kind = %q, want runtime", payload.Error.Kind)
+				}
+				message = payload.Error.Message
+			}
+
+			for _, expected := range []string{`validate configured targets`, `target "database"`, linkPath, `jsonPath "database.url"`, `is a symlink`} {
+				if !strings.Contains(message, expected) {
+					t.Fatalf("message %q does not contain %q", message, expected)
+				}
+			}
+			for _, forbidden := range []string{"current-secret", "resolved-secret"} {
+				if strings.Contains(message, forbidden) || strings.Contains(result.stdout, forbidden) {
+					t.Fatalf("command output must not contain raw value %q (stdout: %q, message: %q)", forbidden, result.stdout, message)
+				}
+			}
+		})
 	}
 }
 
