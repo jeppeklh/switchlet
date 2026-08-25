@@ -23,7 +23,7 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 | `i` | Inspect the selected profile. |
 | `c` | Open the configuration editor. |
 | `s` | Open current status for managed configuration. |
-| `d` | Open read-only diff for the selected profile. |
+| `d` | Open managed patch preview for the selected profile. |
 | `r` | Refresh profile availability and current managed state. |
 | `v` | Toggle managed value visibility where reveal is supported. |
 | `?` | Open contextual help for the active main-picker screen. |
@@ -58,6 +58,8 @@ field. `q` is literal input instead of quit.
 | Status | `PgUp` / `PgDn` | Scroll long status results. |
 | Status | `Home` / `End` | Jump to the top or bottom of long status results. |
 | Diff | `Esc` / `d` | Return to the profile list. |
+| Diff | `Enter` | Apply the diffed profile and exit, or open protected confirmation. |
+| Diff | `Space` | Apply the diffed profile and return to the list, or open protected confirmation. |
 | Diff | `r` | Refresh diff. |
 | Diff | `v` | Toggle managed value visibility. |
 | Diff | `PgUp` / `PgDn` | Scroll long diff previews. |
@@ -79,8 +81,9 @@ Values are hidden by default on every launch. The reveal toggle is session-local
 and is not accepted on protected confirmation, status, recoverable errors,
 comparison errors, success screens, or final terminal summaries.
 
-Status and diff screens are read-only. They do not apply profiles, write target
-files, create target-file temporary files, or edit `.switchlet.yaml`.
+Status screens are read-only. The diff screen remains read-only until `Enter` or
+`Space` is pressed. Opening status or diff never applies a profile, writes target
+files, creates target-file temporary files, or edits `.switchlet.yaml`.
 
 ## Init Wizard
 

@@ -231,15 +231,13 @@ func (model Model) handleConfirmationPreviewCompleted(message confirmationPrevie
 		return model, nil
 	}
 
-	selectedProfile, ok := model.selectedProfile()
-	if !ok || selectedProfile.Name != message.profile {
+	if model.confirmationProfileName != message.profile {
 		return model, nil
 	}
 	if message.err != nil {
 		model.state = errorState
 		model.recoverableError = model.protectedConfirmationError(message.profile, message.err)
-		model.confirmationPreview = nil
-		model.confirmExits = false
+		model.clearConfirmationState()
 		model.resetScrollOffset()
 		return model, nil
 	}
@@ -597,6 +595,12 @@ func (model Model) handleDiffComparisonKey(message tea.KeyMsg) (tea.Model, tea.C
 		}
 
 		return model.startDiffComparison(profileName)
+	case model.state == diffReadyState && matchesKey(message, keySpace):
+		model.refreshProfiles()
+		return model.applyOrConfirmComparisonProfile(false)
+	case model.state == diffReadyState && matchesKey(message, keyEnter):
+		model.refreshProfiles()
+		return model.applyOrConfirmComparisonProfile(true)
 	case matchesKey(message, keyReveal):
 		return model.toggleValueVisibility(), nil
 	default:
@@ -667,13 +671,13 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch {
 	case matchesKey(message, keyQuit):
-		model.confirmExits = false
-		model.confirmationPreview = nil
+		model.clearConfirmationState()
+		model.clearComparisonState()
 		return model, tea.Quit
 	case matchesKey(message, keyCancel, keyEscape):
 		model.state = listState
-		model.confirmExits = false
-		model.confirmationPreview = nil
+		model.clearConfirmationState()
+		model.clearComparisonState()
 		model.resetScrollOffset()
 		return model, nil
 	case matchesKey(message, keyConfirm, keyEnter):
@@ -683,14 +687,15 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 		model.refreshProfiles()
 
-		selectedProfile, ok := model.selectedProfile()
+		selectedProfile, ok := model.confirmationProfile()
 		if !ok {
 			return model, nil
 		}
 		if !selectedProfile.Available {
+			model.clearComparisonState()
 			model.state = errorState
 			model.recoverableError = model.unavailableProfileError(selectedProfile)
-			model.confirmationPreview = nil
+			model.clearConfirmationState()
 			return model, nil
 		}
 
@@ -714,7 +719,8 @@ func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	model.state = listState
 	model.recoverableError = RecoverableError{}
-	model.confirmationPreview = nil
+	model.clearConfirmationState()
+	model.clearComparisonState()
 	model.resetScrollOffset()
 	model.refreshProfiles()
 	return model, nil
@@ -726,15 +732,36 @@ func (model Model) applyOrConfirmSelectedProfile(exitAfterApply bool) (tea.Model
 		return model, nil
 	}
 
+	return model.applyOrConfirmProfileByName(selectedProfile.Name, exitAfterApply)
+}
+
+func (model Model) applyOrConfirmComparisonProfile(exitAfterApply bool) (tea.Model, tea.Cmd) {
+	selectedProfile, ok := model.comparisonProfile()
+	if !ok {
+		return model, nil
+	}
+
+	return model.applyOrConfirmProfileByName(selectedProfile.Name, exitAfterApply)
+}
+
+func (model Model) applyOrConfirmProfileByName(profileName string, exitAfterApply bool) (tea.Model, tea.Cmd) {
+	selectedProfile, ok := model.profileItemByName(profileName)
+	if !ok {
+		return model, nil
+	}
+
 	if !selectedProfile.Available {
+		model.clearComparisonState()
 		model.state = errorState
 		model.recoverableError = model.unavailableProfileError(selectedProfile)
 		model.resetScrollOffset()
 		return model, nil
 	}
 	if selectedProfile.Protected {
+		model.clearComparisonState()
 		model.state = confirmState
 		model.confirmExits = exitAfterApply
+		model.confirmationProfileName = selectedProfile.Name
 		model.confirmationPreview = nil
 		model.confirmationRequestID++
 		model.resetScrollOffset()
@@ -748,8 +775,8 @@ func (model Model) startApplyingSelectedProfile(selectedProfile app.ProfileItem,
 	model.applyingProfile = selectedProfile.Name
 	model.applyExits = exitAfterApply
 	model.applyRequestID++
-	model.confirmExits = false
-	model.confirmationPreview = nil
+	model.clearConfirmationState()
+	model.clearComparisonState()
 	model.recoverableError = RecoverableError{}
 	model.successResult = nil
 	model.state = listState
@@ -836,6 +863,12 @@ func (model *Model) resetScrollOffset() {
 	model.scrollOffset = 0
 }
 
+func (model *Model) clearConfirmationState() {
+	model.confirmExits = false
+	model.confirmationProfileName = ""
+	model.confirmationPreview = nil
+}
+
 func (model *Model) clampScrollOffset() {
 	metrics := model.focusedPanelScrollMetrics()
 	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
@@ -896,7 +929,7 @@ func (model Model) applyFailureError(profileName string, err error) RecoverableE
 		}
 	}
 
-	return model.genericRecoverableError(err)
+	return model.genericRecoverableError(profileName, err)
 }
 
 func (model Model) isApplying() bool {

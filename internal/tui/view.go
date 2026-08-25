@@ -369,14 +369,37 @@ func (model Model) diffComparisonShell() Shell {
 	if model.state == diffReadyState && model.diffPreview != nil {
 		lines = managedPatchPreviewLines(*model.diffPreview, model.valuesVisible, model.projectRoot, panelWidth)
 	}
+	actions := AppendHelpAction(model.diffComparisonActions())
 
 	return Shell{
 		Headerless: true,
 		Panels:     []Panel{{Title: "Managed patch", Lines: lines, Focused: true, FillHeight: model.shouldFillWorkspacePanels()}},
-		Actions:    AppendHelpAction(comparisonActions(comparisonRequestDiff, model.valuesVisible)),
+		Actions:    actions,
 		Width:      model.width,
 		Height:     model.height,
 	}
+}
+
+func (model Model) diffComparisonActions() []Action {
+	actions := make([]Action, 0, 6)
+	if model.state == diffReadyState {
+		if profile, ok := model.comparisonProfile(); ok {
+			actions = append(actions,
+				Action{Key: "Enter", Label: enterActionLabel(profile), Priority: ActionPriorityPrimary},
+				Action{Key: "Space", Label: stayActionLabel(profile), Priority: ActionPriorityPrimary},
+			)
+		}
+	}
+
+	actions = append(actions,
+		Action{Key: "r", Label: "Refresh", Priority: ActionPrioritySecondary},
+		valueRevealAction(model.valuesVisible),
+		Action{Key: "d", Label: "Return", Priority: ActionPriorityPrimary},
+		Action{Key: "Esc", Label: "Return", Priority: ActionPriorityPrimary},
+		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
+	)
+
+	return actions
 }
 
 func (model Model) comparisonErrorView() string {
@@ -664,7 +687,7 @@ func (model Model) confirmationView() string {
 }
 
 func (model Model) confirmationShell() Shell {
-	selectedProfile, ok := model.selectedProfile()
+	selectedProfile, ok := model.confirmationProfile()
 	if !ok {
 		return Shell{Headerless: true, Panels: []Panel{{Title: "Confirmation", Lines: []string{"No profile selected."}, Focused: true}}, Actions: model.confirmationActions(), Width: model.width, Height: model.height}
 	}

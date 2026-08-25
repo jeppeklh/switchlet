@@ -69,7 +69,7 @@ func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
 
 	errorModel := model
 	errorModel.state = errorState
-	errorModel.recoverableError = errorModel.genericRecoverableError(errors.New("target file could not be updated"))
+	errorModel.recoverableError = errorModel.genericRecoverableError("", errors.New("target file could not be updated"))
 	assertTargetFilenameVisible(t, "error", errorModel.View(), "appsettings.Development.json")
 	assertVisibleWidth(t, errorModel.View(), 80)
 

@@ -297,7 +297,7 @@ func TestRecoverableErrorLines_WrapsLongFallbackErrors(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
 	model.state = errorState
-	model.recoverableError = model.genericRecoverableError(errors.New(strings.Repeat("unexpected target preparation failure ", 12)))
+	model.recoverableError = model.genericRecoverableError("", errors.New(strings.Repeat("unexpected target preparation failure ", 12)))
 
 	view := model.View()
 	assertVisibleWidth(t, view, 80)

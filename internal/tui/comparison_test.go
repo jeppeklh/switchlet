@@ -520,6 +520,126 @@ func TestUpdate_DiffActionUsesSelectedProfileRefreshesAndIgnoresStaleResults(t *
 	assertFileUnchanged(t, configPath, originalConfigContents, originalConfigMode)
 }
 
+func TestUpdate_DiffEnterAppliesComparedProfileEvenIfCursorChanges(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local")}}},
+			{Name: "Staging", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://staging")}}},
+		},
+	))
+
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updatedModel.(Model)
+	model = openDiffReady(t, model)
+	model.cursor = 0
+
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command from diff")
+	}
+	if model.applyingProfile != "Staging" || !model.applyExits {
+		t.Fatalf("model after diff Enter = %#v, want Staging applying with exit", model)
+	}
+
+	updatedModel, quitCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if quitCommand == nil {
+		t.Fatal("quitCommand is nil, want success quit command")
+	}
+	if model.state != successState || model.successResult == nil {
+		t.Fatalf("model after diff apply = %#v, want success result", model)
+	}
+	if model.successResult.ProfileName != "Staging" {
+		t.Fatalf("successResult.ProfileName = %q, want Staging", model.successResult.ProfileName)
+	}
+	if !strings.Contains(model.FinalMessage(), `Applied profile "Staging"`) {
+		t.Fatalf("FinalMessage() = %q, want Staging summary", model.FinalMessage())
+	}
+	if !strings.Contains(string(readFile(t, targetPath)), `"postgres://staging"`) {
+		t.Fatalf("target file = %q, want Staging applied", string(readFile(t, targetPath)))
+	}
+}
+
+func TestUpdate_DiffProtectedSpaceOpensConfirmationForComparedProfile(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{
+			{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local")}}},
+			{Name: "Production", Protected: true, Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://production")}}},
+		},
+	))
+
+	updatedModel, _ := model.Update(tea.KeyMsg{Type: tea.KeyDown})
+	model = updatedModel.(Model)
+	model = openDiffReady(t, model)
+	model.cursor = 0
+
+	model, command := startProtectedConfirmation(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	if model.confirmExits {
+		t.Fatalf("model after diff Space = %#v, want stay-open confirmation", model)
+	}
+	if model.confirmationProfileName != "Production" {
+		t.Fatalf("confirmationProfileName = %q, want Production", model.confirmationProfileName)
+	}
+	model = resolveProtectedConfirmation(t, model, command)
+	if !strings.Contains(model.View(), "Profile: Production") || !strings.Contains(model.View(), "After apply, return to the profile list.") {
+		t.Fatalf("confirmation View() = %q, want Production stay-open confirmation", model.View())
+	}
+
+	updatedModel, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command == nil {
+		t.Fatal("command is nil, want apply command after protected diff confirmation")
+	}
+	updatedModel, currentCommand := model.Update(command())
+	model = updatedModel.(Model)
+	if currentCommand == nil {
+		t.Fatal("currentCommand is nil, want current-profile refresh after protected diff apply")
+	}
+	if model.state != listState || model.successResult != nil || model.FinalMessage() != "" {
+		t.Fatalf("model after protected diff Space apply = %#v, want list state without final message", model)
+	}
+	if !strings.Contains(string(readFile(t, targetPath)), `"postgres://production"`) {
+		t.Fatalf("target file = %q, want protected profile applied", string(readFile(t, targetPath)))
+	}
+}
+
+func TestUpdate_DiffUnavailableProfileShowsRecoverableError(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	missingEnvironmentVariable := "SWITCHLET_DIFF_UNAVAILABLE_PROFILE"
+	t.Setenv(missingEnvironmentVariable, "")
+	model := New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Staging", Values: []config.ProfileValue{{Target: "database", ValueFromEnv: stringPointer(missingEnvironmentVariable)}}}},
+	))
+
+	model = openDiffReady(t, model)
+	updatedModel, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil, want unavailable diff apply to stop before apply")
+	}
+	if model.state != errorState {
+		t.Fatalf("state = %d, want errorState", model.state)
+	}
+	view := model.View()
+	for _, expected := range []string{"Profile \"Staging\" is unavailable.", "Managed value", "database [json]", "Environment variable", missingEnvironmentVariable} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want unavailable diff error detail %q", view, expected)
+		}
+	}
+	if strings.Contains(view, "postgres://local") {
+		t.Fatalf("View() = %q, must not contain raw managed values", view)
+	}
+}
+
 func TestUpdate_ValueRevealTogglesDiffWithoutChangingComparisonRequest(t *testing.T) {
 	projectRoot := t.TempDir()
 	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
@@ -669,6 +789,8 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 		"Omitted targets",
 		"Unchanged by this partial profile.",
 		"redis [json]",
+		"Enter Details",
+		"Space Details",
 		"r Refresh",
 		"d Return",
 		"Esc Return",
@@ -689,10 +811,6 @@ func TestView_DiffRendersManagedPatchHiddenValuesUnavailableAndOmittedTargets(t 
 		}
 	}
 
-	lines := visibleLines(view)
-	if strings.Contains(lines[len(lines)-1], "Apply") {
-		t.Fatalf("command bar = %q, must not include an apply action", lines[len(lines)-1])
-	}
 }
 
 func TestView_DiffNoChangeUsesHeadingAndAlignedValueRow(t *testing.T) {
@@ -714,6 +832,8 @@ func TestView_DiffNoChangeUsesHeadingAndAlignedValueRow(t *testing.T) {
 		"Selector",
 		"database.url",
 		"= value    " + hiddenValuePlaceholder,
+		"Enter Apply+Exit",
+		"Space Apply",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want no-change diff detail %q", view, expected)
@@ -751,7 +871,6 @@ func TestView_DiffManagedPatchRevealsManagedValuesWhenShown(t *testing.T) {
 	shownView := model.View()
 	for _, expected := range []string{
 		"Would update 1 target",
-		"v Hide values",
 		"- current  " + currentValue,
 		"+ profile  " + profileValue,
 	} {
@@ -781,8 +900,10 @@ func TestView_DiffLoadingShowsSelectedProfileContextAndReadOnlyCommands(t *testi
 			t.Fatalf("View() = %q, want diff loading detail %q", view, expected)
 		}
 	}
-	if strings.Contains(view, "No files will be modified.") {
-		t.Fatalf("View() = %q, must not contain old no-write meta text", view)
+	for _, forbidden := range []string{"No files will be modified.", "Enter Apply+Exit", "Space Apply", "Enter Details", "Space Details"} {
+		if strings.Contains(view, forbidden) {
+			t.Fatalf("View() = %q, must not contain loading-only forbidden text %q", view, forbidden)
+		}
 	}
 }
 
@@ -1005,6 +1126,41 @@ func TestUpdate_ComparisonScreensReturnAndQuitWithDocumentedKeys(t *testing.T) {
 		model = updatedModel.(Model)
 		if command == nil {
 			t.Fatalf("Ctrl+C command is nil for state %d, want quit command", state)
+		}
+	}
+}
+
+func TestUpdate_StatusAndComparisonErrorIgnoreApplyKeys(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"postgres://local"}}`)
+	statusModel := openStatusReady(t, New(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local")}}}},
+	)))
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeySpace}} {
+		updatedModel, command := statusModel.Update(key)
+		statusModel = updatedModel.(Model)
+		if command != nil {
+			t.Fatalf("status command = %v, want Enter/Space ignored", command)
+		}
+		if statusModel.state != statusReadyState || statusModel.statusComparison == nil {
+			t.Fatalf("status model after apply key = %#v, want status unchanged", statusModel)
+		}
+	}
+
+	errorModel := comparisonKeyTestModel()
+	errorModel.state = comparisonErrorState
+	errorModel.comparisonRequestKind = comparisonRequestDiff
+	errorModel.comparisonProfileName = "Production"
+	errorModel.comparisonError = RecoverableError{Problem: "Could not compare profile \"Production\"."}
+	for _, key := range []tea.KeyMsg{{Type: tea.KeyEnter}, {Type: tea.KeySpace}} {
+		updatedModel, command := errorModel.Update(key)
+		errorModel = updatedModel.(Model)
+		if command != nil {
+			t.Fatalf("comparison error command = %v, want Enter/Space ignored", command)
+		}
+		if errorModel.state != comparisonErrorState || errorModel.comparisonError.IsZero() {
+			t.Fatalf("comparison error model after apply key = %#v, want comparison error unchanged", errorModel)
 		}
 	}
 }

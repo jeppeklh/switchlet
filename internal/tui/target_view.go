@@ -636,14 +636,16 @@ func (model Model) protectedConfirmationError(profileName string, cause error) R
 	}
 }
 
-func (model Model) genericRecoverableError(cause error) RecoverableError {
+func (model Model) genericRecoverableError(profileName string, cause error) RecoverableError {
 	reason := "Unknown error."
 	if cause != nil {
 		reason = cause.Error()
 	}
 
 	context := []string(nil)
-	if selectedProfile, ok := model.selectedProfile(); ok {
+	if selectedProfile, ok := model.profileItemByName(profileName); ok {
+		context = recoverableProfileContextLines(selectedProfile, model.projectRoot, secondaryPanelContentWidth(model.width))
+	} else if selectedProfile, ok := model.selectedProfile(); ok {
 		context = recoverableProfileContextLines(selectedProfile, model.projectRoot, secondaryPanelContentWidth(model.width))
 	}
 
