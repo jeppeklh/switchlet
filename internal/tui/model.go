@@ -75,6 +75,7 @@ type Model struct {
 	currentProfiles       map[string]struct{}
 	currentRequestID      int
 	currentDetection      currentProfileDetectionState
+	currentDetectionError error
 	configRequested       bool
 	helpOpen              bool
 

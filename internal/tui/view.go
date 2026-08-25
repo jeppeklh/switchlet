@@ -195,7 +195,8 @@ func (model Model) currentProfileDetectionFeedbackLines(lines []string) []string
 		return lines
 	}
 
-	return append(lines, message)
+	lines = append(lines, message)
+	return append(lines, model.currentProfileDetectionDetailLines(secondaryPanelContentWidth(model.width))...)
 }
 
 func (model Model) currentProfileDetectionMessage() string {
@@ -207,6 +208,31 @@ func (model Model) currentProfileDetectionMessage() string {
 	default:
 		return ""
 	}
+}
+
+func (model Model) currentProfileDetectionDetailLines(maxLineWidth int) []string {
+	if model.currentDetection != currentProfileDetectionUnavailable {
+		return nil
+	}
+
+	lines := make([]string, 0, 5)
+
+	if targetFailure, ok := app.TargetFailureFromError(model.currentDetectionError); ok {
+		lines = append(lines, RenderKeyValue("Managed value", fitValueForLabel(targetNameLabel(targetFailure.TargetName)+targetTypeBadge(string(targetFailure.TargetType)), maxLineWidth, "Managed value")))
+		if targetFailure.TargetFile != "" {
+			lines = append(lines, RenderKeyValue("File", model.compactTargetFileValue(targetFailure.TargetFile, "File")))
+		}
+		if targetFailure.Selector != "" {
+			lines = append(lines, RenderKeyValue("Selector", fitValueForLabel(targetFailure.Selector, maxLineWidth, "Selector")))
+		}
+		if targetFailure.Reason != "" {
+			lines = append(lines, RenderKeyValue("Reason", fitValueForLabel(targetFailure.Reason, maxLineWidth, "Reason")))
+		}
+	} else if model.currentDetectionError != nil {
+		lines = append(lines, RenderKeyValue("Reason", fitValueForLabel(model.currentDetectionError.Error(), maxLineWidth, "Reason")))
+	}
+
+	return append(lines, wrapText("Press s for status details or r to retry.", maxLineWidth)...)
 }
 
 func appendUnavailableProfileSummary(lines []string, profile app.ProfileItem, maxLineWidth int) []string {

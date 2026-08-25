@@ -143,11 +143,13 @@ func TestInit_DetectsCurrentProfileBadgeFromTargetFiles(t *testing.T) {
 
 func TestInit_CurrentProfileDetectionFailureShowsUnavailableFeedback(t *testing.T) {
 	projectRoot := t.TempDir()
-	missingTargetPath := filepath.Join(projectRoot, "missing.json")
-	model := New(app.NewWithTargets(
+	missingTargetPath := filepath.Join(projectRoot, "config", "runtime.json")
+	model := NewWithProjectRoot(app.NewWithTargets(
 		[]config.Target{{Name: "database", File: missingTargetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
 		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer("postgres://local-secret")}}}},
-	))
+	), projectRoot)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
 
 	updatedModel, command := model.Update(model.Init()())
 	model = updatedModel.(Model)
@@ -158,11 +160,71 @@ func TestInit_CurrentProfileDetectionFailureShowsUnavailableFeedback(t *testing.
 		t.Fatalf("model after current-profile detection failure = %#v, want non-current unavailable detection state", model)
 	}
 	view := model.View()
-	if !strings.Contains(view, "Current profile check unavailable.") {
-		t.Fatalf("View() = %q, want value-safe current-profile unavailable feedback", view)
+	for _, expected := range []string{
+		"Current profile check unavailable.",
+		"Managed value: database [json]",
+		"File: config/runtime.json",
+		"Selector: database.url",
+		"Reason:",
+		"Press s for status details or r to retry.",
+	} {
+		if !strings.Contains(view, expected) {
+			t.Fatalf("View() = %q, want actionable current-profile failure detail %q", view, expected)
+		}
 	}
 	if strings.Contains(view, "postgres://local-secret") {
 		t.Fatalf("View() = %q, must not reveal profile value", view)
+	}
+}
+
+func TestUpdate_ProfileListRefreshClearsFailureDetailAndRestoresCurrentBadge(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := filepath.Join(projectRoot, "config.json")
+	currentValue := "postgres://local-current"
+	model := NewWithProjectRoot(app.NewWithTargets(
+		[]config.Target{{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"}},
+		[]config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "database", Value: stringPointer(currentValue)}}}},
+	), projectRoot)
+	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 120, Height: 32})
+	model = updatedModel.(Model)
+
+	updatedModel, command := model.Update(model.Init()())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after startup current-profile detection failure")
+	}
+	if !strings.Contains(model.View(), "Current profile check unavailable.") {
+		t.Fatalf("View() = %q, want current-profile failure detail before refresh", model.View())
+	}
+
+	writeTargetFile(t, projectRoot, "config.json", `{"database":{"url":"`+currentValue+`"}}`)
+	updatedModel, refreshCommand := model.Update(runeKey('r'))
+	model = updatedModel.(Model)
+	if refreshCommand == nil || model.currentDetection != currentProfileDetectionChecking {
+		t.Fatalf("model after refresh key = %#v, command %v, want checking refresh command", model, refreshCommand)
+	}
+	refreshingView := model.View()
+	if !strings.Contains(refreshingView, "Checking current profile...") {
+		t.Fatalf("View() = %q, want checking feedback during retry", refreshingView)
+	}
+	if strings.Contains(refreshingView, "Current profile check unavailable.") {
+		t.Fatalf("View() = %q, want stale failure detail cleared while retrying", refreshingView)
+	}
+
+	updatedModel, command = model.Update(refreshCommand())
+	model = updatedModel.(Model)
+	if command != nil {
+		t.Fatal("command is not nil after refreshed current-profile detection")
+	}
+	if model.currentDetection != currentProfileDetectionReady || !model.profileIsCurrent("Local") {
+		t.Fatalf("model after refreshed current-profile detection = %#v, want Local current", model)
+	}
+	readyView := model.View()
+	if !strings.Contains(readyView, "> Local [current]") {
+		t.Fatalf("View() = %q, want restored current badge after retry", readyView)
+	}
+	if strings.Contains(readyView, "Current profile check unavailable.") || strings.Contains(readyView, "Checking current profile...") {
+		t.Fatalf("View() = %q, want retry feedback cleared after success", readyView)
 	}
 }
 

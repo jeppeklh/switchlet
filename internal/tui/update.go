@@ -166,6 +166,7 @@ func (model Model) handleStatusComparisonCompleted(message statusComparisonCompl
 	model.statusComparison = &result
 	model.updateCurrentProfile(result)
 	model.currentDetection = currentProfileDetectionReady
+	model.currentDetectionError = nil
 	model.diffPreview = nil
 	model.comparisonError = RecoverableError{}
 	model.state = statusReadyState
@@ -200,6 +201,7 @@ func (model Model) handleComparisonFailed(message comparisonFailedMsg) (tea.Mode
 	model.currentProfiles = nil
 	if message.kind == comparisonRequestStatus {
 		model.currentDetection = currentProfileDetectionUnavailable
+		model.currentDetectionError = message.err
 	}
 	model.comparisonError = model.comparisonFailureError(message.kind, message.profile, message.err)
 	model.state = comparisonErrorState
@@ -214,11 +216,13 @@ func (model Model) handleCurrentProfileDetected(message currentProfileDetectedMs
 	if message.err != nil {
 		model.currentProfiles = nil
 		model.currentDetection = currentProfileDetectionUnavailable
+		model.currentDetectionError = message.err
 		return model, nil
 	}
 
 	model.updateCurrentProfile(message.result)
 	model.currentDetection = currentProfileDetectionReady
+	model.currentDetectionError = nil
 	return model, nil
 }
 
@@ -261,6 +265,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.successResult = nil
 		model.currentProfiles = nil
 		model.currentDetection = currentProfileDetectionUnknown
+		model.currentDetectionError = nil
 		return model, nil
 	}
 
@@ -271,6 +276,7 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.successResult = nil
 		model.currentProfiles = nil
 		model.currentDetection = currentProfileDetectionChecking
+		model.currentDetectionError = nil
 		model.currentRequestID++
 		return model, detectCurrentProfile(model.application, model.currentRequestID)
 	}
@@ -756,6 +762,7 @@ func (model Model) startStatusComparison() (tea.Model, tea.Cmd) {
 	model.comparisonRequestID++
 	model.currentRequestID++
 	model.currentDetection = currentProfileDetectionUnknown
+	model.currentDetectionError = nil
 	model.comparisonRequestKind = comparisonRequestStatus
 	model.comparisonProfileName = ""
 	model.statusComparison = nil
@@ -772,6 +779,7 @@ func (model Model) startProfileListRefresh() (tea.Model, tea.Cmd) {
 	model.currentProfiles = nil
 	model.currentRequestID++
 	model.currentDetection = currentProfileDetectionChecking
+	model.currentDetectionError = nil
 
 	return model, detectCurrentProfile(model.application, model.currentRequestID)
 }
