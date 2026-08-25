@@ -11,9 +11,10 @@ import (
 
 // Application coordinates profile resolution and target-file editing.
 type Application struct {
-	targets          []config.Target
-	profiles         []config.Profile
-	readTargetValues func([]config.Target) (map[string]string, error)
+	targets            []config.Target
+	profiles           []config.Profile
+	applyTargetChanges func([]editor.TargetChange) error
+	readTargetValues   func([]config.Target) (map[string]string, error)
 }
 
 const defaultTargetName = "default"
@@ -29,9 +30,10 @@ func NewWithTargets(targets []config.Target, profiles []config.Profile) Applicat
 	configuredProfiles := copyProfiles(profiles)
 
 	return Application{
-		targets:          configuredTargets,
-		profiles:         configuredProfiles,
-		readTargetValues: editor.ReadTargetValues,
+		targets:            configuredTargets,
+		profiles:           configuredProfiles,
+		applyTargetChanges: editor.ApplyTargetChanges,
+		readTargetValues:   editor.ReadTargetValues,
 	}
 }
 
@@ -167,7 +169,7 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 		return Result{}, fmt.Errorf("build target changes for profile %q: %w", configuredProfile.Name, err)
 	}
 
-	if err := editor.ApplyTargetChanges(targetChanges); err != nil {
+	if err := application.applyResolvedTargetChanges(targetChanges); err != nil {
 		return Result{}, fmt.Errorf("apply profile %q: %w", configuredProfile.Name, err)
 	}
 	if err := application.verifyAppliedTargetChanges(resolvedProfile.Name, targetChanges, plannedChanges); err != nil {
@@ -246,6 +248,14 @@ func (application Application) targetChangesForResolvedProfile(resolvedProfile p
 	}
 
 	return targetChanges, plannedChanges, nil
+}
+
+func (application Application) applyResolvedTargetChanges(targetChanges []editor.TargetChange) error {
+	if application.applyTargetChanges != nil {
+		return application.applyTargetChanges(targetChanges)
+	}
+
+	return editor.ApplyTargetChanges(targetChanges)
 }
 
 func (application Application) verifyAppliedTargetChanges(profileName string, targetChanges []editor.TargetChange, plannedChanges []PlannedChange) error {

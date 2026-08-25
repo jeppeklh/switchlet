@@ -1,6 +1,7 @@
 package editor
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -48,6 +49,26 @@ type preparedFileChange struct {
 	originalContents    []byte
 	updatedContents     []byte
 	originalPermissions fs.FileMode
+}
+
+// StaleTargetFileError describes a target file whose bytes changed after
+// Switchlet prepared the replacement contents but before that file could be
+// replaced.
+type StaleTargetFileError struct {
+	TargetFile string
+	Err        error
+}
+
+func (err StaleTargetFileError) Error() string {
+	if err.Err != nil {
+		return fmt.Sprintf("target file %q changed during apply preparation: %v", err.TargetFile, err.Err)
+	}
+
+	return fmt.Sprintf("target file %q changed during apply preparation", err.TargetFile)
+}
+
+func (err StaleTargetFileError) Unwrap() error {
+	return err.Err
 }
 
 // PreflightError describes a failed target-file write preflight before any
@@ -276,8 +297,9 @@ func PrepareTargetChanges(changes []TargetChange) (PreparedChanges, error) {
 	return PreparedChanges{fileChanges: fileChanges}, nil
 }
 
-// Write persists every prepared file update, restoring already replaced files
-// on a best-effort basis if a later replacement fails.
+// Write persists every prepared file update, refusing to replace files whose
+// bytes changed after preparation and restoring already replaced files on a
+// best-effort basis if a later replacement fails.
 func (preparedChanges PreparedChanges) Write() error {
 	if err := preparedChanges.preflight(); err != nil {
 		return err
@@ -285,6 +307,14 @@ func (preparedChanges PreparedChanges) Write() error {
 
 	replacedFiles := make([]preparedFileChange, 0, len(preparedChanges.fileChanges))
 	for index, fileChange := range preparedChanges.fileChanges {
+		if err := verifyPreparedFileUnchanged(fileChange); err != nil {
+			if index > 0 {
+				return restoreReplacedFiles(fileChange.targetFile, err, replacedFiles)
+			}
+
+			return err
+		}
+
 		if err := writeFileAtomically(fileChange.targetFile, fileChange.updatedContents, fileChange.originalPermissions); err != nil {
 			if index > 0 {
 				return restoreReplacedFiles(fileChange.targetFile, err, replacedFiles)
@@ -297,6 +327,18 @@ func (preparedChanges PreparedChanges) Write() error {
 	}
 
 	return nil
+}
+
+func verifyPreparedFileUnchanged(fileChange preparedFileChange) error {
+	currentContents, _, err := readTargetFileFromDisk(fileChange.targetFile)
+	if err != nil {
+		return StaleTargetFileError{TargetFile: fileChange.targetFile, Err: err}
+	}
+	if bytes.Equal(currentContents, fileChange.originalContents) {
+		return nil
+	}
+
+	return StaleTargetFileError{TargetFile: fileChange.targetFile}
 }
 
 func (preparedChanges PreparedChanges) preflight() error {

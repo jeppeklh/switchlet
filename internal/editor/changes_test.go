@@ -716,6 +716,49 @@ func TestPreparedChangesWrite_RejectsSymlinkTargetPathBeforeReplacement(t *testi
 	}
 }
 
+func TestPreparedChangesWrite_RejectsTargetFileChangedAfterPreparationWithoutLeakingValues(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeTargetFile(t, projectRoot, "config/runtime.json", `{"database":{"url":"postgres://original-secret"}}`)
+	preparedChanges, err := PrepareTargetChanges([]TargetChange{{
+		Target: config.Target{Name: "database", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+		Value:  "postgres://replacement-secret",
+	}})
+	if err != nil {
+		t.Fatalf("PrepareTargetChanges returned error: %v", err)
+	}
+
+	externalContents := []byte(`{"database":{"url":"postgres://external-secret"}}`)
+	if err := os.WriteFile(targetPath, externalContents, 0o644); err != nil {
+		t.Fatalf("overwrite target file after preparation: %v", err)
+	}
+
+	err = preparedChanges.Write()
+	if err == nil {
+		t.Fatal("PreparedChanges.Write returned nil error, want stale-file failure")
+	}
+	var staleErr StaleTargetFileError
+	if !errors.As(err, &staleErr) {
+		t.Fatalf("PreparedChanges.Write returned error %q, want StaleTargetFileError", err)
+	}
+	if staleErr.TargetFile != targetPath {
+		t.Fatalf("StaleTargetFileError.TargetFile = %q, want %q", staleErr.TargetFile, targetPath)
+	}
+	if staleErr.Err != nil {
+		t.Fatalf("StaleTargetFileError.Err = %v, want nil byte-mismatch reason", staleErr.Err)
+	}
+	for _, forbidden := range []string{"postgres://original-secret", "postgres://external-secret", "postgres://replacement-secret"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("PreparedChanges.Write leaked value %q in error %q", forbidden, err)
+		}
+	}
+	if !bytes.Equal(readFile(t, targetPath), externalContents) {
+		t.Fatal("stale target file was overwritten after preparation mismatch")
+	}
+	if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+		t.Fatal("stale-file failure left a temporary file behind")
+	}
+}
+
 func TestApplyTargetChanges_WriteFailureRestoresEarlierFilesInReverseOrder(t *testing.T) {
 	projectRoot := t.TempDir()
 	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
@@ -807,6 +850,86 @@ func TestApplyTargetChanges_WriteFailureRestoresEarlierFilesInReverseOrder(t *te
 	}
 	if updatedDatabaseInfo.Mode().Perm() != originalDatabaseInfo.Mode().Perm() {
 		t.Fatalf("database permissions = %o, want restored permissions %o", updatedDatabaseInfo.Mode().Perm(), originalDatabaseInfo.Mode().Perm())
+	}
+}
+
+func TestPreparedChangesWrite_StaleLaterFileRestoresEarlierReplacements(t *testing.T) {
+	projectRoot := t.TempDir()
+	databasePath := writeTargetFile(t, projectRoot, "backend/appsettings.Development.json", `{"database":{"url":"postgres://old"}}`)
+	frontendPath := writeTargetFile(t, projectRoot, "frontend/config.json", `{"api":{"url":"https://old.example.test"}}`)
+	originalDatabaseContents := readFile(t, databasePath)
+
+	preparedChanges, err := PrepareTargetChanges([]TargetChange{
+		{
+			Target: config.Target{Name: "database", File: databasePath, Type: config.TargetTypeJSON, JSONPath: "database.url"},
+			Value:  "postgres://replacement-secret",
+		},
+		{
+			Target: config.Target{Name: "frontendApi", File: frontendPath, Type: config.TargetTypeJSON, JSONPath: "api.url"},
+			Value:  "https://replacement-secret.example.test",
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareTargetChanges returned error: %v", err)
+	}
+
+	externalFrontendContents := []byte(`{"api":{"url":"https://external-secret.example.test"}}`)
+	if err := os.WriteFile(frontendPath, externalFrontendContents, 0o644); err != nil {
+		t.Fatalf("overwrite later target file after preparation: %v", err)
+	}
+
+	var replacementOrder []string
+	originalReplaceFile := replaceFile
+	replaceFile = func(oldPath string, newPath string) error {
+		replacementOrder = append(replacementOrder, newPath)
+		return originalReplaceFile(oldPath, newPath)
+	}
+	t.Cleanup(func() {
+		replaceFile = originalReplaceFile
+	})
+
+	err = preparedChanges.Write()
+	if err == nil {
+		t.Fatal("PreparedChanges.Write returned nil error, want stale later-file failure")
+	}
+	var recoveryErr RecoveryError
+	if !errors.As(err, &recoveryErr) {
+		t.Fatalf("PreparedChanges.Write returned error %q, want RecoveryError", err)
+	}
+	if recoveryErr.FailedFile != frontendPath {
+		t.Fatalf("RecoveryError.FailedFile = %q, want %q", recoveryErr.FailedFile, frontendPath)
+	}
+	if !stringSlicesEqual(recoveryErr.RestoredFiles, []string{databasePath}) {
+		t.Fatalf("RecoveryError.RestoredFiles = %#v, want %#v", recoveryErr.RestoredFiles, []string{databasePath})
+	}
+	if len(recoveryErr.UnrestoredFiles) != 0 {
+		t.Fatalf("RecoveryError.UnrestoredFiles = %#v, want none", recoveryErr.UnrestoredFiles)
+	}
+	var staleErr StaleTargetFileError
+	if !errors.As(err, &staleErr) {
+		t.Fatalf("PreparedChanges.Write returned error %q, want stale cause", err)
+	}
+	if staleErr.TargetFile != frontendPath {
+		t.Fatalf("StaleTargetFileError.TargetFile = %q, want %q", staleErr.TargetFile, frontendPath)
+	}
+	for _, forbidden := range []string{"postgres://replacement-secret", "https://replacement-secret.example.test", "https://external-secret.example.test"} {
+		if strings.Contains(err.Error(), forbidden) {
+			t.Fatalf("PreparedChanges.Write leaked value %q in error %q", forbidden, err)
+		}
+	}
+	if !stringSlicesEqual(replacementOrder, []string{databasePath, databasePath}) {
+		t.Fatalf("replacementOrder = %#v, want first replacement plus restoration", replacementOrder)
+	}
+	if !bytes.Equal(readFile(t, databasePath), originalDatabaseContents) {
+		t.Fatal("earlier replaced target file was not restored after stale later file")
+	}
+	if !bytes.Equal(readFile(t, frontendPath), externalFrontendContents) {
+		t.Fatal("stale later target file should remain on-disk external contents")
+	}
+	for _, targetPath := range []string{databasePath, frontendPath} {
+		if containsTempFile(t, filepath.Dir(targetPath), tempFilePrefix(targetPath)) {
+			t.Fatalf("temporary file for %q was not cleaned up", targetPath)
+		}
 	}
 }
 
