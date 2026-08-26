@@ -443,7 +443,7 @@ func TestModel_ContextualHelpUsesOverviewActions(t *testing.T) {
 		t.Fatal("helpOpen = false, want contextual help open")
 	}
 	view := model.View()
-	for _, expected := range []string{"Help", "a: Add profile", "q Quit", "Esc/? Back"} {
+	for _, expected := range []string{"Help", "a: Add profile", "C: Capture current", "q Quit", "Esc/? Back"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("help view missing %q\n%s", expected, view)
 		}
@@ -674,6 +674,85 @@ func TestModel_ProfileTextEntryTreatsQAsLiteralInput(t *testing.T) {
 	}
 	if _, ok := model.Result(); ok {
 		t.Fatal("Result returned ok=true, want editor to keep running")
+	}
+}
+
+func TestModel_CaptureCurrentManagedValuesIntoProfileAndSave(t *testing.T) {
+	model, configPath := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 120, 32)
+
+	var cmd tea.Cmd
+	model, cmd = pressRune(t, model, 'C')
+	if model.state != editorStateProfileCaptureLoading || cmd == nil {
+		t.Fatalf("state = %v cmd nil=%t, want capture loading command", model.state, cmd == nil)
+	}
+	if !strings.Contains(model.View(), "Reading current managed values") {
+		t.Fatalf("capture loading view missing current-value loading copy\n%s", model.View())
+	}
+
+	model = runCommand(t, model, cmd)
+	if model.state != editorStateProfileNameInput {
+		t.Fatalf("state = %v, want profile name input after capture", model.state)
+	}
+	if len(model.document.Profiles) != 2 {
+		t.Fatalf("profile count = %d, want unchanged draft before review save", len(model.document.Profiles))
+	}
+
+	model = enterText(t, model, "Current files")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateProfileReview {
+		t.Fatalf("state = %v, want profile review after captured name", model.state)
+	}
+	if len(model.document.Profiles) != 2 {
+		t.Fatalf("profile count = %d, want no added profile before review confirmation", len(model.document.Profiles))
+	}
+
+	reviewView := model.View()
+	for _, expected := range []string{"Review captured profile", "Current files", "hidden literal value"} {
+		if !strings.Contains(reviewView, expected) {
+			t.Fatalf("captured profile review missing %q\n%s", expected, reviewView)
+		}
+	}
+	for _, forbidden := range []string{"postgres://old", "http://localhost:5173"} {
+		if strings.Contains(reviewView, forbidden) {
+			t.Fatalf("captured profile review leaked raw managed value %q\n%s", forbidden, reviewView)
+		}
+	}
+
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	if model.state != editorStateOverview {
+		t.Fatalf("state = %v, want overview after captured profile draft save", model.state)
+	}
+	if len(model.document.Profiles) != 3 {
+		t.Fatalf("profile count = %d, want captured profile added after review confirmation", len(model.document.Profiles))
+	}
+	if !strings.Contains(model.View(), "Current files") {
+		t.Fatalf("overview does not contain captured profile\n%s", model.View())
+	}
+
+	model = selectReviewTab(t, model)
+	reviewView = model.View()
+	for _, expected := range []string{".switchlet.yaml", ".gitignore", "Hidden literal profile values"} {
+		if !strings.Contains(reviewView, expected) {
+			t.Fatalf("review view missing %q\n%s", expected, reviewView)
+		}
+	}
+	model, cmd = pressRune(t, model, 's')
+	if model.state != editorStateSaving || cmd == nil {
+		t.Fatalf("state = %v cmd nil=%t, want saving command", model.state, cmd == nil)
+	}
+	model = runCommand(t, model, cmd)
+	if model.state != editorStateSaveSuccess {
+		t.Fatalf("state = %v, want save success", model.state)
+	}
+
+	configContents := string(readTestFile(t, configPath))
+	if !strings.Contains(configContents, "name: Current files") {
+		t.Fatalf("saved configuration does not contain captured profile\n%s", configContents)
+	}
+	gitignorePath := filepath.Join(filepath.Dir(configPath), ".gitignore")
+	if string(readTestFile(t, gitignorePath)) != ".switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want .switchlet.yaml entry", string(readTestFile(t, gitignorePath)))
 	}
 }
 

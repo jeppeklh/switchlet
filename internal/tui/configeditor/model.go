@@ -19,6 +19,7 @@ type editorState int
 const (
 	editorStateOverview editorState = iota
 	editorStateFilter
+	editorStateProfileCaptureLoading
 	editorStateProfileNameInput
 	editorStateProfileIncludeValues
 	editorStateProfileValueSource

@@ -3,6 +3,8 @@ package configeditor
 import (
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
@@ -12,6 +14,7 @@ const (
 	profileDraftAdd profileDraftMode = iota
 	profileDraftUpdate
 	profileDraftDuplicate
+	profileDraftCapture
 )
 
 type profileNameNextState int
@@ -43,6 +46,20 @@ func (model *Model) beginAddProfile() {
 	model.inputValue = ""
 	model.inputCursor = 0
 	model.saveError = ""
+}
+
+func (model *Model) beginCaptureProfile() tea.Cmd {
+	requestID := model.nextRequestID()
+	model.profileForm = profileDraftState{
+		mode:     profileDraftCapture,
+		nameNext: profileNameNextReview,
+	}
+	model.state = editorStateProfileCaptureLoading
+	model.inputValue = ""
+	model.inputCursor = 0
+	model.saveError = ""
+
+	return captureCurrentProfile(model.workflow, requestID, model.document)
 }
 
 func (model *Model) beginEditProfile(profileName string) {
@@ -145,6 +162,23 @@ func (model *Model) cancelProfileForm() {
 	model.inputValue = ""
 	model.inputCursor = 0
 	model.state = editorStateOverview
+}
+
+func (model Model) handleProfileCaptured(message profileCapturedMsg) (tea.Model, tea.Cmd) {
+	if message.requestID != model.requestID || model.state != editorStateProfileCaptureLoading {
+		return model, nil
+	}
+	if message.err != nil {
+		model.profileForm.errorMessage = message.err.Error()
+		return model, nil
+	}
+
+	model.profileForm.draft = message.draft
+	model.profileForm.errorMessage = ""
+	model.state = editorStateProfileNameInput
+	model.inputValue = ""
+	model.inputCursor = 0
+	return model, nil
 }
 
 func (model *Model) applyProfileNameInput() {
@@ -297,8 +331,10 @@ func (model *Model) completeProfileDraft() {
 	)
 	if model.profileForm.mode == profileDraftAdd {
 		updatedDocument, err = model.workflow.AddProfileDraft(model.document, model.profileForm.draft)
-	} else {
+	} else if model.profileForm.mode == profileDraftUpdate {
 		updatedDocument, err = model.workflow.UpdateProfileDraft(model.document, model.profileForm.originalName, model.profileForm.draft)
+	} else {
+		updatedDocument, err = model.workflow.AddProfileDraft(model.document, model.profileForm.draft)
 	}
 	if err != nil {
 		model.profileForm.errorMessage = err.Error()

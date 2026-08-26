@@ -127,6 +127,7 @@ When init asks whether to replace an existing current-directory
 | `n` / `N` | Move between filtered matches when a filter is active. |
 | `Esc` / `h` | Clear an active filter or go back where shown. |
 | `a` | Add a profile or managed value for the selected section. |
+| `C` | Capture current managed values into a new profile from the `Profiles` tab. |
 | `e` | Edit the selected profile or managed-value location. |
 | `D` | Duplicate the selected profile. |
 | `r` | Rename the selected profile or managed value. |

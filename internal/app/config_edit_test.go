@@ -132,6 +132,151 @@ func TestConfigEditWorkflow_AddProfileDraftSupportsPartialProtectedEnvironmentPr
 	}
 }
 
+func TestConfigEditWorkflow_CaptureCurrentProfileDraftReadsConfiguredTargetsOnce(t *testing.T) {
+	readCalls := 0
+	var readTargets []config.Target
+	workflow := app.NewConfigEditWorkflow(app.ConfigEditDependencies{
+		ReadTargetValues: func(targets []config.Target) (map[string]string, error) {
+			readCalls++
+			readTargets = append([]config.Target(nil), targets...)
+			return map[string]string{
+				"service":     "https://current.example.test",
+				"frontendApi": "https://frontend-current.example.test",
+			}, nil
+		},
+	})
+	projectRoot, configPath := multiTargetConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	draft, err := workflow.CaptureCurrentProfileDraft(document)
+	if err != nil {
+		t.Fatalf("CaptureCurrentProfileDraft returned error: %v", err)
+	}
+	if readCalls != 1 {
+		t.Fatalf("ReadTargetValues call count = %d, want 1", readCalls)
+	}
+	if len(readTargets) != len(document.Targets) {
+		t.Fatalf("ReadTargetValues target count = %d, want %d", len(readTargets), len(document.Targets))
+	}
+	for index, target := range document.Targets {
+		if readTargets[index].Name != target.Name {
+			t.Fatalf("ReadTargetValues target[%d] = %q, want %q", index, readTargets[index].Name, target.Name)
+		}
+	}
+
+	if draft.Name != "" || draft.Protected {
+		t.Fatalf("captured draft = %#v, want unnamed unprotected draft", draft)
+	}
+
+	valuesByTarget := make(map[string]app.ConfigEditProfileValueDraft, len(draft.Values))
+	for _, value := range draft.Values {
+		valuesByTarget[value.TargetName] = value
+	}
+	for targetName, literalValue := range map[string]string{
+		"service":     "https://current.example.test",
+		"frontendApi": "https://frontend-current.example.test",
+	} {
+		value, ok := valuesByTarget[targetName]
+		if !ok {
+			t.Fatalf("captured values = %#v, want target %q", draft.Values, targetName)
+		}
+		if !value.Included || value.Source != app.ProfileSourceLiteral || value.LiteralValue != literalValue {
+			t.Fatalf("captured value %#v, want included literal %q", value, literalValue)
+		}
+	}
+}
+
+func TestConfigEditWorkflow_CaptureCurrentProfileDraftSupportsAllTargetTypes(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := allTargetTypesConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	draft, err := workflow.CaptureCurrentProfileDraft(document)
+	if err != nil {
+		t.Fatalf("CaptureCurrentProfileDraft returned error: %v", err)
+	}
+
+	valuesByTarget := make(map[string]app.ConfigEditProfileValueDraft, len(draft.Values))
+	for _, value := range draft.Values {
+		valuesByTarget[value.TargetName] = value
+	}
+	for targetName, literalValue := range map[string]string{
+		"service":     "https://json-current.example.test",
+		"workerQueue": "https://yaml-current.example.test",
+		"apiEndpoint": "https://toml-current.example.test",
+		"frontendApi": "https://dotenv-current.example.test",
+	} {
+		value, ok := valuesByTarget[targetName]
+		if !ok {
+			t.Fatalf("captured values = %#v, want target %q", draft.Values, targetName)
+		}
+		if !value.Included || value.Source != app.ProfileSourceLiteral || value.LiteralValue != literalValue {
+			t.Fatalf("captured value %#v, want included literal %q", value, literalValue)
+		}
+	}
+}
+
+func TestConfigEditWorkflow_CaptureCurrentProfileDraftReturnsValueSafeReadError(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := singleTargetConfig(t, "https://local.example.test")
+	targetPath := filepath.Join(projectRoot, "config.json")
+	if err := os.WriteFile(targetPath, []byte(`{"service":{"baseUrl":"https://very-secret-current.example.test"}}`), 0o644); err != nil {
+		t.Fatalf("write current target file: %v", err)
+	}
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+	if err := os.Remove(targetPath); err != nil {
+		t.Fatalf("remove current target file: %v", err)
+	}
+
+	_, err := workflow.CaptureCurrentProfileDraft(document)
+	if err == nil {
+		t.Fatal("CaptureCurrentProfileDraft returned nil error, want read failure")
+	}
+	if !strings.Contains(err.Error(), `target "service"`) {
+		t.Fatalf("CaptureCurrentProfileDraft error = %q, want target context", err)
+	}
+	if strings.Contains(err.Error(), "very-secret-current") {
+		t.Fatalf("CaptureCurrentProfileDraft error = %q, must not expose raw managed value", err)
+	}
+}
+
+func TestConfigEditWorkflow_CapturedProfileSaveUsesGitignoreProtection(t *testing.T) {
+	workflow := app.DefaultConfigEditWorkflow()
+	projectRoot, configPath := environmentOnlyConfig(t)
+	document := loadConfigEditDocument(t, workflow, projectRoot, configPath)
+
+	draft, err := workflow.CaptureCurrentProfileDraft(document)
+	if err != nil {
+		t.Fatalf("CaptureCurrentProfileDraft returned error: %v", err)
+	}
+	draft.Name = "Current files"
+
+	updatedDocument, err := workflow.AddProfileDraft(document, draft)
+	if err != nil {
+		t.Fatalf("AddProfileDraft returned error: %v", err)
+	}
+
+	preparedSave, err := workflow.PrepareSave(updatedDocument)
+	if err != nil {
+		t.Fatalf("PrepareSave returned error: %v", err)
+	}
+	if !containsConfigEditChange(preparedSave.Changes, app.ConfigEditChangeGitignoreProtection) {
+		t.Fatalf("prepared changes = %#v, want gitignore protection warning", preparedSave.Changes)
+	}
+	if err := preparedSave.Commit(); err != nil {
+		t.Fatalf("Commit returned error: %v", err)
+	}
+
+	gitignorePath := filepath.Join(projectRoot, ".gitignore")
+	if contents := string(readAppTestFile(t, gitignorePath)); contents != ".switchlet.yaml\n" {
+		t.Fatalf(".gitignore contents = %q, want .switchlet.yaml entry", contents)
+	}
+	configContents := string(readAppTestFile(t, configPath))
+	if !strings.Contains(configContents, "name: Current files") || !strings.Contains(configContents, "value: https://old.example.test") {
+		t.Fatalf("configuration contents = %q, want captured profile literal values", configContents)
+	}
+}
+
 func TestConfigEditWorkflow_ProfileDraftRejectsDuplicateEmptyAndMissingValues(t *testing.T) {
 	workflow := app.DefaultConfigEditWorkflow()
 	projectRoot, configPath := twoProfileConfig(t)
@@ -691,6 +836,51 @@ profiles:
     values:
       - target: frontendApi
         value: https://frontend.example.test
+`)+"\n")
+
+	return projectRoot, configPath
+}
+
+func allTargetTypesConfig(t *testing.T) (string, string) {
+	t.Helper()
+
+	projectRoot := t.TempDir()
+	writeTargetFile(t, projectRoot, "config.json", `{"service":{"baseUrl":"https://json-current.example.test"}}`)
+	writeTargetFile(t, projectRoot, "config.yaml", "queue:\n  endpoint: https://yaml-current.example.test\n")
+	writeTargetFile(t, projectRoot, "config.toml", "[services.api]\nendpoint = \"https://toml-current.example.test\"\n")
+	writeTargetFile(t, projectRoot, "frontend/.env.local", "VITE_API_URL=https://dotenv-current.example.test\n")
+	configPath := writeConfigFile(t, projectRoot, strings.TrimSpace(`
+version: 3
+
+targets:
+  - name: service
+    file: config.json
+    type: json
+    jsonPath: service.baseUrl
+  - name: workerQueue
+    file: config.yaml
+    type: yaml
+    yamlPath: queue.endpoint
+  - name: apiEndpoint
+    file: config.toml
+    type: toml
+    tomlPath: services.api.endpoint
+  - name: frontendApi
+    file: frontend/.env.local
+    type: dotenv
+    key: VITE_API_URL
+
+profiles:
+  - name: Local
+    values:
+      - target: service
+        value: https://local.example.test
+      - target: workerQueue
+        value: https://local-worker.example.test
+      - target: apiEndpoint
+        value: https://local-api.example.test
+      - target: frontendApi
+        value: https://local-frontend.example.test
 `)+"\n")
 
 	return projectRoot, configPath

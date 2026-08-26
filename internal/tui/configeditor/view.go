@@ -26,6 +26,8 @@ func (model Model) View() string {
 	}
 
 	switch model.state {
+	case editorStateProfileCaptureLoading:
+		return model.profileCaptureLoadingView()
 	case editorStateProfileNameInput:
 		return model.profileNameInputView()
 	case editorStateProfileIncludeValues:
@@ -337,7 +339,8 @@ func profileSectionLines(overview app.ConfigEditOverview) []string {
 		ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(overview.ManagedValues))),
 		"",
 		"Select a profile to inspect its included managed values.",
-		"Press a to add a profile from existing managed values.",
+		"Press a to add a profile draft manually.",
+		"Press C to capture current managed values into a new profile.",
 	}
 }
 
@@ -470,7 +473,10 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 		)
 	}
 	if selectedRow.Kind == navigationRowProfilesSection || selectedRow.Kind == navigationRowProfile {
-		actions = append(actions, ui.Action{Key: "a", Label: "Add profile"})
+		actions = append(actions,
+			ui.Action{Key: "a", Label: "Add profile"},
+			ui.Action{Key: "C", Label: "Capture current"},
+		)
 	}
 	if selectedRow.Kind == navigationRowProfile {
 		actions = append(actions,

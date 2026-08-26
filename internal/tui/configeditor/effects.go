@@ -14,6 +14,12 @@ type saveCompletedMsg struct {
 	err        error
 }
 
+type profileCapturedMsg struct {
+	requestID int
+	draft     app.ConfigEditProfileDraft
+	err       error
+}
+
 type managedValueFilesDiscoveredMsg struct {
 	requestID  int
 	candidates []app.InitTargetFileCandidate
@@ -48,6 +54,13 @@ func saveDocument(workflow app.ConfigEditWorkflow, document app.ConfigEditDocume
 			configPath: preparedSave.ConfigPath,
 			changes:    preparedSave.Changes,
 		}
+	}
+}
+
+func captureCurrentProfile(workflow app.ConfigEditWorkflow, requestID int, document app.ConfigEditDocument) tea.Cmd {
+	return func() tea.Msg {
+		draft, err := workflow.CaptureCurrentProfileDraft(document)
+		return profileCapturedMsg{requestID: requestID, draft: draft, err: err}
 	}
 }
 

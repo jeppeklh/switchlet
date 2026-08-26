@@ -7,6 +7,24 @@ import (
 	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
+func (model Model) profileCaptureLoadingView() string {
+	lines := []string{"Reading current managed values without modifying files."}
+	if model.profileForm.errorMessage != "" {
+		lines = append(lines, "", "Capture failed", model.profileForm.errorMessage)
+	}
+
+	return model.configEditorShell(model.profileFormTitle(), []ui.Panel{
+		{Title: "Capture current managed values", Lines: lines, Focused: true},
+		{Title: "Profile", Lines: []string{
+			ui.RenderKeyValue("Managed values", fmt.Sprintf("%d", len(model.document.Targets))),
+			"Captured values remain hidden outside explicit entry screens.",
+		}},
+	}, []ui.Action{
+		{Key: "Esc/h", Label: "Back"},
+		{Key: "q", Label: "Quit"},
+	})
+}
+
 func (model Model) profileNameInputView() string {
 	lines := []string{
 		ui.RenderInput("Profile name", model.inputValue, model.inputCursor),
@@ -14,14 +32,18 @@ func (model Model) profileNameInputView() string {
 	if model.profileForm.errorMessage != "" {
 		lines = append(lines, "", model.profileForm.errorMessage)
 	}
+	guidanceLines := []string{
+		"Choose a unique profile name.",
+		"q is literal text on this screen.",
+		"No .switchlet.yaml changes are written until review save.",
+	}
+	if model.profileForm.mode == profileDraftCapture {
+		guidanceLines = append(guidanceLines, "Current managed values were captured as literal profile values.")
+	}
 
 	return model.configEditorShell(model.profileFormTitle(), []ui.Panel{
 		{Title: model.profileFormPanelTitle("Profile name"), Lines: lines, Focused: true},
-		{Title: "Guidance", Lines: []string{
-			"Choose a unique profile name.",
-			"q is literal text on this screen.",
-			"No .switchlet.yaml changes are written until review save.",
-		}},
+		{Title: "Guidance", Lines: guidanceLines},
 	}, []ui.Action{
 		{Key: "Enter", Label: "Continue"},
 		{Key: "Left/Right", Label: "Move"},
@@ -117,7 +139,11 @@ func (model Model) profileValueInputView() string {
 
 func (model Model) profileReviewView() string {
 	lines := model.profileDraftSummaryLines()
-	lines = append(lines, "", "Review this profile draft before adding it to the pending config changes.")
+	reviewLine := "Review this profile draft before adding it to the pending config changes."
+	if model.profileForm.mode == profileDraftCapture {
+		reviewLine = "Review this captured profile before adding it to the pending config changes."
+	}
+	lines = append(lines, "", reviewLine)
 	if model.profileForm.errorMessage != "" {
 		lines = append(lines, "", "Could not save profile draft", model.profileForm.errorMessage)
 	}
@@ -158,6 +184,9 @@ func (model Model) profileFormTitle() string {
 	if model.profileForm.mode == profileDraftDuplicate {
 		return "Duplicate profile"
 	}
+	if model.profileForm.mode == profileDraftCapture {
+		return "Capture current profile"
+	}
 	if model.profileForm.mode == profileDraftUpdate {
 		return "Edit profile"
 	}
@@ -168,6 +197,9 @@ func (model Model) profileFormTitle() string {
 func (model Model) profileFormPanelTitle(title string) string {
 	if model.profileForm.mode == profileDraftDuplicate && title == "Review profile" {
 		title = "Review duplicate profile"
+	}
+	if model.profileForm.mode == profileDraftCapture && title == "Review profile" {
+		title = "Review captured profile"
 	}
 	if (model.profileForm.mode == profileDraftUpdate || model.profileForm.mode == profileDraftDuplicate) && model.profileForm.originalName != "" {
 		return title + " - " + model.profileForm.originalName

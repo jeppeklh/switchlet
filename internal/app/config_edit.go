@@ -21,6 +21,7 @@ var (
 // ConfigEditDependencies lets tests replace config-edit persistence and validation effects.
 type ConfigEditDependencies struct {
 	LoadSnapshot        func(string) (config.ConfigSnapshot, error)
+	ReadTargetValues    func([]config.Target) (map[string]string, error)
 	ValidateTargets     func([]config.Target) error
 	PrepareReplacement  func(config.ConfigSnapshot, []config.Target, []config.Profile) (config.PreparedReplacement, error)
 	EnsureConfigIgnored func(string) (bool, error)
@@ -172,6 +173,35 @@ func (workflow ConfigEditWorkflow) LoadDocument(configPath string) (ConfigEditDo
 // NewProfileDraft creates a profile draft for the document's configured managed values.
 func (workflow ConfigEditWorkflow) NewProfileDraft(document ConfigEditDocument) ConfigEditProfileDraft {
 	return newProfileDraft(document.Targets)
+}
+
+// CaptureCurrentProfileDraft reads the current managed target values and returns
+// them as an app-owned literal profile draft.
+func (workflow ConfigEditWorkflow) CaptureCurrentProfileDraft(document ConfigEditDocument) (ConfigEditProfileDraft, error) {
+	if len(document.Targets) == 0 {
+		return ConfigEditProfileDraft{}, fmt.Errorf("at least one managed value must be configured before capture")
+	}
+
+	currentValues, err := workflow.readTargetValues(document.Targets)
+	if err != nil {
+		return ConfigEditProfileDraft{}, fmt.Errorf("read current managed values: %w", err)
+	}
+
+	draft := newProfileDraft(document.Targets)
+	for index := range draft.Values {
+		draftValue := &draft.Values[index]
+		currentValue, ok := currentValues[draftValue.TargetName]
+		if !ok {
+			return ConfigEditProfileDraft{}, fmt.Errorf("current value for target %q was not read", draftValue.TargetName)
+		}
+
+		draftValue.Included = true
+		draftValue.Source = ProfileSourceLiteral
+		draftValue.LiteralValue = currentValue
+		draftValue.EnvironmentVariableName = ""
+	}
+
+	return draft, nil
 }
 
 // ProfileDraft returns an editable profile draft for an existing profile.
@@ -543,6 +573,14 @@ func (workflow ConfigEditWorkflow) loadSnapshot(configPath string) (config.Confi
 	}
 
 	return config.LoadSnapshot(configPath)
+}
+
+func (workflow ConfigEditWorkflow) readTargetValues(targets []config.Target) (map[string]string, error) {
+	if workflow.dependencies.ReadTargetValues != nil {
+		return workflow.dependencies.ReadTargetValues(targets)
+	}
+
+	return editor.ReadTargetValues(targets)
 }
 
 func (workflow ConfigEditWorkflow) validateTargets(targets []config.Target) error {

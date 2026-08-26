@@ -19,6 +19,17 @@ func (model Model) handleProfileNameInputKey(message tea.KeyMsg) (tea.Model, tea
 	return model, nil
 }
 
+func (model Model) handleProfileCaptureLoadingKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch {
+	case isBackKey(message):
+		model.cancelProfileForm()
+	case isQuitKey(message):
+		return model.beginQuit()
+	}
+
+	return model, nil
+}
+
 func (model Model) handleProfileIncludeValuesKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	model.clampProfileIncludeCursor()
 	switch {
