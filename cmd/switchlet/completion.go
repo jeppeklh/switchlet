@@ -41,7 +41,7 @@ var completionCommands = []completionCommandSpec{
 	{Name: "completion", Description: "Generate a shell completion script"},
 }
 
-var supportedCompletionShells = []string{"bash", "zsh", "fish"}
+var supportedCompletionShells = []string{"bash", "zsh", "fish", "powershell"}
 var profileCompletionCommands = []string{"inspect", "apply", "diff"}
 
 const profileCompletionCommandName = "__complete-profile-names"
@@ -56,6 +56,9 @@ func writeCompletionScript(output io.Writer, shell string, outputOptions command
 		return err
 	case "fish":
 		_, err := io.WriteString(output, fishCompletionScript())
+		return err
+	case "powershell":
+		_, err := io.WriteString(output, powerShellCompletionScript())
 		return err
 	default:
 		return usageCommandError(outputOptions, false, "unsupported completion shell %q\n\nSupported shells: %s\n\n%s", shell, strings.Join(supportedCompletionShells, ", "), completionHelpText())
@@ -311,7 +314,7 @@ func zshCompletionScript() string {
 		builder.WriteString("          ;;\n")
 	}
 	builder.WriteString("        completion)\n")
-	builder.WriteString("          _values 'shell' bash zsh fish\n")
+	fmt.Fprintf(&builder, "          _values 'shell' %s\n", strings.Join(supportedCompletionShells, " "))
 	builder.WriteString("          ;;\n")
 	builder.WriteString("      esac\n")
 	builder.WriteString("      ;;\n")

@@ -39,7 +39,7 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"--no-color",
 				"doctor",
 				"targets",
-				"bash zsh fish",
+				"bash zsh fish powershell",
 			},
 		},
 		{
@@ -68,7 +68,7 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"--config[Load a specific .switchlet.yaml]",
 				"--exit-code[Return non-zero when the profile would change files]",
 				"--no-color[Disable styled command output]",
-				"_values 'shell' bash zsh fish",
+				"_values 'shell' bash zsh fish powershell",
 			},
 		},
 		{
@@ -99,6 +99,27 @@ func TestRunCommand_CompletionPrintsScriptsWithoutLoadingConfiguration(t *testin
 				"complete -c switchlet -n '__fish_seen_subcommand_from doctor' -l json",
 				"complete -c switchlet -n '__fish_seen_subcommand_from targets' -l json",
 				"complete -c switchlet -l no-color -d 'Disable styled command output'",
+			},
+		},
+		{
+			name:  "powershell",
+			shell: "powershell",
+			expected: []string{
+				"# PowerShell completion for switchlet",
+				"Register-ArgumentCompleter -Native -CommandName switchlet",
+				"$__switchletSupportedShells = @('bash', 'zsh', 'fish', 'powershell')",
+				"function __switchlet_ParseCompletionContext",
+				"function __switchlet_ExpectedProfileCompletionNeeded",
+				"function __switchlet_SelectedProfileCompletionState",
+				"switchlet @($Context.LoadArgs) '__complete-profile-names' 2>$null",
+				"$Context.Command -eq 'status' -and $previousToken -eq '--expect'",
+				"$Context.Command -eq 'apply' -and $previousToken -eq '--expect-current'",
+				"$__switchletCommandFlags.ContainsKey($Context.Command)",
+				"Apply one configured profile",
+				"--allow-protected",
+				"--expect-current",
+				"--strict",
+				"powershell",
 			},
 		},
 	}
@@ -206,11 +227,11 @@ func TestRunCommand_ProfileCompletionUsesExplicitConfigWhenProvided(t *testing.T
 }
 
 func TestRunCommand_CompletionRejectsUnsupportedShell(t *testing.T) {
-	result := runCommandForTest(t, []string{"completion", "powershell"}, t.TempDir())
+	result := runCommandForTest(t, []string{"completion", "tcsh"}, t.TempDir())
 	if result.exitCode != usageExitCode {
 		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
 	}
-	for _, expected := range []string{`unsupported completion shell "powershell"`, "Supported shells: bash, zsh, fish", "switchlet completion <shell>"} {
+	for _, expected := range []string{`unsupported completion shell "tcsh"`, "Supported shells: bash, zsh, fish, powershell", "switchlet completion <shell>"} {
 		if !strings.Contains(result.stderr, expected) {
 			t.Fatalf("stderr %q does not contain %q", result.stderr, expected)
 		}
@@ -235,7 +256,7 @@ func TestRunCommand_CompletionHelpDoesNotLoadConfiguration(t *testing.T) {
 	if result.programStarted {
 		t.Fatal("completion help started the terminal program")
 	}
-	if !strings.Contains(result.stdout, "Supported shells: bash, zsh, fish") {
+	if !strings.Contains(result.stdout, "Supported shells: bash, zsh, fish, powershell") {
 		t.Fatalf("stdout %q does not include supported shells", result.stdout)
 	}
 }

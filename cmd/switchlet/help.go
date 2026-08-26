@@ -57,6 +57,7 @@ func usageText() string {
 	  switchlet targets
 	  switchlet version
 	  switchlet completion bash
+	  switchlet completion powershell
 	  switchlet help apply
 
 	Exit codes:
@@ -80,12 +81,13 @@ func completionHelpText() string {
 	command name. When --config is present, dynamic profile completion uses that
 	explicit configuration path.
 	Script generation itself does not load .switchlet.yaml.
-	Supported shells: bash, zsh, fish.
+	Supported shells: bash, zsh, fish, powershell.
 
 	Examples:
 	  switchlet completion bash
 	  switchlet completion zsh
 	  switchlet completion fish
+	  switchlet completion powershell
 `
 }
 

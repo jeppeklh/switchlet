@@ -352,6 +352,7 @@ project configuration.
 switchlet completion bash
 switchlet completion zsh
 switchlet completion fish
+switchlet completion powershell
 ```
 
 Completion includes static commands and flags. For `inspect`, `apply`, `diff`,
@@ -361,7 +362,8 @@ completion loads configuration schema only; it does not read target files,
 resolve environment variables, or inspect current managed values. Leading global
 options such as `--config <path>` and `--no-color` may appear before the command
 name. When `--config` is present, dynamic profile completion uses that explicit
-configuration path.
+configuration path. Supported shells are `bash`, `zsh`, `fish`, and
+`powershell`.
 
 ## Examples
 
@@ -380,6 +382,7 @@ switchlet diff Local
 switchlet targets
 switchlet version
 switchlet completion bash
+switchlet completion powershell
 switchlet help apply
 ```
 
