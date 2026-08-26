@@ -855,13 +855,13 @@ func TestRunCommand_DiffJSONReportsMixedTargetCategoriesWithoutWritingOrLeakingV
 			WouldUpdate    []targetDescriptorTestJSON `json:"wouldUpdate"`
 			AlreadyMatches []targetDescriptorTestJSON `json:"alreadyMatches"`
 			Unavailable    []struct {
-				TargetName          string `json:"targetName"`
-				TargetFile          string `json:"targetFile"`
-				TargetType          string `json:"targetType"`
-				SelectorName        string `json:"selectorName"`
-				Selector            string `json:"selector"`
-				EnvironmentVariable string `json:"environmentVariable"`
-				Reason              string `json:"reason"`
+				TargetName              string `json:"targetName"`
+				TargetFile              string `json:"targetFile"`
+				TargetType              string `json:"targetType"`
+				SelectorName            string `json:"selectorName"`
+				Selector                string `json:"selector"`
+				EnvironmentVariableName string `json:"environmentVariableName"`
+				Reason                  string `json:"reason"`
 			} `json:"unavailable"`
 			OmittedTargets []targetDescriptorTestJSON `json:"omittedTargets"`
 		} `json:"result"`
@@ -885,8 +885,11 @@ func TestRunCommand_DiffJSONReportsMixedTargetCategoriesWithoutWritingOrLeakingV
 		t.Fatalf("len(unavailable) = %d, want 1", len(payload.Result.Unavailable))
 	}
 	unavailable := payload.Result.Unavailable[0]
-	if unavailable.TargetName != "workerQueue" || unavailable.TargetFile != targetPaths["workerQueue"] || unavailable.TargetType != "yaml" || unavailable.SelectorName != "yamlPath" || unavailable.Selector != "queue.endpoint" || unavailable.EnvironmentVariable != workerEnv || !strings.Contains(unavailable.Reason, workerEnv) {
+	if unavailable.TargetName != "workerQueue" || unavailable.TargetFile != targetPaths["workerQueue"] || unavailable.TargetType != "yaml" || unavailable.SelectorName != "yamlPath" || unavailable.Selector != "queue.endpoint" || unavailable.EnvironmentVariableName != workerEnv || !strings.Contains(unavailable.Reason, workerEnv) {
 		t.Fatalf("unavailable = %#v, want workerQueue YAML environment value", unavailable)
+	}
+	if strings.Contains(result.stdout, `"environmentVariable":`) {
+		t.Fatalf("stdout %q must not contain the legacy environmentVariable field", result.stdout)
 	}
 	if len(payload.Result.OmittedTargets) != 0 {
 		t.Fatalf("omittedTargets = %#v, want none for complete Staging profile", payload.Result.OmittedTargets)
@@ -1452,9 +1455,9 @@ profiles:
 					ProfileName string `json:"profileName"`
 					Protected   bool   `json:"protected"`
 					Values      []struct {
-						TargetName          string `json:"targetName"`
-						EnvironmentVariable string `json:"environmentVariable"`
-						Reason              string `json:"reason"`
+						TargetName              string `json:"targetName"`
+						EnvironmentVariableName string `json:"environmentVariableName"`
+						Reason                  string `json:"reason"`
 					} `json:"values"`
 				} `json:"unavailableProfiles"`
 			} `json:"checks"`
@@ -1468,6 +1471,9 @@ profiles:
 	}
 	if payload.Result.Healthy {
 		t.Fatal("healthy = true, want false for warning doctor result")
+	}
+	if strings.Contains(result.stdout, `"environmentVariable":`) {
+		t.Fatalf("stdout %q must not contain the legacy environmentVariable field", result.stdout)
 	}
 	foundAvailabilityCheck := false
 	for _, check := range payload.Result.Checks {
@@ -1483,7 +1489,7 @@ profiles:
 			t.Fatalf("availability check hint = %q, want environment recovery hint", check.Hint)
 		}
 		unavailableValues := check.UnavailableProfiles[0].Values
-		if len(unavailableValues) != 1 || unavailableValues[0].TargetName != "database" || unavailableValues[0].EnvironmentVariable != "SWITCHLET_TEST_MISSING_DATABASE_URL" || !strings.Contains(unavailableValues[0].Reason, "SWITCHLET_TEST_MISSING_DATABASE_URL") {
+		if len(unavailableValues) != 1 || unavailableValues[0].TargetName != "database" || unavailableValues[0].EnvironmentVariableName != "SWITCHLET_TEST_MISSING_DATABASE_URL" || !strings.Contains(unavailableValues[0].Reason, "SWITCHLET_TEST_MISSING_DATABASE_URL") {
 			t.Fatalf("unavailable values = %#v, want database environment value", unavailableValues)
 		}
 	}

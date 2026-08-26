@@ -43,6 +43,7 @@ func usageText() string {
 	  switchlet list
 	  switchlet inspect Local
 	  switchlet apply Local --dry-run
+	  switchlet apply --expect-current Local Staging
 	  switchlet apply Staging --expect-current Local
 	  switchlet status
 	  switchlet status --short
@@ -293,7 +294,8 @@ func applyHelpText() string {
 
 	Apply one configured profile by name. A profile may update one or more configured targets.
 	Use --expect-current to refuse apply or dry run unless the current complete
-	profile matches the expected profile name.
+	profile matches the expected profile name. --expect-current may appear before
+	or after the selected profile name.
 
 	Protected profiles in the interactive TUI already prompt for confirmation.
 	Use --allow-protected only for non-interactive switchlet apply.
@@ -308,8 +310,9 @@ func applyHelpText() string {
 
 	Examples:
 	  switchlet apply Local --dry-run
+	  switchlet apply --expect-current Local Staging
 	  switchlet apply Staging --expect-current Local
-	  switchlet apply --dry-run -- -Local
+	  switchlet apply --dry-run --expect-current Local -- -Production
 	  switchlet apply Production --dry-run --allow-protected
 	  switchlet apply Local --dry-run --json
 	  switchlet apply Local --config ../other/.switchlet.yaml

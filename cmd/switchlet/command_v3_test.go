@@ -412,13 +412,13 @@ func TestRunCommand_ApplyVersionThreeDryRunTextReportsPreviewCategories(t *testi
 				WouldUpdate         []targetDescriptorTestJSON `json:"wouldUpdate"`
 				AlreadyMatches      []targetDescriptorTestJSON `json:"alreadyMatches"`
 				Unavailable         []struct {
-					TargetName          string `json:"targetName"`
-					TargetFile          string `json:"targetFile"`
-					TargetType          string `json:"targetType"`
-					SelectorName        string `json:"selectorName"`
-					Selector            string `json:"selector"`
-					EnvironmentVariable string `json:"environmentVariable"`
-					Reason              string `json:"reason"`
+					TargetName              string `json:"targetName"`
+					TargetFile              string `json:"targetFile"`
+					TargetType              string `json:"targetType"`
+					SelectorName            string `json:"selectorName"`
+					Selector                string `json:"selector"`
+					EnvironmentVariableName string `json:"environmentVariableName"`
+					Reason                  string `json:"reason"`
 				} `json:"unavailable"`
 			} `json:"preview"`
 		} `json:"result"`
@@ -440,8 +440,11 @@ func TestRunCommand_ApplyVersionThreeDryRunTextReportsPreviewCategories(t *testi
 	assertTargetDescriptor(t, preview.WouldUpdate[1], "serviceEndpoint", targetPaths["serviceEndpoint"], "toml", "tomlPath", "services.api.endpoint")
 	assertTargetDescriptor(t, preview.AlreadyMatches[0], "frontendApi", targetPaths["frontendApi"], "dotenv", "key", "VITE_API_URL")
 	unavailable := preview.Unavailable[0]
-	if unavailable.TargetName != "workerQueue" || unavailable.TargetFile != targetPaths["workerQueue"] || unavailable.TargetType != "yaml" || unavailable.SelectorName != "yamlPath" || unavailable.Selector != "queue.endpoint" || unavailable.EnvironmentVariable != workerEnv || !strings.Contains(unavailable.Reason, workerEnv) {
+	if unavailable.TargetName != "workerQueue" || unavailable.TargetFile != targetPaths["workerQueue"] || unavailable.TargetType != "yaml" || unavailable.SelectorName != "yamlPath" || unavailable.Selector != "queue.endpoint" || unavailable.EnvironmentVariableName != workerEnv || !strings.Contains(unavailable.Reason, workerEnv) {
 		t.Fatalf("unavailable = %#v, want workerQueue environment value", unavailable)
+	}
+	if strings.Contains(jsonResult.stdout, `"environmentVariable":`) {
+		t.Fatalf("JSON stdout %q must not contain the legacy environmentVariable field", jsonResult.stdout)
 	}
 	for _, forbidden := range []string{
 		"postgres://local-secret",

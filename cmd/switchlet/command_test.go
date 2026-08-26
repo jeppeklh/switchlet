@@ -1271,13 +1271,36 @@ profiles:
 	}
 }
 
-func TestRunCommand_ApplyExpectCurrentRejectsProfileAfterFlagWithoutDelimiter(t *testing.T) {
-	result := runCommandForTest(t, []string{"apply", "--expect-current", "Local", "Staging"}, t.TempDir())
-	if result.exitCode != usageExitCode {
-		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+func TestRunCommand_ApplyExpectCurrentAcceptsProfileAfterFlagWithoutDelimiter(t *testing.T) {
+	projectRoot := t.TempDir()
+	targetPath := writeFile(t, projectRoot, "config/runtime.json", `{"serviceUrl":"https://local.example.test"}`)
+	originalContents := readFileBytes(t, targetPath)
+	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
+version: 2
+
+target:
+  file: config/runtime.json
+  jsonPath: serviceUrl
+
+profiles:
+  - name: Local
+    value: https://local.example.test
+  - name: Staging
+    value: https://staging.example.test
+`)+"\n")
+
+	result := runCommandForTest(t, []string{"apply", "--expect-current", "Local", "Staging", "--dry-run"}, projectRoot)
+	if result.exitCode != 0 {
+		t.Fatalf("exitCode = %d, want 0 (stdout: %q, stderr: %q)", result.exitCode, result.stdout, result.stderr)
 	}
-	if !strings.Contains(result.stderr, "--expect-current must follow the profile name") {
-		t.Fatalf("stderr %q does not explain the documented flag order", result.stderr)
+	if !strings.Contains(result.stdout, `Dry run successful for profile "Staging"`) {
+		t.Fatalf("stdout %q does not confirm guarded dry run", result.stdout)
+	}
+	if !strings.Contains(result.stdout, "No changes were written.") {
+		t.Fatalf("stdout %q does not confirm no-write dry run", result.stdout)
+	}
+	if !bytes.Equal(readFileBytes(t, targetPath), originalContents) {
+		t.Fatal("target file changed during guarded dry run")
 	}
 }
 
@@ -1310,6 +1333,26 @@ profiles:
 	}
 	if !strings.Contains(string(readFileBytes(t, targetPath)), "https://staging.example.test") {
 		t.Fatalf("target file %q was not updated by guarded apply", string(readFileBytes(t, targetPath)))
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentRejectsDuplicateFlags(t *testing.T) {
+	result := runCommandForTest(t, []string{"apply", "Staging", "--expect-current", "Local", "--expect-current", "Production"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	if !strings.Contains(result.stderr, "--expect-current can be provided only once") {
+		t.Fatalf("stderr %q does not explain duplicate --expect-current", result.stderr)
+	}
+}
+
+func TestRunCommand_ApplyExpectCurrentRejectsMissingExpectationValue(t *testing.T) {
+	result := runCommandForTest(t, []string{"apply", "Staging", "--expect-current"}, t.TempDir())
+	if result.exitCode != usageExitCode {
+		t.Fatalf("exitCode = %d, want %d", result.exitCode, usageExitCode)
+	}
+	if !strings.Contains(result.stderr, "--expect-current requires a profile name") {
+		t.Fatalf("stderr %q does not explain missing --expect-current value", result.stderr)
 	}
 }
 

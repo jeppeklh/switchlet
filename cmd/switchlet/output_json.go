@@ -7,7 +7,7 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 )
 
-const commandJSONSchemaVersion = 1
+const commandJSONSchemaVersion = 2
 
 func writeListJSON(output io.Writer, profiles []app.ProfileItem) error {
 	encodedProfiles := make([]profileJSON, 0, len(profiles))
@@ -256,7 +256,7 @@ type unavailableValueJSON struct {
 	TargetType              string `json:"targetType"`
 	SelectorName            string `json:"selectorName"`
 	Selector                string `json:"selector"`
-	EnvironmentVariableName string `json:"environmentVariable"`
+	EnvironmentVariableName string `json:"environmentVariableName"`
 	Reason                  string `json:"reason"`
 }
 

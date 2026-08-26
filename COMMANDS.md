@@ -105,6 +105,7 @@ Applies one configured profile by name.
 ```bash
 switchlet apply Local
 switchlet apply Local --dry-run
+switchlet apply --expect-current Local Staging
 switchlet apply Staging --expect-current Local
 switchlet apply --dry-run -- -Local
 switchlet apply Production --allow-protected
@@ -129,6 +130,11 @@ Protected profiles are never applied silently. Non-interactive apply requires
 expected profile is missing, no complete profile matches, a different complete
 profile matches, multiple complete profiles match, or current target values
 cannot be read safely.
+
+`--expect-current <profile>` may appear before or after the selected profile
+name. If the selected profile name starts with `-`, use `--` before that
+selected profile name and place all flags, including `--expect-current`, before
+`--`.
 
 For profiles that update multiple target files, Switchlet prepares every target
 file before replacing any file. It then runs a write preflight for each affected
@@ -273,12 +279,15 @@ switchlet doctor --json
 switchlet targets --json
 ```
 
-JSON output includes top-level `schemaVersion: 1`, profile names, target names,
+JSON output includes top-level `schemaVersion: 2`, profile names, target names,
 files, selectors, availability, and safe errors. The schema version describes
 Switchlet command JSON output, not the `.switchlet.yaml` configuration schema.
 JSON output does not include raw current target values or raw resolved profile
 values. Masked profile values use safe labels such as `hidden literal value` or
 `hidden environment value`; doctor checks may include an additive `hint` field.
+Schema version `2` standardizes unavailable-value objects on
+`environmentVariableName`; the older `environmentVariable` field is not emitted
+in this schema version.
 
 `apply --dry-run --json` also includes an additive `preview` object with
 would-update, already-matching, unavailable, and omitted target categories.
@@ -361,6 +370,7 @@ switchlet init
 switchlet list
 switchlet inspect Local
 switchlet apply Local --dry-run
+switchlet apply --expect-current Local Staging
 switchlet apply Staging --expect-current Local
 switchlet apply Local
 switchlet status

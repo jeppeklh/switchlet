@@ -19,12 +19,10 @@ type statusCommandOptions struct {
 }
 
 type applyCommandOptions struct {
-	jsonOutput                 bool
-	dryRun                     bool
-	allowProtected             bool
-	expectedCurrentProfile     string
-	expectCurrentBeforeProfile bool
-	profileAfterDelimiter      bool
+	jsonOutput             bool
+	dryRun                 bool
+	allowProtected         bool
+	expectedCurrentProfile string
 }
 
 type statusExpectationResult struct {
@@ -129,9 +127,6 @@ func runApplyCommand(workingDirectory string, args []string, output io.Writer, o
 	}
 	if len(positionals) != 1 {
 		return usageCommandError(outputOptions, options.jsonOutput, "apply requires exactly one profile name\n\n%s", applyHelpText())
-	}
-	if options.expectedCurrentProfile != "" && options.expectCurrentBeforeProfile && !options.profileAfterDelimiter {
-		return usageCommandError(outputOptions, options.jsonOutput, "apply: --expect-current must follow the profile name\n\n%s", applyHelpText())
 	}
 
 	project, err := loadProject(workingDirectory, commandLoadOptions)
@@ -396,7 +391,6 @@ func parseApplyCommandArguments(args []string, outputOptions *commandOutputOptio
 	for index := 0; index < len(args); index++ {
 		arg := args[index]
 		if arg == "--" {
-			options.profileAfterDelimiter = true
 			positionals = append(positionals, args[index+1:]...)
 			break
 		}
@@ -442,7 +436,6 @@ func parseApplyCommandArguments(args []string, outputOptions *commandOutputOptio
 				return options, nil, fmt.Errorf("--expect-current requires a profile name")
 			}
 			options.expectedCurrentProfile = value
-			options.expectCurrentBeforeProfile = len(positionals) == 0
 			continue
 		}
 		if arg == "--expect-current" {
@@ -453,7 +446,6 @@ func parseApplyCommandArguments(args []string, outputOptions *commandOutputOptio
 				return options, nil, fmt.Errorf("--expect-current requires a profile name")
 			}
 			options.expectedCurrentProfile = args[index+1]
-			options.expectCurrentBeforeProfile = len(positionals) == 0
 			index++
 			continue
 		}
