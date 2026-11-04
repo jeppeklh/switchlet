@@ -1,0 +1,2 @@
+# Keep Go sources gofmt-clean on every platform, including Windows checkouts.
+*.go text eol=lf
