@@ -28,6 +28,20 @@ func New(target config.Target, profiles []config.Profile) Application {
 func NewWithTargets(targets []config.Target, profiles []config.Profile) Application {
 	configuredTargets := normalizeTargets(targets)
 	configuredProfiles := copyProfiles(profiles)
+	kinds := make(map[string]config.ValueType, len(configuredTargets))
+	for _, target := range configuredTargets {
+		kinds[target.Name] = target.ValueType
+	}
+	for profileIndex := range configuredProfiles {
+		configuredProfile := &configuredProfiles[profileIndex]
+		if len(configuredTargets) == 1 && configuredTargets[0].ValueType != "" && len(configuredProfile.Values) == 0 && (configuredProfile.Value != nil || configuredProfile.ValueFromEnv != nil) {
+			configuredProfile.Values = []config.ProfileValue{{Target: configuredTargets[0].Name, Value: configuredProfile.Value, ValueFromEnv: configuredProfile.ValueFromEnv}}
+		}
+		for valueIndex := range configuredProfiles[profileIndex].Values {
+			value := &configuredProfiles[profileIndex].Values[valueIndex]
+			value.ValueType = kinds[value.Target]
+		}
+	}
 
 	return Application{
 		targets:            configuredTargets,
@@ -473,6 +487,7 @@ func (application Application) profileValueItems(resolvedValues []profile.Resolv
 			item.TargetName = target.Name
 			item.TargetFile = target.File
 			item.TargetType = target.Type
+			item.ValueType = target.ValueType
 			item.SelectorName = selectorName
 			item.Selector = selector
 		}
@@ -602,6 +617,7 @@ func targetDescriptor(target config.Target) TargetDescriptor {
 	selectorName, selector := targetSelector(target)
 	return TargetDescriptor{
 		TargetName:   target.Name,
+		ValueType:    target.ValueType,
 		TargetFile:   target.File,
 		TargetType:   target.Type,
 		SelectorName: selectorName,

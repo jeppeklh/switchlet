@@ -20,6 +20,7 @@ type targetFileSelection struct {
 }
 
 type targetSelectorNode struct {
+	valueType  config.ValueType
 	name       string
 	selector   string
 	selectable bool
@@ -117,6 +118,7 @@ func promptNamedTarget(prompter initPrompter, workingDirectory string, seenNames
 			target.JSONPath = selector
 		}
 
+		target.ValueType = selectedValueType(selectedFile.nodes, selector)
 		return target, nil
 	}
 }
@@ -139,11 +141,11 @@ func targetSelectorStepGuidance(targetType config.TargetType) string {
 	case config.TargetTypeDotenv:
 		return "Choose an existing dotenv key that appears once. Switchlet does not create missing keys."
 	case config.TargetTypeYAML:
-		return "Choose an existing string-valued YAML path. Switchlet does not create missing values. Browse the mapping hierarchy, search when the file has many selectable values, or enter a path manually."
+		return "Choose an existing scalar YAML path. Switchlet does not create missing values. Browse the mapping hierarchy, search when the file has many selectable values, or enter a path manually."
 	case config.TargetTypeTOML:
-		return "Choose an existing string-valued TOML path. Switchlet does not create missing values. Browse the table hierarchy, search when the file has many selectable values, or enter a path manually."
+		return "Choose an existing scalar TOML path. Switchlet does not create missing values. Browse the table hierarchy, search when the file has many selectable values, or enter a path manually."
 	default:
-		return "Choose an existing string-valued JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
+		return "Choose an existing scalar JSON path. Switchlet does not create missing values. Browse the hierarchy, search when the file has many selectable values, or enter a path manually."
 	}
 }
 
@@ -196,4 +198,16 @@ func promptTargetName(prompter initPrompter, seenNames map[string]struct{}) (str
 func writePromptError(prompter initPrompter, err error) error {
 	_, writeErr := fmt.Fprintf(prompter.writer, "Error: %v\n", err)
 	return writeErr
+}
+
+func selectedValueType(nodes []targetSelectorNode, selector string) config.ValueType {
+	for _, node := range nodes {
+		if node.selector == selector {
+			return node.valueType
+		}
+		if kind := selectedValueType(node.children, selector); kind != "" {
+			return kind
+		}
+	}
+	return ""
 }

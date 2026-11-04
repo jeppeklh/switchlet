@@ -2,6 +2,7 @@ package tui
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,7 +166,7 @@ func TestUpdate_AppliesSelectedProfileSuccessfully(t *testing.T) {
 	if !strings.Contains(model.FinalMessage(), "Applied profile \"Local\"") {
 		t.Fatalf("FinalMessage() = %q, want applied profile summary", model.FinalMessage())
 	}
-	for _, expected := range []string{"Updated target:", "updated " + targetPath, "default [json]", "service.baseUrl"} {
+	for _, expected := range []string{"Updated target:", "updated " + filepath.ToSlash(targetPath), "default [json]", "service.baseUrl"} {
 		if !strings.Contains(model.FinalMessage(), expected) {
 			t.Fatalf("FinalMessage() = %q, want updated target detail %q", model.FinalMessage(), expected)
 		}
@@ -340,7 +341,7 @@ queue:
 		}
 	}
 	finalMessage := model.FinalMessage()
-	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + targetPath, "workerQueue [yaml]", "queue.endpoint"} {
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + filepath.ToSlash(targetPath), "workerQueue [yaml]", "queue.endpoint"} {
 		if !strings.Contains(finalMessage, expected) {
 			t.Fatalf("FinalMessage() = %q, want YAML final detail %q", finalMessage, expected)
 		}
@@ -410,7 +411,7 @@ retries = 3
 		}
 	}
 	finalMessage := model.FinalMessage()
-	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + targetPath, "serviceEndpoint [toml]", "services.api.endpoint"} {
+	for _, expected := range []string{`Applied profile "Staging"`, "Updated target:", "updated " + filepath.ToSlash(targetPath), "serviceEndpoint [toml]", "services.api.endpoint"} {
 		if !strings.Contains(finalMessage, expected) {
 			t.Fatalf("FinalMessage() = %q, want TOML final detail %q", finalMessage, expected)
 		}

@@ -262,7 +262,12 @@ func (model *Model) applyProfileValueInput() {
 	if model.profileForm.draft.Values[valueIndex].Source == app.ProfileSourceEnvironment {
 		model.profileForm.draft.Values[valueIndex].EnvironmentVariableName = strings.TrimSpace(model.inputValue)
 	} else {
-		model.profileForm.draft.Values[valueIndex].LiteralValue = model.inputValue
+		value, err := app.NormalizeManagedValue(model.profileForm.draft.Values[valueIndex].ValueType, model.inputValue)
+		if err != nil {
+			model.profileForm.errorMessage = err.Error()
+			return
+		}
+		model.profileForm.draft.Values[valueIndex].LiteralValue = value
 	}
 	model.profileForm.errorMessage = ""
 	model.inputValue = ""

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
@@ -920,4 +921,85 @@ targets:
 `)+"\n"+profilesYAML)
 
 	return projectRoot, databasePath, frontendPath
+}
+
+func TestRunCommand_VersionFourTypedWorkflow(t *testing.T) {
+	root := t.TempDir()
+	jsonPath := writeFile(t, root, "settings.json", `{"flag":true,"port":1234}`)
+	yamlPath := writeFile(t, root, "settings.yaml", "timeout: 1.5 # keep\n")
+	tomlPath := writeFile(t, root, "settings.toml", "ratio = 0.25 # keep\n")
+	envPath := writeFile(t, root, ".env", "ENABLED=true\n")
+	writeFile(t, root, ".switchlet.yaml", `version: 4
+targets:
+  - name: flag
+    file: settings.json
+    jsonPath: flag
+    valueType: boolean
+  - name: port
+    file: settings.json
+    jsonPath: port
+    valueType: integer
+  - name: timeout
+    file: settings.yaml
+    yamlPath: timeout
+    valueType: number
+  - name: ratio
+    file: settings.toml
+    tomlPath: ratio
+    valueType: number
+  - name: enabled
+    file: .env
+    key: ENABLED
+    valueType: boolean
+profiles:
+  - name: Local
+    values:
+      - target: flag
+        value: false
+      - target: port
+        value: 0
+      - target: timeout
+        value: 30
+      - target: ratio
+        value: 0.1234567890123456789
+      - target: enabled
+        valueFromEnv: SWITCHLET_TYPED_ENABLED
+`)
+	t.Setenv("SWITCHLET_TYPED_ENABLED", "false")
+	before := readCommandFile(t, jsonPath)
+	dry := runCommandForTest(t, []string{"apply", "Local", "--dry-run"}, root)
+	if dry.exitCode != 0 || !bytes.Equal(before, readCommandFile(t, jsonPath)) {
+		t.Fatalf("dry run failed: %s", dry.stderr)
+	}
+	result := runCommandForTest(t, []string{"apply", "Local"}, root)
+	if result.exitCode != 0 {
+		t.Fatalf("apply failed: %s", result.stderr)
+	}
+	for _, test := range []struct{ path, want string }{{jsonPath, `{"flag":false,"port":0}`}, {yamlPath, "timeout: 30.0 # keep\n"}, {tomlPath, "ratio = 0.1234567890123456789 # keep\n"}, {envPath, "ENABLED=false\n"}} {
+		if got := string(readCommandFile(t, test.path)); got != test.want {
+			t.Fatalf("file=%q want=%q", got, test.want)
+		}
+	}
+	status := runCommandForTest(t, []string{"status", "--expect", "Local", "--json"}, root)
+	if status.exitCode != 0 {
+		t.Fatalf("status failed: %s %s", status.stdout, status.stderr)
+	}
+	diff := runCommandForTest(t, []string{"diff", "Local", "--exit-code"}, root)
+	if diff.exitCode != 0 {
+		t.Fatalf("diff failed: %s", diff.stderr)
+	}
+	t.Setenv("SWITCHLET_TYPED_ENABLED", "secret-invalid-boolean")
+	result = runCommandForTest(t, []string{"apply", "Local"}, root)
+	if result.exitCode == 0 || strings.Contains(result.stderr, "secret-invalid-boolean") {
+		t.Fatalf("invalid environment value error=%q", result.stderr)
+	}
+}
+
+func readCommandFile(t *testing.T, path string) []byte {
+	t.Helper()
+	value, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
 }

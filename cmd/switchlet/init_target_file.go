@@ -26,7 +26,7 @@ discoveryLoop:
 		}
 
 		if len(candidates) == 0 {
-			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
+			if _, err := fmt.Fprintln(prompter.writer, "No supported configuration files with existing JSON, YAML, or TOML scalar values or unambiguous dotenv keys were discovered under the current directory."); err != nil {
 				return targetFileSelection{}, err
 			}
 
@@ -295,6 +295,7 @@ func jsonTargetSelectorNodes(nodes []editor.StringTargetNode) []targetSelectorNo
 			name:       node.Name,
 			selector:   node.JSONPath,
 			selectable: node.Selectable,
+			valueType:  node.ValueType,
 			children:   jsonTargetSelectorNodes(node.Children),
 		})
 	}
@@ -309,6 +310,7 @@ func yamlTargetSelectorNodes(nodes []editor.YAMLStringTargetNode) []targetSelect
 			name:       node.Name,
 			selector:   node.YAMLPath,
 			selectable: node.Selectable,
+			valueType:  node.ValueType,
 			children:   yamlTargetSelectorNodes(node.Children),
 		})
 	}
@@ -323,6 +325,7 @@ func tomlTargetSelectorNodes(nodes []editor.TOMLStringTargetNode) []targetSelect
 			name:       node.Name,
 			selector:   node.TOMLPath,
 			selectable: node.Selectable,
+			valueType:  node.ValueType,
 			children:   tomlTargetSelectorNodes(node.Children),
 		})
 	}

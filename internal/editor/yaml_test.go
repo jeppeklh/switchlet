@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -670,7 +671,7 @@ func TestApplyTargetChanges_YAMLRenameFailureLeavesOriginalFileIntactAndCleansTe
 	if err == nil {
 		t.Fatal("ApplyTargetChanges returned nil error, want YAML rename failure")
 	}
-	if !strings.Contains(err.Error(), "rename failed") || !strings.Contains(err.Error(), targetPath) {
+	if !strings.Contains(err.Error(), "rename failed") || !strings.Contains(err.Error(), strconv.Quote(targetPath)) {
 		t.Fatalf("ApplyTargetChanges returned error %q, want YAML rename failure context", err)
 	}
 	if strings.Contains(err.Error(), "secret-queue") {

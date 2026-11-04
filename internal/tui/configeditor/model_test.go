@@ -1033,3 +1033,35 @@ func readTestFile(t *testing.T, path string) []byte {
 func testStringPointer(value string) *string {
 	return &value
 }
+
+func TestModel_TypedLiteralEntryValidatesWithoutLosingType(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model.profileForm.draft = app.ConfigEditProfileDraft{Name: "Typed", Values: []app.ConfigEditProfileValueDraft{{TargetDescriptor: app.TargetDescriptor{TargetName: "flag", ValueType: app.ManagedValueBoolean}, Included: true, Source: app.ProfileSourceLiteral}}}
+	model.profileForm.valueIndex = 0
+	model.state = editorStateProfileValueInput
+	model.inputValue = "0"
+	model.applyProfileValueInput()
+	if model.state != editorStateProfileValueInput || !strings.Contains(model.profileForm.errorMessage, "boolean") {
+		t.Fatal("invalid boolean advanced the form")
+	}
+	model.inputValue = "false"
+	model.applyProfileValueInput()
+	if model.state != editorStateProfileReview || model.profileForm.draft.Values[0].LiteralValue != "false" || model.profileForm.draft.Values[0].ValueType != app.ManagedValueBoolean {
+		t.Fatal("false was lost or treated as missing")
+	}
+}
+
+func TestModel_DotenvValueTypeCanBeSelectedAtReview(t *testing.T) {
+	model, _ := newTestModel(t, versionThreeConfig())
+	model.managedForm.mode = managedValueDraftAdd
+	model.managedForm.target = app.InitTarget{Name: "flag", Type: app.InitTargetTypeDotenv, Key: "FLAG"}
+	model.state = editorStateManagedValueReview
+	updated, _ := model.handleManagedValueReviewKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'t'}})
+	model = updated.(Model)
+	if model.managedForm.target.ValueType != app.ManagedValueBoolean {
+		t.Fatalf("type=%s", model.managedForm.target.ValueType)
+	}
+	if !strings.Contains(model.managedValueReviewView(), "boolean") {
+		t.Fatal("review hides selected type")
+	}
+}

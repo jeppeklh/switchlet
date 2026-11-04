@@ -32,9 +32,9 @@ func TestInitWizardModel_YAMLFileSelectionShowsPeerFileTypes(t *testing.T) {
 		"Choose configuration file",
 		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
-		"backend/settings.json [json]",
-		"worker/config.yaml [yaml]",
-		"frontend/.env.local [dotenv]",
+		filepath.Join("backend", "settings.json") + " [json]",
+		filepath.Join("worker", "config.yaml") + " [yaml]",
+		filepath.Join("frontend", ".env.local") + " [dotenv]",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("file selection View() = %q, want %q", view, expected)
@@ -85,7 +85,7 @@ func TestInitWizardModel_YAMLFileInspectionRunsThroughCommandWithPendingView(t *
 	if !model.isPending() || model.pendingEffect.TargetType != app.InitTargetTypeYAML {
 		t.Fatalf("model after YAML file select = %#v, want pending YAML inspection", model)
 	}
-	for _, expected := range []string{"Inspecting configuration file", "Inspecting worker/config.yaml.", "Detected format: YAML", "Esc Back", "q Cancel"} {
+	for _, expected := range []string{"Inspecting configuration file", "Inspecting " + yamlCandidate.RelativePath + ".", "Detected format: YAML", "Esc Back", "q Cancel"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("pending YAML View() = %q, want %q", model.View(), expected)
 		}
@@ -185,7 +185,7 @@ func TestInitWizardModel_YAMLManualValidationErrorShowsStructuredRecovery(t *tes
 	if model.errorDetail.Problem != "Could not use this YAML value." || !strings.Contains(model.errorDetail.Reason, `missing segment "missing"`) {
 		t.Fatalf("errorDetail = %#v, want YAML validation recovery error", model.errorDetail)
 	}
-	for _, expected := range []string{"Enter YAML value path", "Error", "File: worker/config.yaml", "Type: YAML", "Selector: queue.missing", "Reason:", "Recovery:"} {
+	for _, expected := range []string{"Enter YAML value path", "Error", "File: " + filepath.Join("worker", "config.yaml"), "Type: YAML", "Selector: queue.missing", "Reason:", "Recovery:"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("YAML validation error View() = %q, want %q", model.View(), expected)
 		}
@@ -240,7 +240,7 @@ func TestInitWizardModel_YAMLManualValidationCompletesToManagedValueName(t *test
 	if model.selectedYAMLPath != "queue.endpoint" || model.selectedJSONPath != "" || model.selectedDotenvKey != "" {
 		t.Fatalf("selected paths = json %q yaml %q dotenv %q, want only YAML path", model.selectedJSONPath, model.selectedYAMLPath, model.selectedDotenvKey)
 	}
-	for _, expected := range []string{"Name this managed value", "Selected file: worker/config.yaml", "Selected value: queue.endpoint"} {
+	for _, expected := range []string{"Name this managed value", "Selected file: " + filepath.Join("worker", "config.yaml"), "Selected value: queue.endpoint"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("YAML managed-value name View() = %q, want %q", model.View(), expected)
 		}
@@ -315,7 +315,7 @@ func TestInitWizardModel_YAMLNamingAndReviewSummariesStayManagedValueFocused(t *
 	}
 
 	nameView := model.View()
-	for _, expected := range []string{"Name this managed value", "Selected file: worker/config.yaml", "Selected value: queue.endpoint"} {
+	for _, expected := range []string{"Name this managed value", "Selected file: " + filepath.Join("worker", "config.yaml"), "Selected value: queue.endpoint"} {
 		if !strings.Contains(nameView, expected) {
 			t.Fatalf("YAML managed-value name View() = %q, want %q", nameView, expected)
 		}
@@ -330,7 +330,7 @@ func TestInitWizardModel_YAMLNamingAndReviewSummariesStayManagedValueFocused(t *
 		t.Fatalf("step = %d, want managed value checkpoint", model.step)
 	}
 	checkpointView := model.View()
-	for _, expected := range []string{"workerQueue [yaml]", "File: worker/config.yaml", "YAML path: queue.endpoint"} {
+	for _, expected := range []string{"workerQueue [yaml]", "File: " + filepath.Join("worker", "config.yaml"), "YAML path: queue.endpoint"} {
 		if !strings.Contains(checkpointView, expected) {
 			t.Fatalf("YAML checkpoint View() = %q, want %q", checkpointView, expected)
 		}
@@ -351,7 +351,7 @@ func TestInitWizardModel_YAMLNamingAndReviewSummariesStayManagedValueFocused(t *
 	for _, expected := range []string{
 		"Managed values",
 		"workerQueue [yaml]",
-		"File: worker/config.yaml",
+		"File: " + filepath.Join("worker", "config.yaml"),
 		"YAML path: queue.endpoint",
 		"Profiles",
 		"Worker Queue Only [partial] [literal]",

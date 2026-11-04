@@ -287,7 +287,7 @@ func TestRunInit_LimitsLargeDiscoveredTargetFileListUntilTheUserNarrowsIt(t *tes
 	if !strings.Contains(outputText, desiredCandidate.RelativePath) {
 		t.Fatalf("init output %q does not show the narrowed matching candidate", outputText)
 	}
-	if !strings.Contains(outputText, "database [json] -> src/MyApplication/appsettings.Development.json") {
+	if !strings.Contains(outputText, "database [json] -> "+desiredCandidate.RelativePath) {
 		t.Fatalf("init output %q does not summarize the narrowed target file", outputText)
 	}
 }
@@ -352,7 +352,7 @@ func TestRunInit_KeepsFileSelectionRecoverableWhenAFilterMatchesNothing(t *testi
 	if !strings.Contains(outputText, `No discovered configuration files match "missing".`) {
 		t.Fatalf("init output %q does not report the no-match filter state", outputText)
 	}
-	if !strings.Contains(outputText, "database [json] -> src/MyApplication/appsettings.Development.json") {
+	if !strings.Contains(outputText, "database [json] -> "+desiredCandidate.RelativePath) {
 		t.Fatalf("init output %q does not recover to the narrowed target file", outputText)
 	}
 }
@@ -591,7 +591,7 @@ queue:
 
 	outputText := output.String()
 	for _, expected := range []string{
-		"No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered",
+		"No supported configuration files with existing JSON, YAML, or TOML scalar values or unambiguous dotenv keys were discovered",
 		"File type cannot be inferred",
 		"Choose YAML value in worker.config",
 		`Error: validate YAML target file`,
@@ -735,7 +735,7 @@ retries = 3
 
 	outputText := output.String()
 	for _, expected := range []string{
-		"No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered",
+		"No supported configuration files with existing JSON, YAML, or TOML scalar values or unambiguous dotenv keys were discovered",
 		"File type cannot be inferred",
 		"Choose TOML value in service.config",
 		`Error: validate TOML target file`,
@@ -1149,7 +1149,7 @@ func TestRunCommand_InitFallsBackToManualFileAndJSONPathEntryWhenDiscoveryFindsN
 	if err != nil {
 		t.Fatalf("runCommand returned error: %v", err)
 	}
-	if !strings.Contains(output.String(), "No supported configuration files with existing JSON, YAML, or TOML string values or unambiguous dotenv keys were discovered") {
+	if !strings.Contains(output.String(), "No supported configuration files with existing JSON, YAML, or TOML scalar values or unambiguous dotenv keys were discovered") {
 		t.Fatalf("init output %q does not report empty discovery results", output.String())
 	}
 	if !strings.Contains(output.String(), `Error: stat target file`) {
@@ -1381,5 +1381,22 @@ func TestPromptTargetName_RefusesDuplicateManagedValueNames(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), `managed value name "database" is already configured`) {
 		t.Fatalf("output %q does not report duplicate managed value name", output.String())
+	}
+}
+
+func TestRunCommand_InitCreatesVersionFourForNumericTarget(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "settings.json", `{"port":1234}`)
+	var output bytes.Buffer
+	input := strings.NewReader("1\n1\nport\n\nLocal\n1\n0\n\n\n\n\n")
+	if err := runInit(root, input, &output, defaultInitDependencies()); err != nil {
+		t.Fatalf("init failed: %v\n%s", err, output.String())
+	}
+	loaded, err := config.Load(filepath.Join(root, ".switchlet.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version != 4 || loaded.Targets[0].ValueType != config.ValueTypeInteger || *loaded.Profiles[0].Values[0].Value != "0" {
+		t.Fatalf("numeric setup lost type or zero: %#v", loaded)
 	}
 }

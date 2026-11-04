@@ -300,6 +300,14 @@ func (model *initWizardModel) appendTarget(name string) {
 		target.JSONPath = model.selectedJSONPath
 	}
 
+	selector := target.JSONPath
+	if target.YAMLPath != "" {
+		selector = target.YAMLPath
+	}
+	if target.TOMLPath != "" {
+		selector = target.TOMLPath
+	}
+	target.ValueType = app.InitSelectionValueType(model.selectedFile, selector)
 	model.targets = append(model.targets, target)
 	model.beginManagedValueCheckpoint()
 }
@@ -440,7 +448,7 @@ func (model *initWizardModel) beginProfileTargetInclude() {
 
 func (model *initWizardModel) appendDraftProfileValue() {
 	target := model.currentDraftTarget()
-	value := app.InitProfileValue{Target: target.Name}
+	value := app.InitProfileValue{Target: target.Name, ValueType: target.ValueType}
 	if model.draftProfile.UseEnvironment {
 		value.ValueFromEnv = stringValuePointer(model.draftProfile.Value)
 	} else {

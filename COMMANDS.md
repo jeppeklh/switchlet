@@ -154,6 +154,88 @@ edits are re-parsed and checked for semantic correctness before writing.
 Use `--` before a positional profile name that starts with `-`. For `apply`, put
 flags before `--`, for example `switchlet apply --dry-run -- -Local`.
 
+## Typed Values (Configuration Version 4)
+
+Version 4 adds `valueType` to each target. The file `type` still selects JSON,
+YAML, TOML, or dotenv. `valueType` describes the managed setting and defaults to
+`string` when omitted. The setting must already exist with a compatible native
+type; Switchlet does not change a string setting into a boolean or number.
+
+```yaml
+version: 4
+targets:
+  - name: featureEnabled
+    file: settings.json
+    jsonPath: Features.Enabled
+    valueType: boolean
+  - name: port
+    file: settings.json
+    jsonPath: Server.Port
+    valueType: integer
+  - name: timeout
+    file: settings.json
+    jsonPath: Server.Timeout
+    valueType: number
+profiles:
+  - name: Local
+    values:
+      - target: featureEnabled
+        value: false
+      - target: port
+        value: 8080
+      - target: timeout
+        value: 0.75
+```
+
+Supported value types:
+
+| `valueType` | Literal examples | Rules |
+|---|---|---|
+| `string` | `"8080"`, `"false"` | Text; existing non-empty profile rules apply. |
+| `boolean` | `true`, `false` | Both values are valid, including `false`. |
+| `integer` | `0`, `8080`, `-30` | Decimal integers from -9223372036854775808 through 9223372036854775807. |
+| `number` | `0`, `0.75`, `1.25e2` | Finite decimal numbers; exact decimal digits are retained. |
+
+In Version 4, literal YAML types must match: `value: "false"` is a string and is
+rejected for a boolean target. Numeric literals and entered/environment values
+use decimal syntax compatible with JSON numbers. Hexadecimal, octal, and other
+format-specific literal syntax are not accepted in profile values. Existing
+source files may retain supported native spellings such as TOML `1_000` or `0x10`.
+A `number` target accepts integer or fractional source values. Written
+integer-valued numbers use a decimal point (for example `30.0`), preserving a
+numeric rather than string representation across formats.
+
+Number input and canonical decimal text are limited to 512 characters; written
+exponents must be between -1024 and 1024 before magnitude validation.
+Overflow, non-finite values (`NaN`/infinity), and underflow to zero are rejected.
+Floating-point parsing checks magnitude only; exact decimal arithmetic produces
+the stored/comparison text, so high-precision fractional values are not rounded
+through a Go `float64`. Consuming applications still apply their own numeric rules.
+
+`valueFromEnv` keeps its existing syntax. The environment text is parsed using
+the target's declared type; booleans require lowercase `true` or `false`, and
+invalid/empty values make the profile unavailable without printing their content.
+All included values are resolved and validated before any target file is replaced.
+
+Dotenv has no native scalar types. For typed dotenv targets, Switchlet validates
+the decoded text using `valueType` and writes canonical text such as `false` or
+`8080`. In `switchlet config`, press `t` on the dotenv managed-value review screen
+to choose string, boolean, integer, or number. Init defaults dotenv settings to
+strings; structured-file init detects supported native scalar types automatically.
+Typed literal entry validates before proceeding and keeps zero/false intact.
+
+Status, diff, previews, dry runs, and post-apply verification use the same typed
+normalization. Type mismatches fail before comparison. Equivalent number spellings
+(such as `1.25e2` and `125.0`) already match and do not trigger file replacement.
+Normal output keeps values hidden; optional `valueType` metadata is included in
+JSON target descriptors and profile-value descriptors.
+
+Versions 1, 2, and 3 retain their existing string semantics. `valueType` requires
+Version 4. String-only init continues to generate Version 3; adding an explicitly
+typed target generates Version 4. The config editor reviews a conversion to
+Version 4 before save and preserves an existing Version 4 document on subsequent
+saves. Changing a type alone counts as a configuration change.
+
 ## Current-State Commands
 
 ### `switchlet status`

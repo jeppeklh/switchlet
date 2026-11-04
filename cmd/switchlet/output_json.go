@@ -199,6 +199,7 @@ type diffResultJSON struct {
 }
 
 type profileValueJSON struct {
+	ValueType               string            `json:"valueType,omitempty"`
 	TargetName              string            `json:"targetName"`
 	TargetFile              string            `json:"targetFile"`
 	TargetType              string            `json:"targetType"`
@@ -213,6 +214,7 @@ type profileValueJSON struct {
 }
 
 type targetDescriptorJSON struct {
+	ValueType    string `json:"valueType,omitempty"`
 	TargetName   string `json:"targetName"`
 	TargetFile   string `json:"targetFile"`
 	TargetType   string `json:"targetType"`
@@ -251,6 +253,7 @@ type unavailableProfileJSON struct {
 }
 
 type unavailableValueJSON struct {
+	ValueType               string `json:"valueType,omitempty"`
 	TargetName              string `json:"targetName"`
 	TargetFile              string `json:"targetFile"`
 	TargetType              string `json:"targetType"`
@@ -354,6 +357,7 @@ func unavailableValueJSONFromHunks(hunks []app.ManagedPatchHunk) []unavailableVa
 			TargetName:              hunk.TargetName,
 			TargetFile:              hunk.TargetFile,
 			TargetType:              string(hunk.TargetType),
+			ValueType:               string(hunk.ValueType),
 			SelectorName:            hunk.SelectorName,
 			Selector:                hunk.Selector,
 			EnvironmentVariableName: hunk.EnvironmentVariableName,
@@ -372,6 +376,7 @@ func profileValueJSONFromItems(values []app.ProfileValueItem) []profileValueJSON
 			TargetName:              valueItem.TargetName,
 			TargetFile:              valueItem.TargetFile,
 			TargetType:              string(valueItem.TargetType),
+			ValueType:               string(valueItem.ValueType),
 			SelectorName:            valueItem.SelectorName,
 			Selector:                valueItem.Selector,
 			Status:                  availabilityStatus(valueItem.Available),
@@ -400,6 +405,7 @@ func targetDescriptorJSONFromDescriptor(descriptor app.TargetDescriptor) targetD
 		TargetName:   descriptor.TargetName,
 		TargetFile:   descriptor.TargetFile,
 		TargetType:   string(descriptor.TargetType),
+		ValueType:    string(descriptor.ValueType),
 		SelectorName: descriptor.SelectorName,
 		Selector:     descriptor.Selector,
 	}
@@ -470,6 +476,7 @@ func unavailableValueJSONFromValues(values []app.UnavailableValue) []unavailable
 			TargetName:              value.TargetName,
 			TargetFile:              value.TargetFile,
 			TargetType:              string(value.TargetType),
+			ValueType:               string(value.ValueType),
 			SelectorName:            value.SelectorName,
 			Selector:                value.Selector,
 			EnvironmentVariableName: value.EnvironmentVariableName,

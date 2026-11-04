@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -546,7 +547,7 @@ profiles:
 	}
 	for _, expected := range []string{
 		`target "serviceEndpoint"`,
-		servicePath,
+		strconv.Quote(servicePath),
 		`tomlPath "services.api.endpoint"`,
 		`missing segment "endpoint"`,
 	} {
@@ -716,7 +717,7 @@ func assertTOMLStartupValidationMessage(t *testing.T, message string, servicePat
 	for _, expected := range []string{
 		"validate configured targets",
 		`target "serviceEndpoint"`,
-		servicePath,
+		strconv.Quote(servicePath),
 		`tomlPath "services.api.endpoint"`,
 		`missing segment "endpoint"`,
 	} {

@@ -33,10 +33,10 @@ func TestInitWizardModel_TOMLFileSelectionShowsPeerFileTypes(t *testing.T) {
 		"Choose configuration file",
 		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
-		"backend/settings.json [json]",
-		"worker/config.yaml [yaml]",
-		"services/development.toml [toml]",
-		"frontend/.env.local [dotenv]",
+		filepath.Join("backend", "settings.json") + " [json]",
+		filepath.Join("worker", "config.yaml") + " [yaml]",
+		filepath.Join("services", "development.toml") + " [toml]",
+		filepath.Join("frontend", ".env.local") + " [dotenv]",
 	} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("file selection View() = %q, want %q", view, expected)
@@ -87,7 +87,7 @@ func TestInitWizardModel_TOMLFileInspectionRunsThroughCommandWithPendingView(t *
 	if !model.isPending() || model.pendingEffect.TargetType != app.InitTargetTypeTOML {
 		t.Fatalf("model after TOML file select = %#v, want pending TOML inspection", model)
 	}
-	for _, expected := range []string{"Inspecting configuration file", "Inspecting services/development.toml.", "Detected format: TOML", "Esc Back", "q Cancel"} {
+	for _, expected := range []string{"Inspecting configuration file", "Inspecting " + tomlCandidate.RelativePath + ".", "Detected format: TOML", "Esc Back", "q Cancel"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("pending TOML View() = %q, want %q", model.View(), expected)
 		}
@@ -250,7 +250,7 @@ func TestInitWizardModel_TOMLManualValidationErrorShowsStructuredRecovery(t *tes
 	if model.errorDetail.Problem != "Could not use this TOML value." || !strings.Contains(model.errorDetail.Reason, `missing segment "missing"`) {
 		t.Fatalf("errorDetail = %#v, want TOML validation recovery error", model.errorDetail)
 	}
-	for _, expected := range []string{"Enter TOML value path", "Error", "File: services/development.toml", "Type: TOML", "Selector: services.api.missing", "Reason:", "Recovery:"} {
+	for _, expected := range []string{"Enter TOML value path", "Error", "File: " + filepath.Join("services", "development.toml"), "Type: TOML", "Selector: services.api.missing", "Reason:", "Recovery:"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("TOML validation error View() = %q, want %q", model.View(), expected)
 		}
@@ -305,7 +305,7 @@ func TestInitWizardModel_TOMLManualValidationCompletesToManagedValueName(t *test
 	if model.selectedTOMLPath != "services.api.endpoint" || model.selectedJSONPath != "" || model.selectedYAMLPath != "" || model.selectedDotenvKey != "" {
 		t.Fatalf("selected paths = json %q yaml %q toml %q dotenv %q, want only TOML path", model.selectedJSONPath, model.selectedYAMLPath, model.selectedTOMLPath, model.selectedDotenvKey)
 	}
-	for _, expected := range []string{"Name this managed value", "Selected file: services/development.toml", "Selected value: services.api.endpoint"} {
+	for _, expected := range []string{"Name this managed value", "Selected file: " + filepath.Join("services", "development.toml"), "Selected value: services.api.endpoint"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("TOML managed-value name View() = %q, want %q", model.View(), expected)
 		}
@@ -380,7 +380,7 @@ func TestInitWizardModel_TOMLNamingAndReviewSummariesStayManagedValueFocused(t *
 	}
 
 	nameView := model.View()
-	for _, expected := range []string{"Name this managed value", "Selected file: services/development.toml", "Selected value: services.api.endpoint"} {
+	for _, expected := range []string{"Name this managed value", "Selected file: " + filepath.Join("services", "development.toml"), "Selected value: services.api.endpoint"} {
 		if !strings.Contains(nameView, expected) {
 			t.Fatalf("TOML managed-value name View() = %q, want %q", nameView, expected)
 		}
@@ -395,7 +395,7 @@ func TestInitWizardModel_TOMLNamingAndReviewSummariesStayManagedValueFocused(t *
 		t.Fatalf("step = %d, want managed value checkpoint", model.step)
 	}
 	checkpointView := model.View()
-	for _, expected := range []string{"serviceEndpoint [toml]", "File: services/development.toml", "TOML path: services.api.endpoint"} {
+	for _, expected := range []string{"serviceEndpoint [toml]", "File: " + filepath.Join("services", "development.toml"), "TOML path: services.api.endpoint"} {
 		if !strings.Contains(checkpointView, expected) {
 			t.Fatalf("TOML checkpoint View() = %q, want %q", checkpointView, expected)
 		}
@@ -416,7 +416,7 @@ func TestInitWizardModel_TOMLNamingAndReviewSummariesStayManagedValueFocused(t *
 	for _, expected := range []string{
 		"Managed values",
 		"serviceEndpoint [toml]",
-		"File: services/development.toml",
+		"File: " + filepath.Join("services", "development.toml"),
 		"TOML path: services.api.endpoint",
 		"Profiles",
 		"Service Endpoint Only [partial] [literal]",

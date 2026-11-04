@@ -92,6 +92,14 @@ func resolveProfileValue(profileName string, configuredValue config.ProfileValue
 		resolvedValue.ResolutionError = fmt.Errorf("%s does not define a value", profileValueDescription(profileName, configuredValue.Target))
 	}
 
+	if resolvedValue.ResolutionError == nil {
+		scalar, err := config.ParseScalar(configuredValue.ValueType, resolvedValue.Value)
+		if err != nil {
+			resolvedValue.ResolutionError = fmt.Errorf("%s: %w", profileValueDescription(profileName, configuredValue.Target), err)
+		} else {
+			resolvedValue.Value = scalar.Text()
+		}
+	}
 	return resolvedValue
 }
 

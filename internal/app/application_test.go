@@ -881,3 +881,16 @@ func createSymlinkOrSkip(t *testing.T, rootDir string, relativePath string, targ
 
 	return linkPath
 }
+
+func TestApplication_NewResolvesTypedSingleTargetCompatibilityValues(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "settings.json", `{"timeout":1.0}`)
+	application := app.New(config.Target{File: path, Type: config.TargetTypeJSON, JSONPath: "timeout", ValueType: config.ValueTypeNumber}, []config.Profile{{Name: "Local", Value: stringPointer("1.25e2")}})
+	if _, err := application.ApplyProfileByName("Local"); err != nil {
+		t.Fatalf("typed single-target apply failed verification: %v", err)
+	}
+	status, err := application.CompareStatus()
+	if err != nil || status.CurrentProfile != "Local" {
+		t.Fatalf("comparison=%#v error=%v", status, err)
+	}
+}

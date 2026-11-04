@@ -1203,3 +1203,117 @@ func TestApplyTargetChanges_SkippedFileIsNotIncludedInRecovery(t *testing.T) {
 		t.Fatal("file changed despite failed first replacement")
 	}
 }
+
+func TestApplyTargetChanges_TypedScalarsRoundTripAndPreserveSurroundingBytes(t *testing.T) {
+	for _, format := range []config.TargetType{config.TargetTypeJSON, config.TargetTypeYAML, config.TargetTypeTOML, config.TargetTypeDotenv} {
+		t.Run(string(format), func(t *testing.T) {
+			root := t.TempDir()
+			sources := map[config.TargetType]string{
+				config.TargetTypeJSON:   "{ \"flag\": true, \"port\": 1, \"ratio\": 0.5, \"keep\": \"8080\" }\r\n",
+				config.TargetTypeYAML:   "flag: true # keep\r\nport: 1\r\nratio: 0.5\r\nkeep: '8080'\r\n",
+				config.TargetTypeTOML:   "flag = true # keep\r\nport = 1\r\nratio = 0.5\r\nkeep = '8080'\r\n",
+				config.TargetTypeDotenv: "flag=true # keep\r\nport=1\r\nratio=0.5\r\nkeep='8080'\r\n",
+			}
+			path := writeTargetFile(t, root, "settings", sources[format])
+			changes := []TargetChange{}
+			for index, kind := range []config.ValueType{config.ValueTypeBoolean, config.ValueTypeInteger, config.ValueTypeNumber} {
+				name := []string{"flag", "port", "ratio"}[index]
+				target := config.Target{Name: name, File: path, Type: format, ValueType: kind}
+				switch format {
+				case config.TargetTypeJSON:
+					target.JSONPath = name
+				case config.TargetTypeYAML:
+					target.YAMLPath = name
+				case config.TargetTypeTOML:
+					target.TOMLPath = name
+				case config.TargetTypeDotenv:
+					target.Key = name
+				}
+				changes = append(changes, TargetChange{Target: target, Value: []string{"false", "0", "0.12345678901234567890123456789"}[index]})
+			}
+			if err := ApplyTargetChanges(changes); err != nil {
+				t.Fatal(err)
+			}
+			for _, change := range changes {
+				actual, err := ReadTargetValue(change.Target)
+				if err != nil || actual != change.Value {
+					t.Fatalf("value=%q error=%v", actual, err)
+				}
+			}
+			got := string(readFile(t, path))
+			if !strings.Contains(got, "keep") || !strings.Contains(got, "8080") || !strings.Contains(got, "\r\n") {
+				t.Fatalf("surrounding content lost: %q", got)
+			}
+			before, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := ApplyTargetChanges(changes); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.Stat(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatal("matching typed apply rewrote file")
+			}
+		})
+	}
+}
+
+func TestApplyTargetChanges_TypedValidationFailurePreventsEveryWrite(t *testing.T) {
+	root := t.TempDir()
+	good := writeTargetFile(t, root, "good.json", `{"flag":true}`)
+	bad := writeTargetFile(t, root, "bad.yaml", "port: '8080'\n")
+	err := ApplyTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "flag", File: good, Type: config.TargetTypeJSON, JSONPath: "flag", ValueType: config.ValueTypeBoolean}, Value: "false"},
+		{Target: config.Target{Name: "port", File: bad, Type: config.TargetTypeYAML, YAMLPath: "port", ValueType: config.ValueTypeInteger}, Value: "0"},
+	})
+	if err == nil {
+		t.Fatal("accepted string in an integer target")
+	}
+	if string(readFile(t, good)) != `{"flag":true}` || string(readFile(t, bad)) != "port: '8080'\n" {
+		t.Fatal("validation failure changed files")
+	}
+}
+
+func TestApplyTargetChanges_EquivalentNumbersDoNotRewriteSource(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "settings.json", `{"number":1.250e2}`)
+	if err := ApplyTargetChanges([]TargetChange{{Target: config.Target{Name: "number", File: path, Type: config.TargetTypeJSON, JSONPath: "number", ValueType: config.ValueTypeNumber}, Value: "125.0"}}); err != nil {
+		t.Fatal(err)
+	}
+	if string(readFile(t, path)) != `{"number":1.250e2}` {
+		t.Fatal("equivalent numeric spelling was rewritten")
+	}
+}
+
+func TestReadTargetValue_TypedNativeNumericSpellings(t *testing.T) {
+	for _, test := range []struct {
+		format   config.TargetType
+		contents string
+		kind     config.ValueType
+		want     string
+	}{
+		{config.TargetTypeYAML, "value: 0x10\n", config.ValueTypeInteger, "16"},
+		{config.TargetTypeYAML, "value: .5\n", config.ValueTypeNumber, "0.5"},
+		{config.TargetTypeYAML, "value: TRUE\n", config.ValueTypeBoolean, "true"},
+		{config.TargetTypeTOML, "value = +1_000\n", config.ValueTypeInteger, "1000"},
+		{config.TargetTypeTOML, "value = 0x10\n", config.ValueTypeInteger, "16"},
+		{config.TargetTypeTOML, "value = +1.25\n", config.ValueTypeNumber, "1.25"},
+	} {
+		t.Run(test.contents, func(t *testing.T) {
+			path := writeTargetFile(t, t.TempDir(), "settings", test.contents)
+			target := config.Target{Name: "value", File: path, Type: test.format, ValueType: test.kind, YAMLPath: "value"}
+			if test.format == config.TargetTypeTOML {
+				target.YAMLPath = ""
+				target.TOMLPath = "value"
+			}
+			value, err := ReadTargetValue(target)
+			if err != nil || value != test.want {
+				t.Fatalf("value=%q error=%v", value, err)
+			}
+		})
+	}
+}

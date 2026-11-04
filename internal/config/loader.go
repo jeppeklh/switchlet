@@ -18,14 +18,15 @@ type fileConfig struct {
 }
 
 type fileTarget struct {
-	Name           string `yaml:"name,omitempty"`
-	File           string `yaml:"file"`
-	Type           string `yaml:"type,omitempty"`
-	JSONPath       string `yaml:"jsonPath,omitempty"`
-	Key            string `yaml:"key,omitempty"`
-	YAMLPath       string `yaml:"yamlPath,omitempty"`
-	TOMLPath       string `yaml:"tomlPath,omitempty"`
-	ConnectionName string `yaml:"connectionName,omitempty"`
+	ValueType      ValueType `yaml:"valueType,omitempty"`
+	Name           string    `yaml:"name,omitempty"`
+	File           string    `yaml:"file"`
+	Type           string    `yaml:"type,omitempty"`
+	JSONPath       string    `yaml:"jsonPath,omitempty"`
+	Key            string    `yaml:"key,omitempty"`
+	YAMLPath       string    `yaml:"yamlPath,omitempty"`
+	TOMLPath       string    `yaml:"tomlPath,omitempty"`
+	ConnectionName string    `yaml:"connectionName,omitempty"`
 }
 
 type fileProfile struct {
@@ -37,6 +38,8 @@ type fileProfile struct {
 }
 
 type fileProfileValue struct {
+	ValueType    ValueType `yaml:"-"`
+	rawValue     *yaml.Node
 	Target       string  `yaml:"target"`
 	Value        *string `yaml:"value,omitempty"`
 	ValueFromEnv *string `yaml:"valueFromEnv,omitempty"`
@@ -104,4 +107,56 @@ func loadConfigContents(resolvedConfigPath string, contents []byte) (Config, err
 
 func fingerprintConfigContents(contents []byte) ConfigFingerprint {
 	return ConfigFingerprint{hash: sha256.Sum256(contents)}
+}
+
+func (value *fileProfileValue) UnmarshalYAML(node *yaml.Node) error {
+	type plain fileProfileValue
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return fmt.Errorf("profile value must be a scalar or environment reference")
+	}
+	*value = fileProfileValue(decoded)
+	for index := 0; index+1 < len(node.Content); index += 2 {
+		if node.Content[index].Value == "value" {
+			value.rawValue = node.Content[index+1]
+		}
+	}
+	return nil
+}
+
+// bindProfileValueTypes attaches target-owned type metadata before normalization.
+// Only Version 4 interprets literal YAML tags; older versions keep string decoding.
+func bindProfileValueTypes(version int, profiles []fileProfile, targets []Target) error {
+	kinds := make(map[string]ValueType, len(targets))
+	for _, target := range targets {
+		kinds[target.Name] = target.ValueType
+	}
+	for profileIndex := range profiles {
+		configuredProfile := &profiles[profileIndex]
+		for valueIndex := range configuredProfile.Values {
+			value := &configuredProfile.Values[valueIndex]
+			value.ValueType = kinds[value.Target]
+			if version < typedTargetVersion || value.rawValue == nil {
+				continue
+			}
+			kind := EffectiveValueType(value.ValueType)
+			if value.rawValue.Kind != yaml.ScalarNode || !literalTagMatches(kind, value.rawValue.Tag) {
+				return fmt.Errorf("profile %q target %q literal must have type %s", configuredProfile.Name, value.Target, kind)
+			}
+		}
+	}
+	return nil
+}
+func literalTagMatches(kind ValueType, tag string) bool {
+	switch kind {
+	case ValueTypeString:
+		return tag == "!!str"
+	case ValueTypeBoolean:
+		return tag == "!!bool"
+	case ValueTypeInteger:
+		return tag == "!!int"
+	case ValueTypeNumber:
+		return tag == "!!int" || tag == "!!float"
+	}
+	return false
 }

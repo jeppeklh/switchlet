@@ -34,6 +34,7 @@ func (model Model) handleManagedValueFileInspected(message managedValueFileInspe
 		return model, nil
 	}
 
+	model.managedForm.selection = message.selection
 	model.managedForm.target.File = message.selection.Path
 	model.managedForm.target.Type = message.selection.TargetType
 	model.managedForm.selectorOptions = managedValueSelectorOptions(message.selection)
@@ -310,6 +311,14 @@ func (model Model) handleManagedValueNameInputKey(message tea.KeyMsg) (tea.Model
 
 func (model Model) handleManagedValueReviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
+	case isRuneKey(message, 't') && model.managedForm.target.Type == app.InitTargetTypeDotenv && (model.managedForm.mode == managedValueDraftAdd || model.managedForm.mode == managedValueDraftLocationUpdate):
+		kinds := []app.ManagedValueType{"", app.ManagedValueBoolean, app.ManagedValueInteger, app.ManagedValueNumber}
+		for index, kind := range kinds {
+			if model.managedForm.target.ValueType == kind {
+				model.managedForm.target.ValueType = kinds[(index+1)%len(kinds)]
+				break
+			}
+		}
 	case isOpenKey(message):
 		model.completeManagedValueDraft()
 	case isBackKey(message):

@@ -84,6 +84,7 @@ switchlet config
 - JSON, YAML, TOML, and dotenv configuration targets.
 - Partial profiles that update only included targets.
 - Literal values, environment-backed values, and protected profiles.
+- Strings, booleans, integers, and exact decimal numbers through configuration Version 4.
 
 ## Safety Model
 
@@ -95,6 +96,17 @@ switchlet config
 - Non-interactive apply can assert the current complete profile with
   `--expect-current` before any writes begin.
 - Normal text and JSON output avoid raw current and replacement values.
+
+## Typed Settings
+
+Use configuration `version: 4` and declare `valueType: boolean`, `integer`, or
+`number` on a target to manage values such as `false`, `8080`, and `0.75`.
+Existing configurations keep their string behavior. Init detects native scalar
+types in structured files; `switchlet config` validates typed profile entry and
+reviews schema conversions before saving.
+
+See [typed values](COMMANDS.md#typed-values-configuration-version-4) for the full
+configuration example, numeric limits, environment parsing, and dotenv behavior.
 
 ## Reference
 

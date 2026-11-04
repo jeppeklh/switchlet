@@ -163,7 +163,7 @@ func PrepareReplacementFromSnapshot(snapshot ConfigSnapshot, targets []Target, p
 	if err != nil {
 		return PreparedReplacement{}, err
 	}
-	if snapshot.OriginalVersion == namedTargetVersion {
+	if snapshot.OriginalVersion >= namedTargetVersion {
 		contents, err = marshalReplacementConfigPreservingComments(currentContents, resolvedProjectRoot, targets, profiles)
 		if err != nil {
 			return PreparedReplacement{}, err
@@ -360,7 +360,7 @@ func detectLineEnding(contents []byte) string {
 }
 
 func marshalCreatedConfig(projectRoot string, targets []Target, profiles []Profile) ([]byte, error) {
-	return marshalVersionThreeConfig(projectRoot, targets, profiles, nil)
+	return marshalNamedTargetConfig(projectRoot, targets, profiles, nil)
 }
 
 func fileTargetsFromTargets(projectRoot string, targets []Target) []fileTarget {
@@ -374,13 +374,14 @@ func fileTargetsFromTargets(projectRoot string, targets []Target) []fileTarget {
 		}
 
 		configuredTarget := fileTarget{
-			Name:     target.Name,
-			File:     configTargetPath(projectRoot, target.File),
-			Type:     string(targetType),
-			JSONPath: target.JSONPath,
-			Key:      target.Key,
-			YAMLPath: target.YAMLPath,
-			TOMLPath: target.TOMLPath,
+			Name:      target.Name,
+			ValueType: target.ValueType,
+			File:      configTargetPath(projectRoot, target.File),
+			Type:      string(targetType),
+			JSONPath:  target.JSONPath,
+			Key:       target.Key,
+			YAMLPath:  target.YAMLPath,
+			TOMLPath:  target.TOMLPath,
 		}
 
 		configuredTargets = append(configuredTargets, configuredTarget)
@@ -399,7 +400,7 @@ func fileProfilesFromProfiles(profiles []Profile) []fileProfile {
 
 		configuredProfile.Values = make([]fileProfileValue, 0, len(profile.Values))
 		for _, value := range profile.Values {
-			configuredValue := fileProfileValue{Target: value.Target}
+			configuredValue := fileProfileValue{Target: value.Target, ValueType: value.ValueType}
 			if value.Value != nil {
 				literalValue := *value.Value
 				configuredValue.Value = &literalValue

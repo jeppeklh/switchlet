@@ -10,6 +10,7 @@ const (
 	legacyVersion           = 1
 	currentVersion          = 2
 	namedTargetVersion      = 3
+	typedTargetVersion      = 4
 	compatibilityTargetName = "default"
 )
 
@@ -23,9 +24,12 @@ func validateConfig(configPath string, parsed fileConfig) (Config, error) {
 		return Config{}, fmt.Errorf("unsupported version %d", version)
 	}
 
+	if version < namedTargetVersion && parsed.Target.ValueType != "" {
+		return Config{}, fmt.Errorf("target.valueType requires version 4")
+	}
 	projectRoot := filepath.Dir(configPath)
-	if version == namedTargetVersion {
-		return validateVersionThreeConfig(version, projectRoot, parsed)
+	if version >= namedTargetVersion {
+		return validateNamedTargetConfig(version, projectRoot, parsed)
 	}
 
 	target, err := validateCompatibilityTarget(parsed.Target, projectRoot, version)
@@ -49,12 +53,27 @@ func validateConfig(configPath string, parsed fileConfig) (Config, error) {
 }
 
 func isSupportedVersion(version int) bool {
-	return version == legacyVersion || version == currentVersion || version == namedTargetVersion
+	return version == legacyVersion || version == currentVersion || version == namedTargetVersion || version == typedTargetVersion
 }
 
-func validateVersionThreeConfig(version int, projectRoot string, parsed fileConfig) (Config, error) {
+func validateNamedTargetConfig(version int, projectRoot string, parsed fileConfig) (Config, error) {
+	for index, target := range parsed.Targets {
+		if version < typedTargetVersion && target.ValueType != "" {
+			return Config{}, fmt.Errorf("targets[%d].valueType requires version 4", index)
+		}
+		if err := validateValueType(target.ValueType); err != nil {
+			return Config{}, fmt.Errorf("targets[%d].valueType is invalid: %w", index, err)
+		}
+	}
 	targets, err := validateVersionThreeTargets(parsed.Targets, projectRoot)
 	if err != nil {
+		return Config{}, err
+	}
+
+	for index := range targets {
+		targets[index].ValueType = parsed.Targets[index].ValueType
+	}
+	if err := bindProfileValueTypes(version, parsed.Profiles, targets); err != nil {
 		return Config{}, err
 	}
 
@@ -79,7 +98,7 @@ func ValidateVersionThreeDraft(projectRoot string, targets []Target, profiles []
 		return Config{}, err
 	}
 
-	return validateVersionThreeConfig(namedTargetVersion, resolvedProjectRoot, fileConfig{
+	return validateNamedTargetConfig(namedTargetVersion, resolvedProjectRoot, fileConfig{
 		Targets:  fileTargetsFromTargets(resolvedProjectRoot, targets),
 		Profiles: fileProfilesFromProfiles(profiles),
 	})
@@ -565,9 +584,16 @@ func validateVersionThreeProfileValues(profileName string, parsedValues []filePr
 			return nil, fmt.Errorf("profile %q value for target %q must define exactly one of value or valueFromEnv", profileName, targetName)
 		}
 
-		value := ProfileValue{Target: targetName}
+		value := ProfileValue{Target: targetName, ValueType: parsedValue.ValueType}
 		if hasValue {
 			literalValue := *parsedValue.Value
+			if parsedValue.ValueType != "" {
+				scalar, err := ParseScalar(parsedValue.ValueType, literalValue)
+				if err != nil {
+					return nil, fmt.Errorf("profile %q target %q: %w", profileName, targetName, err)
+				}
+				literalValue = scalar.Text()
+			}
 			value.Value = &literalValue
 		} else {
 			environmentVariableName := strings.TrimSpace(*parsedValue.ValueFromEnv)

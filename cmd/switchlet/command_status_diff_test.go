@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -1596,7 +1597,7 @@ profiles:
 	}
 	for _, expected := range []string{
 		`target "database"`,
-		targetPath,
+		strconv.Quote(targetPath),
 		`type "json"`,
 		`jsonPath "database.url"`,
 		`missing segment "url"`,
@@ -1641,7 +1642,7 @@ profiles:
 	for _, expected := range []string{
 		`validate configured targets`,
 		`target "database"`,
-		targetPath,
+		strconv.Quote(targetPath),
 		`missing segment "url"`,
 	} {
 		if !strings.Contains(result.stderr, expected) {
@@ -1711,7 +1712,7 @@ profiles:
 				message = payload.Error.Message
 			}
 
-			for _, expected := range []string{`validate configured targets`, `target "database"`, linkPath, `jsonPath "database.url"`, `is a symlink`} {
+			for _, expected := range []string{`validate configured targets`, `target "database"`, strconv.Quote(linkPath), `jsonPath "database.url"`, `is a symlink`} {
 				if !strings.Contains(message, expected) {
 					t.Fatalf("message %q does not contain %q", message, expected)
 				}

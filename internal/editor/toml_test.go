@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -548,6 +549,7 @@ func TestDiscoverTargetFileCandidates_IncludesInspectableTOMLFiles(t *testing.T)
 
 	wantRelativePaths := []string{
 		"settings.toml",
+		"numbers.toml",
 		"root.json",
 		"worker.yaml",
 	}
@@ -744,7 +746,7 @@ func TestApplyTargetChanges_TOMLRenameFailureLeavesOriginalFileIntactAndCleansTe
 	if err == nil {
 		t.Fatal("ApplyTargetChanges returned nil error, want TOML rename failure")
 	}
-	if !strings.Contains(err.Error(), "rename failed") || !strings.Contains(err.Error(), targetPath) {
+	if !strings.Contains(err.Error(), "rename failed") || !strings.Contains(err.Error(), strconv.Quote(targetPath)) {
 		t.Fatalf("ApplyTargetChanges returned error %q, want TOML rename failure context", err)
 	}
 	if strings.Contains(err.Error(), "secret-queue") {

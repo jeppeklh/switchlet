@@ -181,16 +181,16 @@ func InspectTOMLStringTargets(targetPath string) ([]TOMLStringTargetNode, error)
 func hasInspectableTargetSelectors(contents []byte, targetType config.TargetType) bool {
 	switch targetType {
 	case config.TargetTypeJSON:
-		nodes, err := inspectStringTargetsContents(contents)
+		nodes, err := inspectJSONScalarContents(contents)
 		return err == nil && len(nodes) > 0
 	case config.TargetTypeDotenv:
 		keys, err := inspectDotenvKeysContents(contents)
 		return err == nil && len(keys) > 0
 	case config.TargetTypeYAML:
-		nodes, err := inspectYAMLStringTargetsContents(contents)
+		nodes, err := inspectYAMLScalarContents(contents)
 		return err == nil && len(nodes) > 0
 	case config.TargetTypeTOML:
-		nodes, err := inspectTOMLStringTargetsContents(contents)
+		nodes, err := inspectTOMLScalarContents(contents)
 		return err == nil && len(nodes) > 0
 	default:
 		return false

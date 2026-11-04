@@ -56,6 +56,7 @@ type ProfileItem struct {
 
 // ProfileValueItem describes one target value included by a profile.
 type ProfileValueItem struct {
+	ValueType               config.ValueType
 	TargetName              string
 	TargetFile              string
 	TargetType              config.TargetType
@@ -70,6 +71,7 @@ type ProfileValueItem struct {
 
 // TargetDescriptor identifies one configured target without exposing its value.
 type TargetDescriptor struct {
+	ValueType    config.ValueType
 	TargetName   string
 	TargetFile   string
 	TargetType   config.TargetType

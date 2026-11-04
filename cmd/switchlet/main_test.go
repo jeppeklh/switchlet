@@ -566,7 +566,7 @@ profiles:
 }
 
 func TestInteractiveSession_ConfigSaveShowsReloadErrorWithoutStaleProfiles(t *testing.T) {
-	projectRoot := t.TempDir()
+	projectRoot := filepath.Join(t.TempDir(), "AppData", "Local")
 	writeFile(t, projectRoot, ".switchlet.yaml", strings.TrimSpace(`
 version: 3
 
@@ -598,8 +598,11 @@ profiles:
 	if !strings.Contains(view, "Configuration was saved, but Switchlet could not reload it.") {
 		t.Fatalf("reload failure view = %q, want focused reload error", view)
 	}
-	if strings.Contains(view, "Local") {
-		t.Fatalf("reload failure view = %q, must not show stale Local profile", view)
+	if !strings.Contains(view, "No profiles available.") {
+		t.Fatalf("reload failure view = %q, want empty profile list", view)
+	}
+	if profileName, ok := session.mainModel.SelectedProfileName(); ok {
+		t.Fatalf("selected profile = %q, want no stale profile after reload failure", profileName)
 	}
 }
 

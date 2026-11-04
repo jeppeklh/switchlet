@@ -159,7 +159,7 @@ func (workflow ConfigEditWorkflow) LoadDocument(configPath string) (ConfigEditDo
 		ProjectRoot:            snapshot.ProjectRoot,
 		ConfigPath:             snapshot.ConfigPath,
 		OriginalVersion:        snapshot.OriginalVersion,
-		ConvertsToVersionThree: snapshot.OriginalVersion != 3,
+		ConvertsToVersionThree: snapshot.OriginalVersion < 3,
 		Targets:                copyConfigEditTargets(snapshot.Config.Targets),
 		Profiles:               copyConfigEditProfiles(snapshot.Config.Profiles),
 		snapshot:               snapshot,
@@ -378,7 +378,7 @@ func (workflow ConfigEditWorkflow) RemoveManagedValue(document ConfigEditDocumen
 
 // ValidateDraft validates the draft as the Version 3 configuration that would be saved.
 func (workflow ConfigEditWorkflow) ValidateDraft(document ConfigEditDocument) error {
-	_, err := config.ValidateVersionThreeDraft(document.ProjectRoot, document.Targets, document.Profiles)
+	_, err := config.ValidateDraft(document.ProjectRoot, document.Targets, document.Profiles)
 	return err
 }
 
@@ -430,10 +430,10 @@ func (workflow ConfigEditWorkflow) SummarizeChanges(document ConfigEditDocument)
 	}
 
 	changes := make([]ConfigEditChange, 0, len(modelChanges)+3)
-	if document.ConvertsToVersionThree {
+	if document.ConvertsToVersionThree || (document.OriginalVersion < 4 && config.SchemaVersionForTargets(document.Targets) == 4) {
 		changes = append(changes, ConfigEditChange{
 			Kind:    ConfigEditChangeCompatibilityConversion,
-			Summary: fmt.Sprintf("Configuration will be saved as version 3 from version %d.", document.OriginalVersion),
+			Summary: fmt.Sprintf("Configuration will be saved as version %d from version %d.", config.SchemaVersionForTargets(document.Targets), document.OriginalVersion),
 			Warning: true,
 		})
 	}
@@ -521,7 +521,7 @@ func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
 			continue
 		}
 
-		profileValue := config.ProfileValue{Target: draftValue.TargetName}
+		profileValue := config.ProfileValue{Target: draftValue.TargetName, ValueType: draftValue.ValueType}
 		switch draftValue.Source {
 		case ProfileSourceEnvironment:
 			environmentVariableName := strings.TrimSpace(draftValue.EnvironmentVariableName)
@@ -533,7 +533,11 @@ func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
 			if strings.TrimSpace(draftValue.LiteralValue) == "" {
 				return config.Profile{}, fmt.Errorf("profile %q value for target %q literal value must be set", profileName, draftValue.TargetName)
 			}
-			literalValue := draftValue.LiteralValue
+			scalar, err := config.ParseScalar(draftValue.ValueType, draftValue.LiteralValue)
+			if err != nil {
+				return config.Profile{}, fmt.Errorf("profile %q target %q: %w", profileName, draftValue.TargetName, err)
+			}
+			literalValue := scalar.Text()
 			profileValue.Value = &literalValue
 		}
 
@@ -547,7 +551,7 @@ func profileFromDraft(draft ConfigEditProfileDraft) (config.Profile, error) {
 }
 
 func (workflow ConfigEditWorkflow) normalizeDraft(document ConfigEditDocument, action string) (ConfigEditDocument, error) {
-	normalizedConfig, err := config.ValidateVersionThreeDraft(document.ProjectRoot, document.Targets, document.Profiles)
+	normalizedConfig, err := config.ValidateDraft(document.ProjectRoot, document.Targets, document.Profiles)
 	if err != nil {
 		return ConfigEditDocument{}, fmt.Errorf("%s: %w", action, err)
 	}
@@ -771,7 +775,7 @@ func copyConfigEditProfile(profile config.Profile) config.Profile {
 }
 
 func copyConfigEditProfileValue(value config.ProfileValue) config.ProfileValue {
-	valueCopy := config.ProfileValue{Target: value.Target}
+	valueCopy := config.ProfileValue{Target: value.Target, ValueType: value.ValueType}
 	if value.Value != nil {
 		literalValue := *value.Value
 		valueCopy.Value = &literalValue
@@ -849,7 +853,7 @@ func configEditTargetsEqual(left config.Target, right config.Target) bool {
 }
 
 func configEditTargetLocationEqual(left config.Target, right config.Target) bool {
-	return filepath.Clean(left.File) == filepath.Clean(right.File) && left.Type == right.Type && targetSelectorValue(left) == targetSelectorValue(right)
+	return filepath.Clean(left.File) == filepath.Clean(right.File) && left.Type == right.Type && left.ValueType == right.ValueType && targetSelectorValue(left) == targetSelectorValue(right)
 }
 
 func configEditProfilesEqual(left config.Profile, right config.Profile) bool {
@@ -882,7 +886,10 @@ func stringPointerEqual(left *string, right *string) bool {
 }
 
 func targetChangeDetail(originalTarget config.Target, draftTarget config.Target) []string {
-	detail := make([]string, 0, 2)
+	detail := make([]string, 0, 3)
+	if config.EffectiveValueType(originalTarget.ValueType) != config.EffectiveValueType(draftTarget.ValueType) {
+		detail = append(detail, fmt.Sprintf("Value type: %s -> %s", config.EffectiveValueType(originalTarget.ValueType), config.EffectiveValueType(draftTarget.ValueType)))
+	}
 	if filepath.Clean(originalTarget.File) != filepath.Clean(draftTarget.File) {
 		detail = append(detail, fmt.Sprintf("File: %s -> %s", originalTarget.File, draftTarget.File))
 	}
@@ -900,6 +907,7 @@ func targetDetail(target config.Target) []string {
 	return []string{
 		fmt.Sprintf("File: %s", target.File),
 		fmt.Sprintf("Type: %s", target.Type),
+		fmt.Sprintf("Value type: %s", config.EffectiveValueType(target.ValueType)),
 		fmt.Sprintf("%s: %s", selectorName, selector),
 	}
 }

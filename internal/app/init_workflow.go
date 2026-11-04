@@ -151,7 +151,11 @@ func (workflow InitWorkflow) ValidateStringTarget(targetPath string, jsonPath st
 		return workflow.dependencies.ValidateStringTarget(targetPath, jsonPath)
 	}
 
-	return editor.ValidateStringTarget(targetPath, jsonPath)
+	_, err := editor.DetectTargetValueType(config.Target{File: targetPath, Type: config.TargetTypeJSON, JSONPath: jsonPath})
+	if err != nil {
+		return fmt.Errorf("validate JSON target file %q: %w", targetPath, err)
+	}
+	return err
 }
 
 // ValidateDotenvTarget validates an explicit dotenv key for init.
@@ -169,7 +173,11 @@ func (workflow InitWorkflow) ValidateYAMLTarget(targetPath string, yamlPath stri
 		return workflow.dependencies.ValidateYAMLTarget(targetPath, yamlPath)
 	}
 
-	return editor.ValidateYAMLTarget(targetPath, yamlPath)
+	_, err := editor.DetectTargetValueType(config.Target{File: targetPath, Type: config.TargetTypeYAML, YAMLPath: yamlPath})
+	if err != nil {
+		return fmt.Errorf("validate YAML target file %q: %w", targetPath, err)
+	}
+	return err
 }
 
 // ValidateTOMLTarget validates an explicit TOML selector for init.
@@ -178,7 +186,11 @@ func (workflow InitWorkflow) ValidateTOMLTarget(targetPath string, tomlPath stri
 		return workflow.dependencies.ValidateTOMLTarget(targetPath, tomlPath)
 	}
 
-	return editor.ValidateTOMLTarget(targetPath, tomlPath)
+	_, err := editor.DetectTargetValueType(config.Target{File: targetPath, Type: config.TargetTypeTOML, TOMLPath: tomlPath})
+	if err != nil {
+		return fmt.Errorf("validate TOML target file %q: %w", targetPath, err)
+	}
+	return err
 }
 
 // InferInitTargetType infers a target type from a path using config ownership rules.
@@ -227,7 +239,7 @@ func (workflow InitWorkflow) inspectStringTargets(targetPath string) ([]InitStri
 		return workflow.dependencies.InspectStringTargets(targetPath)
 	}
 
-	return editor.InspectStringTargets(targetPath)
+	return editor.InspectJSONScalarTargets(targetPath)
 }
 
 func (workflow InitWorkflow) inspectDotenvKeys(targetPath string) ([]string, error) {
@@ -243,7 +255,7 @@ func (workflow InitWorkflow) inspectYAMLStringTargets(targetPath string) ([]Init
 		return workflow.dependencies.InspectYAMLStringTargets(targetPath)
 	}
 
-	return editor.InspectYAMLStringTargets(targetPath)
+	return editor.InspectYAMLScalarTargets(targetPath)
 }
 
 func (workflow InitWorkflow) inspectTOMLStringTargets(targetPath string) ([]InitTOMLStringTargetNode, error) {
@@ -251,5 +263,70 @@ func (workflow InitWorkflow) inspectTOMLStringTargets(targetPath string) ([]Init
 		return workflow.dependencies.InspectTOMLStringTargets(targetPath)
 	}
 
-	return editor.InspectTOMLStringTargets(targetPath)
+	return editor.InspectTOMLScalarTargets(targetPath)
+}
+
+// ManagedValueType describes the type of a setting rather than its file format.
+type ManagedValueType = config.ValueType
+
+const (
+	ManagedValueString  = config.ValueTypeString
+	ManagedValueBoolean = config.ValueTypeBoolean
+	ManagedValueInteger = config.ValueTypeInteger
+	ManagedValueNumber  = config.ValueTypeNumber
+)
+
+// NormalizeManagedValue validates active text entry without exposing it in errors.
+func NormalizeManagedValue(kind ManagedValueType, text string) (string, error) {
+	value, err := config.ParseScalar(kind, text)
+	return value.Text(), err
+}
+
+// InitSelectionValueType returns the detected type for a selected setting.
+func InitSelectionValueType(selection InitTargetFileSelection, selector string) ManagedValueType {
+	var jsonType func([]InitStringTargetNode) ManagedValueType
+	jsonType = func(nodes []InitStringTargetNode) ManagedValueType {
+		for _, node := range nodes {
+			if node.JSONPath == selector {
+				return node.ValueType
+			}
+			if kind := jsonType(node.Children); kind != "" {
+				return kind
+			}
+		}
+		return ""
+	}
+	var yamlType func([]InitYAMLStringTargetNode) ManagedValueType
+	yamlType = func(nodes []InitYAMLStringTargetNode) ManagedValueType {
+		for _, node := range nodes {
+			if node.YAMLPath == selector {
+				return node.ValueType
+			}
+			if kind := yamlType(node.Children); kind != "" {
+				return kind
+			}
+		}
+		return ""
+	}
+	var tomlType func([]InitTOMLStringTargetNode) ManagedValueType
+	tomlType = func(nodes []InitTOMLStringTargetNode) ManagedValueType {
+		for _, node := range nodes {
+			if node.TOMLPath == selector {
+				return node.ValueType
+			}
+			if kind := tomlType(node.Children); kind != "" {
+				return kind
+			}
+		}
+		return ""
+	}
+	switch selection.TargetType {
+	case InitTargetTypeJSON:
+		return jsonType(selection.Nodes)
+	case InitTargetTypeYAML:
+		return yamlType(selection.YAMLNodes)
+	case InitTargetTypeTOML:
+		return tomlType(selection.TOMLNodes)
+	}
+	return ""
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -41,7 +42,7 @@ profiles:
 	if !strings.Contains(err.Error(), `discovered existing configuration file`) {
 		t.Fatalf("ValidateCreateLocation returned error %q, want existing configuration error", err)
 	}
-	if !strings.Contains(err.Error(), filepath.Join(projectRoot, ".switchlet.yaml")) {
+	if !strings.Contains(err.Error(), strconv.Quote(filepath.Join(projectRoot, ".switchlet.yaml"))) {
 		t.Fatalf("ValidateCreateLocation returned error %q, want existing configuration path", err)
 	}
 	if existingConfigError.ConfigPath != filepath.Join(projectRoot, ".switchlet.yaml") {

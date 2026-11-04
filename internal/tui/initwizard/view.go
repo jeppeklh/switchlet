@@ -90,6 +90,9 @@ func (model initWizardModel) View() string {
 		return model.profileValueSourceView()
 	case initWizardStepProfileValue:
 		label := "Literal value"
+		if model.currentDraftTarget().ValueType != "" {
+			label += " (" + string(model.currentDraftTarget().ValueType) + ")"
+		}
 		if model.draftProfile.UseEnvironment {
 			label = "Environment variable name"
 		}

@@ -241,6 +241,11 @@ func writeProfileValueText(output io.Writer, valueItem app.ProfileValueItem, pro
 	if _, err := fmt.Fprintf(output, "- %s%s\n", targetNameLabel(valueItem.TargetName), targetTypeBadge(string(valueItem.TargetType))); err != nil {
 		return err
 	}
+	if valueItem.ValueType != "" {
+		if _, err := fmt.Fprintf(output, "  value type: %s\n", valueItem.ValueType); err != nil {
+			return err
+		}
+	}
 	if valueItem.TargetFile != "" {
 		if _, err := fmt.Fprintf(output, "  file: %s\n", displayProjectPath(projectRoot, valueItem.TargetFile)); err != nil {
 			return err
@@ -330,6 +335,11 @@ func writeTargetDescriptorSection(output io.Writer, styles commandOutputStyles, 
 func writeTargetDescriptorText(output io.Writer, styles commandOutputStyles, descriptor app.TargetDescriptor, projectRoot string) error {
 	if _, err := fmt.Fprintf(output, "%s %s%s\n", styles.marker.Render(">"), styles.heading.Render(targetNameLabel(descriptor.TargetName)), styledTargetTypeBadge(styles, string(descriptor.TargetType))); err != nil {
 		return err
+	}
+	if descriptor.ValueType != "" {
+		if err := writeTargetDetail(output, styles, "value type", string(descriptor.ValueType)); err != nil {
+			return err
+		}
 	}
 	if descriptor.TargetFile != "" {
 		if err := writeTargetDetail(output, styles, "file", displayProjectPath(projectRoot, descriptor.TargetFile)); err != nil {

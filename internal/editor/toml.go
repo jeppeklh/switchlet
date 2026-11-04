@@ -39,12 +39,12 @@ func replaceTOMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 
 	updates := make([]tomlStringValueUpdate, 0, len(changes))
 	for _, change := range changes {
-		targetValue, err := document.findStringTarget(change.Target.TOMLPath)
+		targetValue, err := document.findTarget(change.Target.TOMLPath, change.Target.ValueType)
 		if err != nil {
 			return nil, targetError(change.Target, err)
 		}
 
-		replacementValue, err := quoteTOMLString(change.Value)
+		replacementValue, err := encodeTOMLScalar(change.Value, change.Target.ValueType)
 		if err != nil {
 			return nil, targetError(change.Target, err)
 		}
@@ -75,11 +75,27 @@ func readTOMLTargetValues(contents []byte, targets []config.Target) (map[string]
 	}
 
 	for _, target := range targets {
-		if _, err := document.findStringTarget(target.TOMLPath); err != nil {
+		if _, err := document.findTarget(target.TOMLPath, target.ValueType); err != nil {
 			return nil, targetError(target, err)
 		}
 
-		value, err := readDecodedTOMLStringTargetValue(decodedDocument, target.TOMLPath)
+		var value string
+		if config.EffectiveValueType(target.ValueType) == config.ValueTypeString {
+			value, err = readDecodedTOMLStringTargetValue(decodedDocument, target.TOMLPath)
+		} else {
+			ref, _ := document.findTarget(target.TOMLPath, target.ValueType)
+			raw := strings.ReplaceAll(string(contents[ref.raw.Offset:ref.raw.Offset+ref.raw.Length]), "_", "")
+			sourceType := config.ValueTypeNumber
+			if ref.kind == unstable.Integer {
+				sourceType = config.ValueTypeInteger
+			}
+			if ref.kind == unstable.Bool {
+				sourceType = config.ValueTypeBoolean
+			}
+			scalar, parseErr := sourceScalar(target.ValueType, sourceType, raw)
+			err = parseErr
+			value = scalar.Text()
+		}
 		if err != nil {
 			return nil, targetError(target, err)
 		}
@@ -249,6 +265,9 @@ func (document *tomlDocument) addTablePrefixes(pathSegments []string, maxLength 
 }
 
 func (document *tomlDocument) findStringTarget(tomlPath string) (tomlValueRef, error) {
+	return document.findTarget(tomlPath, config.ValueTypeString)
+}
+func (document *tomlDocument) findTarget(tomlPath string, kind config.ValueType) (tomlValueRef, error) {
 	pathSegments, err := config.ParseTOMLPath(tomlPath)
 	if err != nil {
 		return tomlValueRef{}, fmt.Errorf("invalid TOML path %q: %w", tomlPath, err)
@@ -267,8 +286,8 @@ func (document *tomlDocument) findStringTarget(tomlPath string) (tomlValueRef, e
 		if valueRef.inArrayTable {
 			return tomlValueRef{}, fmt.Errorf("TOML path %q uses unsupported array table", tomlPath)
 		}
-		if valueRef.kind != unstable.String {
-			return tomlValueRef{}, fmt.Errorf("TOML path %q must resolve to a string", tomlPath)
+		if !tomlKindMatches(valueRef.kind, kind) {
+			return tomlValueRef{}, fmt.Errorf("TOML path %q must resolve to a %s", tomlPath, config.EffectiveValueType(kind))
 		}
 
 		return valueRef, nil
@@ -524,4 +543,90 @@ func isInspectableTOMLPathSegment(segment string) bool {
 	}
 
 	return true
+}
+
+func tomlKindMatches(kind unstable.Kind, valueType config.ValueType) bool {
+	switch config.EffectiveValueType(valueType) {
+	case config.ValueTypeString:
+		return kind == unstable.String
+	case config.ValueTypeBoolean:
+		return kind == unstable.Bool
+	case config.ValueTypeInteger:
+		return kind == unstable.Integer
+	case config.ValueTypeNumber:
+		return kind == unstable.Float || kind == unstable.Integer
+	}
+	return false
+}
+func encodeTOMLScalar(value string, kind config.ValueType) ([]byte, error) {
+	if config.EffectiveValueType(kind) == config.ValueTypeString {
+		return quoteTOMLString(value)
+	}
+	scalar, err := config.ParseScalar(kind, value)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(scalar.Text()), nil
+}
+
+// InspectTOMLScalarTargets includes supported boolean and numeric selectors.
+func InspectTOMLScalarTargets(path string) ([]TOMLStringTargetNode, error) {
+	contents, _, err := readTargetFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return inspectTOMLScalarContents(contents)
+}
+func inspectTOMLScalarContents(contents []byte) ([]TOMLStringTargetNode, error) {
+	document, err := parseTOMLDocument(contents)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([][]string, 0)
+	kinds := map[string]config.ValueType{}
+	for _, refs := range document.valuesByPath {
+		if len(refs) != 1 || !isInspectableTOMLPath(refs[0].path) {
+			continue
+		}
+		ref := refs[0]
+		path := strings.Join(ref.path, ".")
+		for _, kind := range []config.ValueType{"", config.ValueTypeBoolean, config.ValueTypeInteger, config.ValueTypeNumber} {
+			if !tomlKindMatches(ref.kind, kind) {
+				continue
+			}
+			if _, err := document.findTarget(path, kind); err != nil {
+				continue
+			}
+			if kind != "" {
+				raw := strings.ReplaceAll(string(contents[ref.raw.Offset:ref.raw.Offset+ref.raw.Length]), "_", "")
+				sourceType := config.ValueTypeNumber
+				if ref.kind == unstable.Integer {
+					sourceType = config.ValueTypeInteger
+				}
+				if ref.kind == unstable.Bool {
+					sourceType = config.ValueTypeBoolean
+				}
+				if _, err := sourceScalar(kind, sourceType, raw); err != nil {
+					continue
+				}
+			}
+			paths = append(paths, ref.path)
+			kinds[path] = kind
+			break
+		}
+	}
+	sort.Slice(paths, func(i, j int) bool { return strings.Join(paths[i], ".") < strings.Join(paths[j], ".") })
+	nodes := buildTOMLStringTargetNodes(paths)
+	var assign func([]TOMLStringTargetNode)
+	assign = func(nodes []TOMLStringTargetNode) {
+		for index := range nodes {
+			nodes[index].ValueType = kinds[nodes[index].TOMLPath]
+			assign(nodes[index].Children)
+		}
+	}
+	assign(nodes)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("does not contain any existing scalar TOML paths")
+	}
+	return nodes, nil
 }

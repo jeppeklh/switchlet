@@ -30,9 +30,9 @@ profiles:
 		},
 		{
 			name: "unsupported version",
-			configContent: versionTwoConfigWithVersion(4, "appsettings.Development.json", "database.primary.url", `  - name: Local
+			configContent: versionTwoConfigWithVersion(5, "appsettings.Development.json", "database.primary.url", `  - name: Local
     value: postgres://localhost:5432/myapp`),
-			wantError: "unsupported version 4",
+			wantError: "unsupported version 5",
 		},
 		{
 			name: "missing target file",

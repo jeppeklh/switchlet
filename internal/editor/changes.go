@@ -145,6 +145,10 @@ func (err TargetError) Unwrap() error {
 // ValidateTarget verifies that one configured target points at an existing
 // editable value.
 func ValidateTarget(target config.Target) error {
+	if target.ValueType != "" {
+		_, err := ReadTargetValues([]config.Target{target})
+		return err
+	}
 	switch target.Type {
 	case config.TargetTypeJSON:
 		if err := ValidateStringTarget(target.File, target.JSONPath); err != nil {
@@ -478,6 +482,11 @@ func normalizeTargetChange(change TargetChange) (TargetChange, string, error) {
 	}
 
 	change.Target = normalizedTarget
+	scalar, err := config.ParseScalar(change.Target.ValueType, change.Value)
+	if err != nil {
+		return TargetChange{}, "", targetError(change.Target, err)
+	}
+	change.Value = scalar.Text()
 	return change, selector, nil
 }
 
@@ -630,7 +639,18 @@ func readTargetValuesFromContents(contents []byte, targetType config.TargetType,
 	case config.TargetTypeJSON:
 		return readJSONTargetValues(contents, targets)
 	case config.TargetTypeDotenv:
-		return readDotenvTargetValues(contents, targets)
+		values, err := readDotenvTargetValues(contents, targets)
+		if err != nil {
+			return nil, err
+		}
+		for _, target := range targets {
+			value, err := config.ParseScalar(target.ValueType, values[target.Name])
+			if err != nil {
+				return nil, targetError(target, err)
+			}
+			values[target.Name] = value.Text()
+		}
+		return values, nil
 	case config.TargetTypeYAML:
 		return readYAMLTargetValues(contents, targets)
 	case config.TargetTypeTOML:

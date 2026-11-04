@@ -93,6 +93,9 @@ func appendProfileContentsFileGroups(lines []string, groups []app.ProfileContent
 
 func profileContentsTargetLines(target app.ProfileContentsTarget, maxLineWidth int) []string {
 	fields := []DetailField{{Label: "Target", Value: targetNameLabel(target.TargetName)}}
+	if target.ValueType != "" {
+		fields = append(fields, DetailField{Label: "Value type", Value: string(target.ValueType)})
+	}
 	if target.Selector != "" {
 		fields = append(fields, DetailField{Label: "Selector", Value: target.Selector})
 	}
@@ -410,6 +413,9 @@ func profileValueTargetLabel(valueItem app.ProfileValueItem) string {
 
 func profileValueTargetFieldLines(valueItem app.ProfileValueItem, maxLineWidth int) []string {
 	fields := []DetailField{{Label: "Managed value", Value: profileValueTargetLabel(valueItem)}}
+	if valueItem.ValueType != "" {
+		fields = append(fields, DetailField{Label: "Value type", Value: string(valueItem.ValueType)})
+	}
 	if valueItem.Selector != "" {
 		fields = append(fields, DetailField{Label: "Selector", Value: valueItem.Selector})
 	}
@@ -720,7 +726,10 @@ func plannedChangeSelectorLine(change app.PlannedChange) string {
 }
 
 func targetDescriptorFields(descriptor app.TargetDescriptor, includeFile bool, projectRoot string) []DetailField {
-	fields := make([]DetailField, 0, 3)
+	fields := make([]DetailField, 0, 4)
+	if descriptor.ValueType != "" {
+		fields = append(fields, DetailField{Label: "Value type", Value: string(descriptor.ValueType)})
+	}
 	if includeFile && descriptor.TargetFile != "" {
 		fields = append(fields, DetailField{Label: "File", Value: displayProjectPath(projectRoot, descriptor.TargetFile)})
 	}

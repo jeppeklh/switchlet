@@ -944,3 +944,121 @@ func configEditChangesString(changes []app.ConfigEditChange) string {
 
 	return builder.String()
 }
+
+func TestConfigEditWorkflow_PreservesTypedProfilesThroughCaptureEditAndSave(t *testing.T) {
+	root := t.TempDir()
+	targetPath := writeTargetFile(t, root, "settings.json", `{"flag":true,"port":1234}`)
+	path := writeConfigFile(t, root, `version: 4
+targets:
+  - name: flag
+    file: settings.json
+    jsonPath: flag
+    valueType: boolean
+  - name: port
+    file: settings.json
+    jsonPath: port
+    valueType: integer
+profiles:
+  - name: Local
+    values:
+      - target: flag
+        value: false
+      - target: port
+        value: 0
+`)
+	workflow := app.DefaultConfigEditWorkflow()
+	document, err := workflow.LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.ConvertsToVersionThree || workflow.HasChanges(document) {
+		t.Fatal("unchanged version 4 document requires conversion")
+	}
+	captured, err := workflow.CaptureCurrentProfileDraft(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.Values[0].ValueType != config.ValueTypeBoolean || captured.Values[0].LiteralValue != "true" || captured.Values[1].ValueType != config.ValueTypeInteger {
+		t.Fatalf("capture lost types: %#v", captured)
+	}
+	draft, err := workflow.ProfileDraft(document, "Local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	draft.Values[0].LiteralValue = "true"
+	draft.Values[1].LiteralValue = "8080"
+	document, err = workflow.UpdateProfileDraft(document, "Local", draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prepared, err := workflow.PrepareSave(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Version != 4 || loaded.Profiles[0].Values[0].ValueType != config.ValueTypeBoolean || *loaded.Profiles[0].Values[1].Value != "8080" {
+		t.Fatalf("saved config lost types: %#v", loaded)
+	}
+	contents, err := os.ReadFile(targetPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != `{"flag":true,"port":1234}` {
+		t.Fatal("config editing changed target values")
+	}
+	draft.Values[1].LiteralValue = "not-an-integer"
+	if _, err := workflow.UpdateProfileDraft(document, "Local", draft); err == nil {
+		t.Fatal("config editor accepted invalid integer")
+	}
+}
+
+func TestConfigEditWorkflow_ReviewsTypeOnlyConversionToVersionFour(t *testing.T) {
+	root := t.TempDir()
+	targetPath := writeTargetFile(t, root, "settings.json", `{"port":5}`)
+	path := writeConfigFile(t, root, `version: 3
+targets:
+  - name: port
+    file: settings.json
+    jsonPath: port
+profiles:
+  - name: Local
+    values:
+      - target: port
+        value: "5"
+`)
+	workflow := app.DefaultConfigEditWorkflow()
+	document, err := workflow.LoadDocument(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err = workflow.UpdateManagedValueLocation(document, "port", config.Target{Name: "port", File: targetPath, Type: config.TargetTypeJSON, JSONPath: "port", ValueType: config.ValueTypeInteger})
+	if err != nil {
+		t.Fatal(err)
+	}
+	converted := false
+	for _, change := range workflow.SummarizeChanges(document) {
+		if change.Kind == app.ConfigEditChangeCompatibilityConversion && strings.Contains(change.Summary, "version 4") {
+			converted = true
+		}
+	}
+	if !converted {
+		t.Fatal("type-only schema conversion missing from review")
+	}
+	prepared, err := workflow.PrepareSave(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := prepared.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(path)
+	if err != nil || loaded.Version != 4 || loaded.Profiles[0].Values[0].ValueType != config.ValueTypeInteger {
+		t.Fatalf("conversion failed: %#v %v", loaded, err)
+	}
+}

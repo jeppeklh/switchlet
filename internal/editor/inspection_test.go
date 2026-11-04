@@ -43,6 +43,7 @@ func TestDiscoverTargetFileCandidates_ReturnsSortedInspectableTargetFiles(t *tes
 		filepath.Join("services", "prod.env"),
 		filepath.Join("src", "appsettings.Development.json"),
 		filepath.Join("config", "runtime.json"),
+		"numbers.yaml",
 		"root.json",
 		"worker.yaml",
 	}
@@ -284,5 +285,16 @@ func TestInspectStringTargets_ReturnsErrorForNonObjectRoot(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must contain a JSON object at the root") {
 		t.Fatalf("InspectStringTargets returned error %q, want root-object error", err)
+	}
+}
+
+func TestInspectJSONScalarTargets_SkipsUnsupportedNumericRange(t *testing.T) {
+	path := writeTargetFile(t, t.TempDir(), "settings.json", `{"valid":123,"overflow":1e400}`)
+	nodes, err := InspectJSONScalarTargets(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(nodes) != 1 || nodes[0].JSONPath != "valid" || nodes[0].ValueType != config.ValueTypeInteger {
+		t.Fatalf("unsupported numeric target offered: %#v", nodes)
 	}
 }

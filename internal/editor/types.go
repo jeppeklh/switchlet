@@ -13,6 +13,7 @@ type TargetFileCandidate struct {
 // StringTargetNode describes one browseable JSON property that either resolves
 // to a selectable string value or contains nested selectable children.
 type StringTargetNode struct {
+	ValueType  config.ValueType
 	Name       string
 	JSONPath   string
 	Selectable bool
@@ -22,6 +23,7 @@ type StringTargetNode struct {
 // YAMLStringTargetNode describes one browseable YAML mapping key that either
 // resolves to a selectable string scalar or contains nested selectable children.
 type YAMLStringTargetNode struct {
+	ValueType  config.ValueType
 	Name       string
 	YAMLPath   string
 	Selectable bool
@@ -32,6 +34,7 @@ type YAMLStringTargetNode struct {
 // either resolves to a selectable string value or contains nested selectable
 // children.
 type TOMLStringTargetNode struct {
+	ValueType  config.ValueType
 	Name       string
 	TOMLPath   string
 	Selectable bool

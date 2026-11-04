@@ -448,7 +448,7 @@ retries = 3
 		t.Fatalf("api TOML nodes = %#v, want services.api", apiNodes)
 	}
 	endpointNodes := apiNodes[0].Children
-	if len(endpointNodes) != 1 || endpointNodes[0].TOMLPath != "services.api.endpoint" || !endpointNodes[0].Selectable {
+	if len(endpointNodes) != 2 || endpointNodes[0].TOMLPath != "services.api.endpoint" || !endpointNodes[0].Selectable {
 		t.Fatalf("endpoint TOML nodes = %#v, want selectable endpoint", endpointNodes)
 	}
 }
@@ -466,11 +466,10 @@ retries = 3
 		t.Fatalf("ValidateTOMLTarget returned error: %v", err)
 	}
 
-	err := workflow.ValidateTOMLTarget(targetPath, "services.api.retries")
-	if err == nil {
-		t.Fatal("ValidateTOMLTarget returned nil error, want non-string error")
+	if err := workflow.ValidateTOMLTarget(targetPath, "services.api.retries"); err != nil {
+		t.Fatalf("integer selector rejected: %v", err)
 	}
-	if !strings.Contains(err.Error(), `TOML path "services.api.retries" must resolve to a string`) {
-		t.Fatalf("ValidateTOMLTarget returned error %q, want TOML selector context", err)
+	if kind := app.InitSelectionValueType(app.InitTargetFileSelection{TargetType: app.InitTargetTypeTOML, TOMLNodes: []app.InitTOMLStringTargetNode{{TOMLPath: "services.api.retries", ValueType: app.ManagedValueInteger}}}, "services.api.retries"); kind != app.ManagedValueInteger {
+		t.Fatalf("type = %s", kind)
 	}
 }

@@ -107,6 +107,9 @@ func (model Model) profileValueSourceView() string {
 func (model Model) profileValueInputView() string {
 	value := model.activeProfileDraftValue()
 	label := "Literal value"
+	if value.ValueType != "" {
+		label += " (" + string(value.ValueType) + ")"
+	}
 	if value.Source == app.ProfileSourceEnvironment {
 		label = "Environment variable"
 	}

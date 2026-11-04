@@ -40,13 +40,14 @@ func replaceJSONTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 
 	updates := make([]jsonStringValueUpdate, 0, len(changes))
 	for _, change := range changes {
-		targetObject, targetKey, err := findStringTarget(rootObject, change.Target.JSONPath)
+		targetObject, targetKey, err := findScalarTarget(rootObject, change.Target.JSONPath, change.Target.ValueType)
 		if err != nil {
 			return nil, targetError(change.Target, err)
 		}
 
 		updates = append(updates, jsonStringValueUpdate{
 			jsonPath:         change.Target.JSONPath,
+			valueType:        change.Target.ValueType,
 			targetObject:     targetObject,
 			targetKey:        targetKey,
 			replacementValue: change.Value,
@@ -58,13 +59,22 @@ func replaceJSONTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 	}
 
 	for _, update := range updates {
-		update.targetObject[update.targetKey] = update.replacementValue
+		if config.EffectiveValueType(update.valueType) == config.ValueTypeString {
+			update.targetObject[update.targetKey] = update.replacementValue
+		} else {
+			raw, err := encodedScalar(update.replacementValue, update.valueType)
+			if err != nil {
+				return nil, fmt.Errorf("encode JSON scalar: %w", err)
+			}
+			update.targetObject[update.targetKey] = json.RawMessage(raw)
+		}
 	}
 
 	return serializeJSONRoot(rootObject)
 }
 
 type jsonStringValueUpdate struct {
+	valueType        config.ValueType
 	jsonPath         string
 	targetObject     map[string]any
 	targetKey        string
@@ -93,16 +103,16 @@ func readJSONTargetValues(contents []byte, targets []config.Target) (map[string]
 	}
 
 	for _, target := range targets {
-		targetObject, targetKey, err := findStringTarget(rootObject, target.JSONPath)
+		targetObject, targetKey, err := findScalarTarget(rootObject, target.JSONPath, target.ValueType)
 		if err != nil {
 			return nil, targetError(target, err)
 		}
 
-		targetValue, ok := targetObject[targetKey].(string)
-		if !ok {
-			return nil, targetError(target, fmt.Errorf("JSON path %q must resolve to a string", target.JSONPath))
+		targetValue, err := nativeScalar(targetObject[targetKey], target.ValueType)
+		if err != nil {
+			return nil, targetError(target, err)
 		}
-		values[target.Name] = targetValue
+		values[target.Name] = targetValue.Text()
 	}
 
 	return values, nil
@@ -126,7 +136,7 @@ func replaceJSONStringTokens(contents []byte, updates []jsonStringValueUpdate) (
 			return nil, false
 		}
 
-		replacementValue, err := json.Marshal(update.replacementValue)
+		replacementValue, err := encodedScalar(update.replacementValue, update.valueType)
 		if err != nil {
 			return nil, false
 		}
@@ -251,6 +261,12 @@ func collectJSONValueStringRanges(decoder *json.Decoder, contents []byte, pathSe
 		default:
 			return fmt.Errorf("unexpected JSON delimiter %q", value)
 		}
+	case json.Number, bool:
+		if recordValue {
+			raw := fmt.Sprint(value)
+			end := int(decoder.InputOffset())
+			rangesByPath[selectorSegmentsKey(pathSegments)] = jsonStringValueRange{start: end - len(raw), end: end}
+		}
 	case string:
 		if !recordValue {
 			return nil
@@ -323,6 +339,9 @@ func parseStringTarget(contents []byte, jsonPath string) (map[string]any, map[st
 }
 
 func findStringTarget(rootObject map[string]any, jsonPath string) (map[string]any, string, error) {
+	return findScalarTarget(rootObject, jsonPath, config.ValueTypeString)
+}
+func findScalarTarget(rootObject map[string]any, jsonPath string, kind config.ValueType) (map[string]any, string, error) {
 	pathSegments, err := config.ParseJSONPath(jsonPath)
 	if err != nil {
 		return nil, "", fmt.Errorf("invalid JSON path %q: %w", jsonPath, err)
@@ -348,8 +367,8 @@ func findStringTarget(rootObject map[string]any, jsonPath string) (map[string]an
 	if !ok {
 		return nil, "", fmt.Errorf("does not contain JSON path %q: missing segment %q", jsonPath, targetKey)
 	}
-	if _, ok := targetValue.(string); !ok {
-		return nil, "", fmt.Errorf("JSON path %q must resolve to a string", jsonPath)
+	if _, err := nativeScalar(targetValue, kind); err != nil {
+		return nil, "", fmt.Errorf("JSON path %q must resolve to a %s: %w", jsonPath, config.EffectiveValueType(kind), err)
 	}
 
 	return currentObject, targetKey, nil
@@ -410,6 +429,9 @@ func parseJSONDocument(contents []byte) (any, error) {
 }
 
 func buildStringTargetNodes(currentObject map[string]any, parentSegments []string) []StringTargetNode {
+	return filterJSONStringNodes(buildScalarTargetNodes(currentObject, parentSegments))
+}
+func buildScalarTargetNodes(currentObject map[string]any, parentSegments []string) []StringTargetNode {
 	propertyNames := make([]string, 0, len(currentObject))
 	for propertyName := range currentObject {
 		propertyNames = append(propertyNames, propertyName)
@@ -426,14 +448,18 @@ func buildStringTargetNodes(currentObject map[string]any, parentSegments []strin
 		}
 
 		switch propertyValue := currentObject[propertyName].(type) {
-		case string:
+		case string, bool, json.Number:
+			if _, err := nativeScalar(propertyValue, nativeValueType(propertyValue)); err != nil {
+				continue
+			}
 			stringNodes = append(stringNodes, StringTargetNode{
 				Name:       propertyName,
+				ValueType:  nativeValueType(propertyValue),
 				JSONPath:   jsonPath,
 				Selectable: true,
 			})
 		case map[string]any:
-			children := buildStringTargetNodes(propertyValue, pathSegments)
+			children := buildScalarTargetNodes(propertyValue, pathSegments)
 			if len(children) == 0 {
 				continue
 			}
@@ -472,4 +498,38 @@ func formatJSONPathForError(pathSegments []string) string {
 	}
 
 	return strings.Join(pathSegments, ".")
+}
+
+func filterJSONStringNodes(nodes []StringTargetNode) []StringTargetNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	result := make([]StringTargetNode, 0)
+	for _, node := range nodes {
+		node.Children = filterJSONStringNodes(node.Children)
+		if node.Selectable && node.ValueType == "" || len(node.Children) > 0 {
+			result = append(result, node)
+		}
+	}
+	return result
+}
+
+// InspectJSONScalarTargets includes supported boolean and numeric selectors.
+func InspectJSONScalarTargets(path string) ([]StringTargetNode, error) {
+	contents, _, err := readTargetFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return inspectJSONScalarContents(contents)
+}
+func inspectJSONScalarContents(contents []byte) ([]StringTargetNode, error) {
+	root, err := parseRootObject(contents)
+	if err != nil {
+		return nil, err
+	}
+	nodes := buildScalarTargetNodes(root, nil)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("does not contain any existing scalar JSON paths")
+	}
+	return nodes, nil
 }

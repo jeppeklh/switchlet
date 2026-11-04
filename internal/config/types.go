@@ -52,13 +52,14 @@ const (
 
 // Target defines one named configuration value Switchlet may modify.
 type Target struct {
-	Name     string
-	File     string
-	Type     TargetType
-	JSONPath string
-	Key      string
-	YAMLPath string
-	TOMLPath string
+	ValueType ValueType
+	Name      string
+	File      string
+	Type      TargetType
+	JSONPath  string
+	Key       string
+	YAMLPath  string
+	TOMLPath  string
 }
 
 // Profile defines one available configuration profile.
@@ -72,6 +73,7 @@ type Profile struct {
 
 // ProfileValue defines one target-specific value inside a profile.
 type ProfileValue struct {
+	ValueType    ValueType
 	Target       string
 	Value        *string
 	ValueFromEnv *string

@@ -90,20 +90,36 @@ func promptProfileValue(prompter initPrompter, profileName string, target config
 	if _, err := fmt.Fprintf(prompter.writer, "\nSet %s for %s\n", target.Name, profileName); err != nil {
 		return config.ProfileValue{}, err
 	}
+	if target.ValueType != "" {
+		if _, err := fmt.Fprintf(prompter.writer, "Expected value type: %s\n", target.ValueType); err != nil {
+			return config.ProfileValue{}, err
+		}
+	}
 
 	sourceChoice, err := prompter.promptChoice("How should Switchlet store this managed value?", []string{"Use a literal value", "Use an environment variable"})
 	if err != nil {
 		return config.ProfileValue{}, err
 	}
 
-	value := config.ProfileValue{Target: target.Name}
+	value := config.ProfileValue{Target: target.Name, ValueType: target.ValueType}
 	switch sourceChoice {
 	case "Use a literal value":
-		literalValue, err := prompter.promptNonEmptyLine("Literal value: ")
-		if err != nil {
-			return config.ProfileValue{}, err
+		for {
+			literalValue, err := prompter.promptNonEmptyLine("Literal value: ")
+			if err != nil {
+				return config.ProfileValue{}, err
+			}
+			normalized, err := config.ParseScalar(target.ValueType, literalValue)
+			if err != nil {
+				if _, writeErr := fmt.Fprintf(prompter.writer, "Error: target %q: %s\n", target.Name, err); writeErr != nil {
+					return config.ProfileValue{}, writeErr
+				}
+				continue
+			}
+			value.Value = stringValuePointer(normalized.Text())
+			break
 		}
-		value.Value = stringValuePointer(literalValue)
+
 	case "Use an environment variable":
 		environmentVariableName, err := prompter.promptNonEmptyLine("Environment variable name: ")
 		if err != nil {
@@ -148,6 +164,11 @@ func printInitSummary(output io.Writer, workingDirectory string, targets []confi
 	for _, target := range targets {
 		if _, err := fmt.Fprintf(output, "    - %s [%s] -> %s\n", target.Name, target.Type, app.DisplayInitTargetPath(workingDirectory, target.File)); err != nil {
 			return err
+		}
+		if target.ValueType != "" {
+			if _, err := fmt.Fprintf(output, "      Value type: %s\n", target.ValueType); err != nil {
+				return err
+			}
 		}
 		selectorName, selector := targetSelectorLabel(target)
 		if _, err := fmt.Fprintf(output, "      %s: %s\n", selectorName, selector); err != nil {

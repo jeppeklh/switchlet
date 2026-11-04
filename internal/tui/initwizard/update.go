@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	ui "github.com/jeppeklh/switchlet/internal/tui"
 )
 
 // Update handles Bubble Tea messages for the init wizard.
@@ -903,6 +904,14 @@ func (model initWizardModel) handleProfileValueKey(message tea.KeyMsg) (tea.Mode
 			return model, nil
 		}
 
+		if !model.draftProfile.UseEnvironment {
+			normalized, err := app.NormalizeManagedValue(model.currentDraftTarget().ValueType, enteredValue)
+			if err != nil {
+				model.errorDetail = ui.RecoverableError{Problem: "Invalid profile value", Reason: err.Error(), Recovery: "Enter a value matching the managed value type."}
+				return model, nil
+			}
+			enteredValue = normalized
+		}
 		model.draftProfile.Value = enteredValue
 		model.appendDraftProfileValue()
 		return model, nil

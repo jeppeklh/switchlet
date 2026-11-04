@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -449,7 +450,7 @@ profiles:
 	}
 	for _, expected := range []string{
 		`target "workerQueue"`,
-		workerPath,
+		strconv.Quote(workerPath),
 		`yamlPath "queue.endpoint"`,
 		`missing segment "endpoint"`,
 	} {

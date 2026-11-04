@@ -34,6 +34,7 @@ type managedValueSelectorOption struct {
 }
 
 type managedValueDraftState struct {
+	selection       app.InitTargetFileSelection
 	mode            managedValueDraftMode
 	originalName    string
 	target          app.InitTarget
@@ -244,6 +245,7 @@ func (model *Model) chooseManagedValueSelector() {
 }
 
 func (model *Model) setManagedValueSelector(selector string) {
+	model.managedForm.target.ValueType = app.InitSelectionValueType(model.managedForm.selection, selector)
 	model.managedForm.target.JSONPath = ""
 	model.managedForm.target.Key = ""
 	model.managedForm.target.YAMLPath = ""

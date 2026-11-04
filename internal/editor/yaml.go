@@ -55,20 +55,24 @@ func replaceYAMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 
 	updates := make([]yamlStringValueUpdate, 0, len(changes))
 	for _, change := range changes {
-		targetNode, err := findYAMLStringTarget(document, change.Target.YAMLPath)
+		targetNode, err := findYAMLScalarTarget(document, change.Target.YAMLPath, change.Target.ValueType)
 		if err != nil {
 			return nil, targetError(change.Target, err)
 		}
 
 		updates = append(updates, yamlStringValueUpdate{
 			targetNode:       targetNode,
+			valueType:        change.Target.ValueType,
 			replacementValue: change.Value,
 		})
 	}
 
 	for _, update := range updates {
 		update.targetNode.Value = update.replacementValue
-		update.targetNode.Tag = "!!str"
+		update.targetNode.Tag = scalarYAMLTag(update.valueType)
+		if config.EffectiveValueType(update.valueType) != config.ValueTypeString {
+			update.targetNode.Style = 0
+		}
 	}
 
 	if updatedContents, ok := replaceYAMLScalarTokens(contents, document, updates); ok {
@@ -101,7 +105,7 @@ func replaceYAMLScalarTokens(contents []byte, expected *yaml.Node, updates []yam
 			style = yaml.DoubleQuotedStyle
 		}
 		value, err := yaml.Marshal(&yaml.Node{
-			Kind: yaml.ScalarNode, Tag: "!!str", Style: style, Value: update.replacementValue,
+			Kind: yaml.ScalarNode, Tag: scalarYAMLTag(update.valueType), Style: style, Value: update.replacementValue,
 		})
 		if err != nil {
 			return nil, false
@@ -238,17 +242,22 @@ func readYAMLTargetValues(contents []byte, targets []config.Target) (map[string]
 	}
 
 	for _, target := range targets {
-		targetNode, err := findYAMLStringTarget(document, target.YAMLPath)
+		targetNode, err := findYAMLScalarTarget(document, target.YAMLPath, target.ValueType)
 		if err != nil {
 			return nil, targetError(target, err)
 		}
-		values[target.Name] = targetNode.Value
+		value, err := yamlScalar(targetNode, target.ValueType)
+		if err != nil {
+			return nil, targetError(target, err)
+		}
+		values[target.Name] = value.Text()
 	}
 
 	return values, nil
 }
 
 type yamlStringValueUpdate struct {
+	valueType        config.ValueType
 	targetNode       *yaml.Node
 	replacementValue string
 }
@@ -287,6 +296,9 @@ func parseYAMLDocument(contents []byte) (*yaml.Node, error) {
 }
 
 func findYAMLStringTarget(document *yaml.Node, yamlPath string) (*yaml.Node, error) {
+	return findYAMLScalarTarget(document, yamlPath, config.ValueTypeString)
+}
+func findYAMLScalarTarget(document *yaml.Node, yamlPath string, kind config.ValueType) (*yaml.Node, error) {
 	pathSegments, err := config.ParseYAMLPath(yamlPath)
 	if err != nil {
 		return nil, fmt.Errorf("invalid YAML path %q: %w", yamlPath, err)
@@ -313,8 +325,8 @@ func findYAMLStringTarget(document *yaml.Node, yamlPath string) (*yaml.Node, err
 		}
 
 		if index == len(pathSegments)-1 {
-			if !isYAMLStringScalar(nextNode) {
-				return nil, fmt.Errorf("YAML path %q must resolve to a scalar string", yamlPath)
+			if _, err := yamlScalar(nextNode, kind); err != nil {
+				return nil, fmt.Errorf("YAML path %q must resolve to a scalar %s: %w", yamlPath, config.EffectiveValueType(kind), err)
 			}
 
 			return nextNode, nil
@@ -448,6 +460,9 @@ func inspectYAMLStringTargetsContents(contents []byte) ([]YAMLStringTargetNode, 
 }
 
 func buildYAMLStringTargetNodes(mappingNode *yaml.Node, parentSegments []string) []YAMLStringTargetNode {
+	return filterYAMLStringNodes(buildYAMLScalarTargetNodes(mappingNode, parentSegments))
+}
+func buildYAMLScalarTargetNodes(mappingNode *yaml.Node, parentSegments []string) []YAMLStringTargetNode {
 	if mappingNode.Kind != yaml.MappingNode || mappingNode.Anchor != "" || hasDuplicateYAMLMappingKeys(mappingNode) {
 		return nil
 	}
@@ -466,14 +481,15 @@ func buildYAMLStringTargetNodes(mappingNode *yaml.Node, parentSegments []string)
 			continue
 		}
 		switch {
-		case isYAMLStringScalar(valueNode):
+		case supportedYAMLScalar(valueNode):
 			nodes = append(nodes, YAMLStringTargetNode{
 				Name:       keyNode.Value,
+				ValueType:  yamlValueType(valueNode),
 				YAMLPath:   yamlPath,
 				Selectable: true,
 			})
 		case valueNode.Kind == yaml.MappingNode:
-			children := buildYAMLStringTargetNodes(valueNode, pathSegments)
+			children := buildYAMLScalarTargetNodes(valueNode, pathSegments)
 			if len(children) == 0 {
 				continue
 			}
@@ -556,4 +572,83 @@ func formatYAMLPathForError(pathSegments []string) string {
 	}
 
 	return strings.Join(pathSegments, ".")
+}
+
+func scalarYAMLTag(kind config.ValueType) string {
+	switch config.EffectiveValueType(kind) {
+	case config.ValueTypeBoolean:
+		return "!!bool"
+	case config.ValueTypeInteger:
+		return "!!int"
+	case config.ValueTypeNumber:
+		return "!!float"
+	default:
+		return "!!str"
+	}
+}
+func yamlScalar(node *yaml.Node, kind config.ValueType) (config.Scalar, error) {
+	expected := scalarYAMLTag(kind)
+	if node.Kind != yaml.ScalarNode || (node.Tag != expected && !(config.EffectiveValueType(kind) == config.ValueTypeNumber && node.Tag == "!!int")) {
+		return config.Scalar{}, fmt.Errorf("expected %s scalar", config.EffectiveValueType(kind))
+	}
+	sourceType := yamlValueType(node)
+	return sourceScalar(kind, sourceType, node.Value)
+}
+
+func yamlValueType(node *yaml.Node) config.ValueType {
+	switch node.Tag {
+	case "!!str":
+		return ""
+	case "!!bool":
+		return config.ValueTypeBoolean
+	case "!!int":
+		return config.ValueTypeInteger
+	case "!!float":
+		return config.ValueTypeNumber
+	}
+	return "unsupported"
+}
+func supportedYAMLScalar(node *yaml.Node) bool {
+	if node.Kind != yaml.ScalarNode {
+		return false
+	}
+	_, err := yamlScalar(node, yamlValueType(node))
+	return err == nil
+}
+func filterYAMLStringNodes(nodes []YAMLStringTargetNode) []YAMLStringTargetNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	result := make([]YAMLStringTargetNode, 0)
+	for _, node := range nodes {
+		node.Children = filterYAMLStringNodes(node.Children)
+		if node.Selectable && node.ValueType == "" || len(node.Children) > 0 {
+			result = append(result, node)
+		}
+	}
+	return result
+}
+
+// InspectYAMLScalarTargets includes supported boolean and numeric selectors.
+func InspectYAMLScalarTargets(path string) ([]YAMLStringTargetNode, error) {
+	contents, _, err := readTargetFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return inspectYAMLScalarContents(contents)
+}
+func inspectYAMLScalarContents(contents []byte) ([]YAMLStringTargetNode, error) {
+	document, err := parseYAMLDocument(contents)
+	if err != nil {
+		return nil, err
+	}
+	root, err := yamlRootMapping(document, "")
+	if err != nil {
+		return nil, err
+	}
+	nodes := buildYAMLScalarTargetNodes(root, nil)
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("does not contain any existing scalar YAML paths")
+	}
+	return nodes, nil
 }

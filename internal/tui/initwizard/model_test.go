@@ -262,8 +262,8 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 		"Choose configuration file",
 		"JSON, YAML, TOML, and dotenv are supported.",
 		"File format chooses the value step.",
-		"backend/settings.json [json]",
-		"frontend/.env.local [dotenv]",
+		filepath.Join("backend", "settings.json") + " [json]",
+		filepath.Join("frontend", ".env.local") + " [dotenv]",
 		"m Manual path",
 	} {
 		if !strings.Contains(fileView, expected) {
@@ -2047,10 +2047,10 @@ func TestInitWizardModel_ReviewSummarizesScopeWithoutSecretValues(t *testing.T) 
 	for _, expected := range []string{
 		"Managed values",
 		"database [json]",
-		"File: backend/appsettings.Development.json",
+		"File: " + filepath.Join("backend", "appsettings.Development.json"),
 		"JSON path: ConnectionStrings.DefaultConnection",
 		"frontendApi [dotenv]",
-		"File: frontend/.env.local",
+		"File: " + filepath.Join("frontend", ".env.local"),
 		"Key: VITE_API_URL",
 		"Profiles",
 		"Local [partial] [literal]",
@@ -2349,5 +2349,30 @@ func assertWizardViewWidth(t *testing.T, view string, width int) {
 		if lipgloss.Width(line) > width {
 			t.Fatalf("line %q has width %d, want at most %d", line, lipgloss.Width(line), width)
 		}
+	}
+}
+
+func TestInitWizardModel_DetectsAndValidatesTypedValues(t *testing.T) {
+	model := initWizardModel{selectedFile: app.InitTargetFileSelection{Path: "settings.json", TargetType: app.InitTargetTypeJSON, Nodes: []app.InitStringTargetNode{{Name: "flag", JSONPath: "flag", Selectable: true, ValueType: app.ManagedValueBoolean}}}, selectedJSONPath: "flag"}
+	model.appendTarget("flag")
+	if model.targets[0].ValueType != app.ManagedValueBoolean {
+		t.Fatal("naming selected scalar lost its type")
+	}
+	model.draftProfile = initWizardProfileDraft{Name: "Local"}
+	model.step = initWizardStepProfileValue
+	model.inputValue = "0"
+	if !strings.Contains(model.View(), "boolean") {
+		t.Fatal("typed entry hides expected boolean type")
+	}
+	updated, _ := model.handleProfileValueKey(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(initWizardModel)
+	if model.step != initWizardStepProfileValue || !strings.Contains(model.errorDetail.Reason, "boolean") {
+		t.Fatal("invalid boolean entry advanced")
+	}
+	model.inputValue = "false"
+	updated, _ = model.handleProfileValueKey(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(initWizardModel)
+	if len(model.profiles) != 1 || model.profiles[0].Values[0].ValueType != app.ManagedValueBoolean || *model.profiles[0].Values[0].Value != "false" {
+		t.Fatal("false was lost during profile setup")
 	}
 }

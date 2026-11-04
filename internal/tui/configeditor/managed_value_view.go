@@ -128,7 +128,7 @@ func (model Model) managedValueSelectorSelectView() string {
 
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
 		{Title: "Choose value", Lines: lines, Focused: true},
-		{Title: "Managed value", Lines: append(model.managedValueTargetSummaryLines(), "", "Existing string values only.", "Missing values are not created.")},
+		{Title: "Managed value", Lines: append(model.managedValueTargetSummaryLines(), "", "Existing scalar values only.", "Missing values are not created.")},
 	}, model.managedValueSelectorActions())
 }
 
@@ -165,16 +165,19 @@ func (model Model) managedValueNameInputView() string {
 
 func (model Model) managedValueReviewView() string {
 	lines := model.managedValueReviewLines()
+	if model.managedForm.target.Type == app.InitTargetTypeDotenv && (model.managedForm.mode == managedValueDraftAdd || model.managedForm.mode == managedValueDraftLocationUpdate) {
+		lines = append(lines, "", "t Change value type (string / boolean / integer / number)")
+	}
 	lines = append(lines, model.managedValueErrorLines()...)
 
+	actions := []ui.Action{{Key: "Enter/l", Label: "Save draft"}, {Key: "Esc/h", Label: "Back"}, {Key: "q", Label: "Quit"}}
+	if model.managedForm.target.Type == app.InitTargetTypeDotenv && (model.managedForm.mode == managedValueDraftAdd || model.managedForm.mode == managedValueDraftLocationUpdate) {
+		actions = append(actions, ui.Action{Key: "t", Label: "Value type"})
+	}
 	return model.configEditorShell(model.managedValueFormTitle(), []ui.Panel{
 		{Title: "Review managed value", Lines: lines, Focused: true},
 		{Title: "Pending config", Lines: reviewChangeLines(model.overview())},
-	}, []ui.Action{
-		{Key: "Enter/l", Label: "Save draft"},
-		{Key: "Esc/h", Label: "Back"},
-		{Key: "q", Label: "Quit"},
-	})
+	}, actions)
 }
 
 func (model Model) managedValueRemoveConfirmView() string {
@@ -289,7 +292,7 @@ func (model Model) managedValueTargetSummaryLines() []string {
 		selector = "(not selected)"
 	}
 
-	return []string{
+	return []string{ui.RenderKeyValue("Value type", managedValueTypeLabel(model.managedForm.target.ValueType)),
 		ui.RenderKeyValue("Managed value", targetName),
 		ui.RenderKeyValue("File", model.managedValueDisplayPath(model.managedForm.target.File)),
 		ui.RenderKeyValue("Type", targetType),
@@ -324,4 +327,11 @@ func (model Model) managedValueFormTitle() string {
 	default:
 		return "Add managed value"
 	}
+}
+
+func managedValueTypeLabel(kind app.ManagedValueType) string {
+	if kind == "" {
+		return "string"
+	}
+	return string(kind)
 }

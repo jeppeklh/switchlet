@@ -19,10 +19,15 @@ func marshalReplacementConfigPreservingComments(currentContents []byte, projectR
 		return nil, fmt.Errorf("parse existing configuration for comment preservation: %w", err)
 	}
 
-	return marshalVersionThreeConfig(projectRoot, targets, profiles, document)
+	return marshalNamedTargetConfig(projectRoot, targets, profiles, document)
 }
 
-func marshalVersionThreeConfig(projectRoot string, targets []Target, profiles []Profile, existingDocument *yaml.Node) ([]byte, error) {
+func marshalNamedTargetConfig(projectRoot string, targets []Target, profiles []Profile, existingDocument *yaml.Node) ([]byte, error) {
+	normalized, err := ValidateDraft(projectRoot, targets, profiles)
+	if err != nil {
+		return nil, err
+	}
+	targets, profiles = normalized.Targets, normalized.Profiles
 	configuredTargets := fileTargetsFromTargets(projectRoot, targets)
 	configuredProfiles := fileProfilesFromProfiles(profiles)
 	document := buildVersionThreeConfigDocument(configuredTargets, configuredProfiles, existingDocument)
@@ -71,7 +76,7 @@ func buildVersionThreeConfigDocument(targets []fileTarget, profiles []fileProfil
 	copyYAMLNodePresentation(root, existingRoot)
 
 	existingFields := yamlMappingEntries(existingRoot)
-	appendYAMLMappingEntry(root, "version", buildYAMLIntNode(namedTargetVersion, existingFields["version"].value), existingFields["version"].key)
+	appendYAMLMappingEntry(root, "version", buildYAMLIntNode(schemaVersionForFileTargets(targets, existingFields["version"].value), existingFields["version"].value), existingFields["version"].key)
 	appendYAMLMappingEntry(root, "targets", buildTargetSequenceNode(targets, existingFields["targets"].value), existingFields["targets"].key)
 	appendYAMLMappingEntry(root, "profiles", buildProfileSequenceNode(profiles, existingFields["profiles"].value), existingFields["profiles"].key)
 
@@ -96,6 +101,9 @@ func buildTargetNode(target fileTarget, existing *yaml.Node) *yaml.Node {
 	copyYAMLNodePresentation(mapping, existing)
 
 	existingFields := yamlMappingEntries(existing)
+	if target.ValueType != "" {
+		appendYAMLMappingEntry(mapping, "valueType", buildYAMLStringNode(string(target.ValueType), existingFields["valueType"].value), existingFields["valueType"].key)
+	}
 	appendYAMLMappingEntry(mapping, "name", buildYAMLStringNode(target.Name, existingFields["name"].value), existingFields["name"].key)
 	appendYAMLMappingEntry(mapping, "file", buildYAMLStringNode(target.File, existingFields["file"].value), existingFields["file"].key)
 	appendYAMLMappingEntry(mapping, "type", buildYAMLStringNode(target.Type, existingFields["type"].value), existingFields["type"].key)
@@ -160,7 +168,7 @@ func buildProfileValueNode(value fileProfileValue, existing *yaml.Node) *yaml.No
 	existingFields := yamlMappingEntries(existing)
 	appendYAMLMappingEntry(mapping, "target", buildYAMLStringNode(value.Target, existingFields["target"].value), existingFields["target"].key)
 	if value.Value != nil {
-		appendYAMLMappingEntry(mapping, "value", buildYAMLStringNode(*value.Value, existingFields["value"].value), existingFields["value"].key)
+		appendYAMLMappingEntry(mapping, "value", buildProfileScalarNode(value, existingFields["value"].value), existingFields["value"].key)
 	}
 	if value.ValueFromEnv != nil {
 		appendYAMLMappingEntry(mapping, "valueFromEnv", buildYAMLStringNode(*value.ValueFromEnv, existingFields["valueFromEnv"].value), existingFields["valueFromEnv"].key)
@@ -262,4 +270,32 @@ func copyYAMLNodePresentation(destination *yaml.Node, source *yaml.Node) {
 	destination.HeadComment = source.HeadComment
 	destination.LineComment = source.LineComment
 	destination.FootComment = source.FootComment
+}
+
+func schemaVersionForFileTargets(targets []fileTarget, existing *yaml.Node) int {
+	if existing != nil && existing.Value == "4" {
+		return typedTargetVersion
+	}
+	for _, target := range targets {
+		if target.ValueType != "" {
+			return typedTargetVersion
+		}
+	}
+	return namedTargetVersion
+}
+func buildProfileScalarNode(value fileProfileValue, existing *yaml.Node) *yaml.Node {
+	tag := "!!str"
+	switch EffectiveValueType(value.ValueType) {
+	case ValueTypeBoolean:
+		tag = "!!bool"
+	case ValueTypeInteger:
+		tag = "!!int"
+	case ValueTypeNumber:
+		tag = "!!float"
+	}
+	node := buildYAMLScalarNode(tag, *value.Value, existing)
+	if tag != "!!str" {
+		node.Style = 0
+	}
+	return node
 }
