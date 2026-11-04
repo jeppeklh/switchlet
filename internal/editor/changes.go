@@ -306,17 +306,25 @@ func (preparedChanges PreparedChanges) Write() error {
 	}
 
 	replacedFiles := make([]preparedFileChange, 0, len(preparedChanges.fileChanges))
-	for index, fileChange := range preparedChanges.fileChanges {
+	for _, fileChange := range preparedChanges.fileChanges {
 		if err := verifyPreparedFileUnchanged(fileChange); err != nil {
-			if index > 0 {
+			if len(replacedFiles) > 0 {
 				return restoreReplacedFiles(fileChange.targetFile, err, replacedFiles)
 			}
 
 			return err
 		}
 
+		if bytes.Equal(fileChange.originalContents, fileChange.updatedContents) {
+			continue
+		}
+
 		if err := writeFileAtomically(fileChange.targetFile, fileChange.updatedContents, fileChange.originalPermissions); err != nil {
-			if index > 0 {
+			var replacedErr replacedFileError
+			if errors.As(err, &replacedErr) {
+				replacedFiles = append(replacedFiles, fileChange)
+			}
+			if len(replacedFiles) > 0 {
 				return restoreReplacedFiles(fileChange.targetFile, err, replacedFiles)
 			}
 
@@ -343,6 +351,9 @@ func verifyPreparedFileUnchanged(fileChange preparedFileChange) error {
 
 func (preparedChanges PreparedChanges) preflight() error {
 	for _, fileChange := range preparedChanges.fileChanges {
+		if bytes.Equal(fileChange.originalContents, fileChange.updatedContents) {
+			continue
+		}
 		if err := preflightAtomicWrite(fileChange.targetFile, fileChange.originalPermissions); err != nil {
 			return PreflightError{TargetFile: fileChange.targetFile, Err: err}
 		}
@@ -630,8 +641,23 @@ func readTargetValuesFromContents(contents []byte, targetType config.TargetType,
 }
 
 func prepareTargetFileContents(contents []byte, group targetChangeGroup) ([]byte, error) {
+	currentValues, err := readTargetValuesFromContents(contents, group.targetType, targetChangeTargets(group.changes))
+	if err != nil {
+		return nil, err
+	}
+
+	changedValues := make([]TargetChange, 0, len(group.changes))
+	for _, change := range group.changes {
+		if currentValues[change.Target.Name] != change.Value {
+			changedValues = append(changedValues, change)
+		}
+	}
+	if len(changedValues) == 0 {
+		return append([]byte(nil), contents...), nil
+	}
+	group.changes = changedValues
+
 	var updatedContents []byte
-	var err error
 	switch group.targetType {
 	case config.TargetTypeJSON:
 		updatedContents, err = replaceJSONTargetValues(contents, group.changes)

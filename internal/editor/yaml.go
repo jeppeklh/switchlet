@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jeppeklh/switchlet/internal/config"
 	"gopkg.in/yaml.v3"
@@ -69,7 +71,159 @@ func replaceYAMLTargetValues(contents []byte, changes []TargetChange) ([]byte, e
 		update.targetNode.Tag = "!!str"
 	}
 
+	if updatedContents, ok := replaceYAMLScalarTokens(contents, document, updates); ok {
+		return updatedContents, nil
+	}
 	return serializeYAMLDocument(document)
+}
+
+// replaceYAMLScalarTokens preserves source formatting for plain and quoted
+// single-line scalars. Complex scalars retain the existing serializer fallback.
+// Re-parsing and comparing the entire tree guards against ambiguous boundaries.
+func replaceYAMLScalarTokens(contents []byte, expected *yaml.Node, updates []yamlStringValueUpdate) ([]byte, bool) {
+	type replacement struct {
+		start, end int
+		value      []byte
+	}
+	replacements := make([]replacement, 0, len(updates))
+	for _, update := range updates {
+		start, ok := yamlSourceOffset(contents, update.targetNode.Line, update.targetNode.Column)
+		if !ok {
+			return nil, false
+		}
+		end, ok := yamlScalarTokenEnd(contents, start)
+		if !ok {
+			return nil, false
+		}
+
+		style := update.targetNode.Style & (yaml.SingleQuotedStyle | yaml.DoubleQuotedStyle)
+		if strings.ContainsAny(update.replacementValue, "\r\n\u0085\u2028\u2029,[]{}") {
+			style = yaml.DoubleQuotedStyle
+		}
+		value, err := yaml.Marshal(&yaml.Node{
+			Kind: yaml.ScalarNode, Tag: "!!str", Style: style, Value: update.replacementValue,
+		})
+		if err != nil {
+			return nil, false
+		}
+		value = bytes.TrimSuffix(value, []byte("\n"))
+		if bytes.ContainsAny(value, "\r\n") {
+			return nil, false
+		}
+		replacements = append(replacements, replacement{start: start, end: end, value: value})
+	}
+
+	sort.Slice(replacements, func(i, j int) bool { return replacements[i].start > replacements[j].start })
+	updated := append([]byte(nil), contents...)
+	previousStart := len(contents)
+	for _, replacement := range replacements {
+		if replacement.end > previousStart {
+			return nil, false
+		}
+		replaced := make([]byte, 0, len(updated)-(replacement.end-replacement.start)+len(replacement.value))
+		replaced = append(replaced, updated[:replacement.start]...)
+		replaced = append(replaced, replacement.value...)
+		updated = append(replaced, updated[replacement.end:]...)
+		previousStart = replacement.start
+	}
+
+	actual, err := parseYAMLDocument(updated)
+	if err != nil || !yamlNodesEqual(expected, actual) {
+		return nil, false
+	}
+	return updated, true
+}
+
+func yamlSourceOffset(contents []byte, line, column int) (int, bool) {
+	if line < 1 || column < 1 {
+		return 0, false
+	}
+	offset := 0
+	if bytes.HasPrefix(contents, []byte{0xef, 0xbb, 0xbf}) {
+		offset = 3
+	}
+	for currentLine := 1; currentLine < line; currentLine++ {
+		next := bytes.IndexByte(contents[offset:], '\n')
+		if next < 0 {
+			return 0, false
+		}
+		offset += next + 1
+	}
+	for currentColumn := 1; currentColumn < column; currentColumn++ {
+		if offset >= len(contents) || contents[offset] == '\n' || contents[offset] == '\r' {
+			return 0, false
+		}
+		_, size := utf8.DecodeRune(contents[offset:])
+		offset += size
+	}
+	return offset, offset < len(contents)
+}
+
+func yamlScalarTokenEnd(contents []byte, start int) (int, bool) {
+	first := contents[start]
+	if first == '!' || first == '&' || first == '*' || first == '|' || first == '>' {
+		return 0, false
+	}
+	quoted := first == '\'' || first == '"'
+	for offset := start; offset < len(contents); offset++ {
+		character := contents[offset]
+		if character == '\r' || character == '\n' {
+			if quoted {
+				return 0, false
+			}
+			return yamlPlainScalarEnd(contents, start, offset)
+		}
+		if quoted {
+			if offset == start {
+				continue
+			}
+			if first == '"' && character == '\\' {
+				if offset+1 >= len(contents) || contents[offset+1] == '\r' || contents[offset+1] == '\n' {
+					return 0, false
+				}
+				offset++
+				continue
+			}
+			if character == first {
+				if first == '\'' && offset+1 < len(contents) && contents[offset+1] == '\'' {
+					offset++
+					continue
+				}
+				return offset + 1, true
+			}
+			continue
+		}
+		if character == ',' || character == ']' || character == '}' ||
+			(character == '#' && (offset == start || contents[offset-1] == ' ' || contents[offset-1] == '\t')) {
+			return yamlPlainScalarEnd(contents, start, offset)
+		}
+	}
+	if quoted {
+		return 0, false
+	}
+	return yamlPlainScalarEnd(contents, start, len(contents))
+}
+
+func yamlPlainScalarEnd(contents []byte, start, end int) (int, bool) {
+	for end > start && (contents[end-1] == ' ' || contents[end-1] == '\t') {
+		end--
+	}
+	return end, end > start
+}
+
+// Formatting and source locations are deliberately excluded; scalar types,
+// values, mapping order, and anchors/alias names must all remain equivalent.
+func yamlNodesEqual(expected, actual *yaml.Node) bool {
+	if expected.Kind != actual.Kind || expected.Tag != actual.Tag || expected.Value != actual.Value ||
+		expected.Anchor != actual.Anchor || len(expected.Content) != len(actual.Content) {
+		return false
+	}
+	for index := range expected.Content {
+		if !yamlNodesEqual(expected.Content[index], actual.Content[index]) {
+			return false
+		}
+	}
+	return true
 }
 
 func readYAMLTargetValues(contents []byte, targets []config.Target) (map[string]string, error) {

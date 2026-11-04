@@ -16,6 +16,18 @@ var (
 
 const preflightContents = "switchlet preflight\n"
 
+// replacedFileError distinguishes a completed replacement whose directory sync
+// failed from a write that left the original file untouched.
+type replacedFileError struct {
+	err error
+}
+
+func (err replacedFileError) Error() string {
+	return "target file was replaced but durability could not be confirmed: " + err.err.Error()
+}
+
+func (err replacedFileError) Unwrap() error { return err.err }
+
 func writeFileAtomically(targetPath string, contents []byte, permissions fs.FileMode) (returnErr error) {
 	if _, err := statRegularTargetFile(targetPath); err != nil {
 		return err
@@ -63,7 +75,7 @@ func writeFileAtomically(targetPath string, contents []byte, permissions fs.File
 		return fmt.Errorf("replace target file with temporary file %q: %w", temporaryFilePath, err)
 	}
 	if err := syncDirectory(targetDirectory); err != nil {
-		return fmt.Errorf("sync target directory %q: %w", targetDirectory, err)
+		return replacedFileError{err: fmt.Errorf("sync target directory %q: %w", targetDirectory, err)}
 	}
 
 	return nil

@@ -3,6 +3,7 @@ package editor
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -1018,4 +1019,187 @@ func stringSlicesEqual(left []string, right []string) bool {
 	}
 
 	return true
+}
+
+func TestApplyTargetChanges_DirectorySyncFailureRestoresEveryReplacedFile(t *testing.T) {
+	for _, fileCount := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d files", fileCount), func(t *testing.T) {
+			root := t.TempDir()
+			changes := make([]TargetChange, 0, fileCount)
+			for index := 0; index < fileCount; index++ {
+				path := writeTargetFile(t, root, fmt.Sprintf("%d.json", index), `{"url":"old"}`)
+				changes = append(changes, TargetChange{Target: config.Target{Name: fmt.Sprint(index), File: path, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "new"})
+			}
+			originalSync := syncDirectory
+			t.Cleanup(func() { syncDirectory = originalSync })
+			calls := 0
+			syncFailure := errors.New("directory sync failed after replacement")
+			syncDirectory = func(path string) error {
+				calls++
+				// Every file is preflighted before replacements begin.
+				if calls == 2*fileCount {
+					return syncFailure
+				}
+				return originalSync(path)
+			}
+
+			err := ApplyTargetChanges(changes)
+			var recovery RecoveryError
+			if !errors.As(err, &recovery) || !errors.Is(err, syncFailure) {
+				t.Fatalf("apply error = %v, want recoverable directory sync failure", err)
+			}
+			if len(recovery.ReplacedFiles) != fileCount || len(recovery.RestoredFiles) != fileCount || len(recovery.UnrestoredFiles) != 0 {
+				t.Fatalf("recovery = %#v, want all replacements restored", recovery)
+			}
+			for _, change := range changes {
+				if got := string(readFile(t, change.Target.File)); got != `{"url":"old"}` {
+					t.Fatalf("file contents = %q, want original contents", got)
+				}
+				if containsTempFile(t, root, tempFilePrefix(change.Target.File)) {
+					t.Fatal("temporary file remains after recovery")
+				}
+			}
+		})
+	}
+}
+
+func TestApplyTargetChanges_PostReplacementSyncFailureReportsFailedRestoration(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "config.json", `{"url":"old"}`)
+	originalSync, originalReplace := syncDirectory, replaceFile
+	t.Cleanup(func() { syncDirectory, replaceFile = originalSync, originalReplace })
+	replaced := false
+	replaceFile = func(source, target string) error {
+		if replaced {
+			return errors.New("restoration failed")
+		}
+		if err := originalReplace(source, target); err != nil {
+			return err
+		}
+		replaced = true
+		return nil
+	}
+	syncDirectory = func(directory string) error {
+		if replaced {
+			return errors.New("directory sync failed")
+		}
+		return originalSync(directory)
+	}
+	err := ApplyTargetChanges([]TargetChange{{Target: config.Target{Name: "url", File: path, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "new"}})
+	var recovery RecoveryError
+	if !errors.As(err, &recovery) || len(recovery.UnrestoredFiles) != 1 || recovery.UnrestoredFiles[0] != path {
+		t.Fatalf("apply error = %v, want failed file included in uncertain recovery", err)
+	}
+	if !strings.Contains(err.Error(), "partially updated") || string(readFile(t, path)) != `{"url":"new"}` {
+		t.Fatalf("error = %v, want truthful partial-state report", err)
+	}
+}
+
+func TestApplyTargetChanges_AlreadyMatchingValuesDoNotTouchFiles(t *testing.T) {
+	tests := []struct {
+		name, contents string
+		target         config.Target
+	}{
+		{"json", "{  \"url\" : \"\\u006fld\" }\r\n", config.Target{Type: config.TargetTypeJSON, JSONPath: "url"}},
+		{"yaml", "service:\r\n    url: 'old'  # unchanged\r\n", config.Target{Type: config.TargetTypeYAML, YAMLPath: "service.url"}},
+		{"toml", "url = 'old' # unchanged\r\n", config.Target{Type: config.TargetTypeTOML, TOMLPath: "url"}},
+		{"dotenv", "URL='old'\r\n", config.Target{Type: config.TargetTypeDotenv, Key: "URL"}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			test.target.File = writeTargetFile(t, root, "config", test.contents)
+			test.target.Name = "url"
+			before, err := os.Stat(test.target.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			originalSync := syncFile
+			t.Cleanup(func() { syncFile = originalSync })
+			syncFile = func(*os.File) error {
+				t.Fatal("already matching apply attempted a preflight or file write")
+				return nil
+			}
+			if err := ApplyTargetChanges([]TargetChange{{Target: test.target, Value: "old"}}); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.Stat(test.target.File)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) || string(readFile(t, test.target.File)) != test.contents {
+				t.Fatal("already matching apply changed file identity, modification time, or bytes")
+			}
+		})
+	}
+}
+
+func TestPreparedChangesWrite_AlreadyMatchingFileStillRejectsStaleContents(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "config.json", `{"url":"old"}`)
+	prepared, err := PrepareTargetChanges([]TargetChange{{Target: config.Target{Name: "url", File: path, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "old"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(`{"url":"external"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stale StaleTargetFileError
+	if err := prepared.Write(); !errors.As(err, &stale) {
+		t.Fatalf("write error = %v, want stale-file refusal", err)
+	}
+	if string(readFile(t, path)) != `{"url":"external"}` {
+		t.Fatal("external edit was overwritten")
+	}
+}
+
+func TestApplyTargetChanges_MixedChangesPreserveMatchingFilesAndTokens(t *testing.T) {
+	root := t.TempDir()
+	matching := writeTargetFile(t, root, "matching.yaml", "url: old # keep\n")
+	changed := writeTargetFile(t, root, "changed.json", `{"keep":"\u006fld","url":"old"}`)
+	originalReplace := replaceFile
+	t.Cleanup(func() { replaceFile = originalReplace })
+	var replacements []string
+	replaceFile = func(source, target string) error {
+		replacements = append(replacements, target)
+		return originalReplace(source, target)
+	}
+	if err := ApplyTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "matching", File: matching, Type: config.TargetTypeYAML, YAMLPath: "url"}, Value: "old"},
+		{Target: config.Target{Name: "keep", File: changed, Type: config.TargetTypeJSON, JSONPath: "keep"}, Value: "old"},
+		{Target: config.Target{Name: "url", File: changed, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "new"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(replacements) != 1 || replacements[0] != changed {
+		t.Fatalf("replacements = %v, want changed file only", replacements)
+	}
+	if string(readFile(t, changed)) != `{"keep":"\u006fld","url":"new"}` {
+		t.Fatal("unchanged JSON string token was rewritten")
+	}
+}
+
+func TestApplyTargetChanges_SkippedFileIsNotIncludedInRecovery(t *testing.T) {
+	root := t.TempDir()
+	matching := writeTargetFile(t, root, "matching.json", `{"url":"old"}`)
+	changed := writeTargetFile(t, root, "changed.json", `{"url":"old"}`)
+	originalReplace := replaceFile
+	t.Cleanup(func() { replaceFile = originalReplace })
+	replaceFile = func(source, target string) error {
+		if target != changed {
+			t.Fatal("attempted to replace or restore an unchanged file")
+		}
+		return errors.New("replacement failed")
+	}
+	err := ApplyTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "matching", File: matching, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "old"},
+		{Target: config.Target{Name: "changed", File: changed, Type: config.TargetTypeJSON, JSONPath: "url"}, Value: "new"},
+	})
+	var recovery RecoveryError
+	if err == nil || errors.As(err, &recovery) {
+		t.Fatalf("error = %v, want write failure without recovery", err)
+	}
+	if string(readFile(t, matching)) != `{"url":"old"}` || string(readFile(t, changed)) != `{"url":"old"}` {
+		t.Fatal("file changed despite failed first replacement")
+	}
 }

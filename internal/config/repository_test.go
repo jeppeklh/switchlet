@@ -164,6 +164,10 @@ profiles:
 	if err := os.Chmod(configPath, 0o640); err != nil {
 		t.Fatalf("chmod configuration file: %v", err)
 	}
+	originalInfo, err := os.Stat(configPath)
+	if err != nil {
+		t.Fatalf("stat original configuration: %v", err)
+	}
 	snapshot, err := config.LoadSnapshot(configPath)
 	if err != nil {
 		t.Fatalf("LoadSnapshot returned error: %v", err)
@@ -185,8 +189,8 @@ profiles:
 	if err != nil {
 		t.Fatalf("stat replacement configuration: %v", err)
 	}
-	if configInfo.Mode().Perm() != 0o640 {
-		t.Fatalf("configuration permissions = %o, want 640", configInfo.Mode().Perm())
+	if configInfo.Mode().Perm() != originalInfo.Mode().Perm() {
+		t.Fatalf("configuration permissions = %o, want %o", configInfo.Mode().Perm(), originalInfo.Mode().Perm())
 	}
 	contents, err := os.ReadFile(configPath)
 	if err != nil {

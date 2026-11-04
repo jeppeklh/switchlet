@@ -695,3 +695,75 @@ func decodeYAMLRoot(t *testing.T, contents []byte) map[string]any {
 
 	return decodedRoot
 }
+
+func TestApplyTargetChanges_PreservesYAMLSourceFormatting(t *testing.T) {
+	tests := []struct{ name, contents, path, value, want string }{
+		{"indentation and comments", "# header\nservice:\n    url: old   # endpoint\n    untouched:  'yes'\n\n", "service.url", "new", "# header\nservice:\n    url: new   # endpoint\n    untouched:  'yes'\n\n"},
+		{"CRLF", "service:\r\n    url: old # endpoint\r\n", "service.url", "new", "service:\r\n    url: new # endpoint\r\n"},
+		{"no final newline", "url: old", "url", "new", "url: new"},
+		{"single quotes", "url: 'it''s old' # endpoint\n", "url", "it's new", "url: 'it''s new' # endpoint\n"},
+		{"escaped double quotes", "url: \"old\\\"value\"  # endpoint\n", "url", "new\"value", "url: \"new\\\"value\"  # endpoint\n"},
+		{"empty quotes", "url: ''\n", "url", "new", "url: 'new'\n"},
+		{"unicode columns", "{æø: old, untouched: 'keep'}\n", "æø", "new", "{æø: new, untouched: 'keep'}\n"},
+		{"flow punctuation", "{url: old, untouched: 'keep'}\n", "url", "a,b", "{url: \"a,b\", untouched: 'keep'}\n"},
+		{"preserve string type", "url: old # endpoint\n", "url", "false", "url: \"false\" # endpoint\n"},
+		{"comment-like replacement", "url: old # endpoint\n", "url", "a # b", "url: 'a # b' # endpoint\n"},
+		{"URL fragment", "url: https://old.test/#fragment # endpoint\n", "url", "https://new.test/#fragment", "url: https://new.test/#fragment # endpoint\n"},
+		{"multiline replacement", "url: old # endpoint\n", "url", "line one\nline two\n", "url: \"line one\\nline two\\n\" # endpoint\n"},
+		{"BOM", "\ufeffurl: old\r\n", "url", "new", "\ufeffurl: new\r\n"},
+		{"unrelated block and alias", "text: |\n    keep this\nbase: &base {value: keep}\ncopy: *base\nurl: old\n", "url", "new", "text: |\n    keep this\nbase: &base {value: keep}\ncopy: *base\nurl: new\n"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := writeTargetFile(t, t.TempDir(), "config.yaml", test.contents)
+			target := config.Target{Name: "value", File: path, Type: config.TargetTypeYAML, YAMLPath: test.path}
+			if err := ApplyTargetChanges([]TargetChange{{Target: target, Value: test.value}}); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(readFile(t, path)); got != test.want {
+				t.Fatalf("YAML = %q, want %q", got, test.want)
+			}
+			if got, err := ReadTargetValue(target); err != nil || got != test.value {
+				t.Fatalf("value = %q, error = %v", got, err)
+			}
+		})
+	}
+}
+
+func TestApplyTargetChanges_YAMLComplexScalarsRetainSafeFallback(t *testing.T) {
+	for _, contents := range []string{
+		"url: |-\n    old\n    text\nkeep: 42\n",
+		"url: >-\n    old\n    text\nkeep: 42\n",
+		"url: old\n    continued\nkeep: 42\n",
+		"url: 'old\n    continued'\nkeep: 42\n",
+		"url: !!str old\nkeep: 42\n",
+		"url: old,with,commas\nkeep: 42\n",
+	} {
+		t.Run(contents, func(t *testing.T) {
+			path := writeTargetFile(t, t.TempDir(), "config.yaml", contents)
+			target := config.Target{Name: "url", File: path, Type: config.TargetTypeYAML, YAMLPath: "url"}
+			if err := ApplyTargetChanges([]TargetChange{{Target: target, Value: "new"}}); err != nil {
+				t.Fatal(err)
+			}
+			if got, err := ReadTargetValue(target); err != nil || got != "new" {
+				t.Fatalf("value = %q, error = %v", got, err)
+			}
+			if root := decodeYAMLRoot(t, readFile(t, path)); root["keep"] != 42 {
+				t.Fatalf("unrelated value = %#v", root["keep"])
+			}
+		})
+	}
+}
+
+func TestApplyTargetChanges_PreservesYAMLFormattingAcrossMultipleReplacements(t *testing.T) {
+	path := writeTargetFile(t, t.TempDir(), "config.yaml", "{first: old, second: 'old', keep:  42}\r\n")
+	if err := ApplyTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "first", File: path, Type: config.TargetTypeYAML, YAMLPath: "first"}, Value: "longer value"},
+		{Target: config.Target{Name: "second", File: path, Type: config.TargetTypeYAML, YAMLPath: "second"}, Value: "x"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := string(readFile(t, path)); got != "{first: longer value, second: 'x', keep:  42}\r\n" {
+		t.Fatalf("YAML = %q", got)
+	}
+}

@@ -137,12 +137,19 @@ selected profile name and place all flags, including `--expect-current`, before
 `--`.
 
 For profiles that update multiple target files, Switchlet prepares every target
-file before replacing any file. It then runs a write preflight for each affected
-file. If a later replacement fails after earlier files were replaced, Switchlet
-attempts best-effort restoration of those earlier files from the original
-same-apply contents and reports whether restoration succeeded or files may still
-be partially updated. Switchlet does not create persistent backups, undo history,
+file before replacing any file. Files whose managed values already match are
+validated but are not preflighted or replaced; their bytes and modification times
+remain unchanged. Other files receive a write preflight before replacement.
+If a write fails, Switchlet attempts best-effort restoration of every file
+already replaced from its original same-apply contents. This includes the failing
+file when replacement succeeded but directory syncing failed. Switchlet reports
+whether restoration succeeded or files may still be partially updated. Switchlet does not create persistent backups, undo history,
 or a restore command.
+
+YAML applies preserve surrounding formatting for ordinary single-line plain or
+quoted values, including comments and line endings. Complex scalar syntax uses
+the existing serializer fallback and may normalize formatting. Candidate source
+edits are re-parsed and checked for semantic correctness before writing.
 
 Use `--` before a positional profile name that starts with `-`. For `apply`, put
 flags before `--`, for example `switchlet apply --dry-run -- -Local`.

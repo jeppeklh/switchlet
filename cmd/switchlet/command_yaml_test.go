@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
@@ -515,4 +516,45 @@ targets:
 `)+"\n"+profilesYAML)
 
 	return projectRoot, databasePath, workerPath, frontendPath
+}
+
+func TestRunCommand_RepeatedYAMLApplyPreservesFormattingAndFileIdentity(t *testing.T) {
+	projectRoot, path := writeVersionThreeYAMLCommandProject(t, `profiles:
+  - name: Local
+    values:
+      - target: workerQueue
+        value: local-queue
+`)
+	if err := os.WriteFile(path, []byte("queue:\r\n    endpoint: 'old'  # keep\r\n    retries:  3\r\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first := runCommandForTest(t, []string{"apply", "Local"}, projectRoot)
+	if first.exitCode != 0 {
+		t.Fatalf("first apply: %s", first.stderr)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second := runCommandForTest(t, []string{"apply", "Local"}, projectRoot)
+	if second.exitCode != 0 {
+		t.Fatalf("second apply: %s", second.stderr)
+	}
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "queue:\r\n    endpoint: 'local-queue'  # keep\r\n    retries:  3\r\n" {
+		t.Fatalf("YAML formatting was changed: %q", contents)
+	}
+	if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+		t.Fatal("repeated CLI apply replaced or modified an already-matching file")
+	}
+	if strings.Contains(second.stdout+second.stderr, "local-queue") {
+		t.Fatal("apply output exposed the managed value")
+	}
 }
