@@ -1317,3 +1317,67 @@ func TestReadTargetValue_TypedNativeNumericSpellings(t *testing.T) {
 		})
 	}
 }
+
+func TestSnapshotRestoreFailureRecoversPreviouslyRestoredFiles(t *testing.T) {
+	root := t.TempDir()
+	first := writeTargetFile(t, root, "first.json", `{"value":"before"}`)
+	second := writeTargetFile(t, root, "second.json", `{"value":"before"}`)
+	prepared, err := PrepareTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "first", File: first, Type: config.TargetTypeJSON, JSONPath: "value"}, Value: "after"},
+		{Target: config.Target{Name: "second", File: second, Type: config.TargetTypeJSON, JSONPath: "value"}, Value: "after"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshots := prepared.Snapshots()
+	if err := prepared.Write(); err != nil {
+		t.Fatal(err)
+	}
+	restoration, err := PrepareRestore(snapshots)
+	if err != nil {
+		t.Fatal(err)
+	}
+	originalReplace := replaceFile
+	t.Cleanup(func() { replaceFile = originalReplace })
+	replaceFile = func(source, target string) error {
+		if target == second {
+			return errors.New("simulated restore failure")
+		}
+		return originalReplace(source, target)
+	}
+	var recovery RecoveryError
+	if err := restoration.Write(); !errors.As(err, &recovery) {
+		t.Fatalf("restoration error=%v", err)
+	}
+	if err := restoration.VerifyOriginal(); err != nil {
+		t.Fatalf("failed undo did not restore pre-undo state: %v", err)
+	}
+}
+
+func TestApplyTargetChanges_FailureRecoveryPreservesExternalEdits(t *testing.T) {
+	root := t.TempDir()
+	first := writeTargetFile(t, root, "first.json", `{"value":"before"}`)
+	second := writeTargetFile(t, root, "second.json", `{"value":"before"}`)
+	originalReplace := replaceFile
+	t.Cleanup(func() { replaceFile = originalReplace })
+	replaceFile = func(source, target string) error {
+		if target == second {
+			if err := os.WriteFile(first, []byte(`{"value":"external"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			return errors.New("simulated write failure")
+		}
+		return originalReplace(source, target)
+	}
+	err := ApplyTargetChanges([]TargetChange{
+		{Target: config.Target{Name: "first", File: first, Type: config.TargetTypeJSON, JSONPath: "value"}, Value: "after"},
+		{Target: config.Target{Name: "second", File: second, Type: config.TargetTypeJSON, JSONPath: "value"}, Value: "after"},
+	})
+	var recovery RecoveryError
+	if !errors.As(err, &recovery) || len(recovery.UnrestoredFiles) != 1 {
+		t.Fatalf("unexpected recovery error: %v", err)
+	}
+	if string(readFile(t, first)) != `{"value":"external"}` {
+		t.Fatal("failure recovery overwrote an external edit")
+	}
+}

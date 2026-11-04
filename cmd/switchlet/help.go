@@ -8,6 +8,7 @@ func usageText() string {
 	  switchlet list [--json] [--config <path>]      List configured profiles and target counts without launching the TUI
 	  switchlet inspect <profile-name> [flags]       Inspect one configured profile and its planned target changes
 	  switchlet apply <profile-name> [flags]         Apply one configured profile by name
+	  switchlet undo [flags]                         Undo the last recorded apply or configure recording
 	  switchlet status [flags]                       Compare current managed values with configured profiles
 	  switchlet diff <profile-name> [flags]          Compare one profile with current managed values
 	  switchlet doctor [flags]                       Check project health without writing files
@@ -21,7 +22,7 @@ func usageText() string {
 	  Protected profiles show Continue first, then require Enter/y to confirm and n/Esc/q to cancel.
 
 	Non-interactive flags:
-	  --json               Write machine-readable JSON for list, inspect, apply, status, diff, or doctor
+	  --json               Write machine-readable JSON for list, inspect, apply, undo, status, diff, or doctor
 	  --short              Write concise text output for status
 	  --name               Write only the current complete profile name for status
 	  --patch              Write read-only managed patch text for diff
@@ -29,7 +30,7 @@ func usageText() string {
 	  --expect-current     Assert the current complete profile before apply or dry run
 	  --config             Load a specific .switchlet.yaml for project-reading commands
 	  --exit-code          Return non-zero from diff when the selected profile would change files
-	  --dry-run            Preview apply impact without writing target files
+	  --dry-run            Preview apply or undo impact without writing target files
 	  --allow-protected    Explicitly allow non-interactive use of a protected profile
 	  --strict             Return non-zero from doctor when warnings are present
 	  --no-color           Disable styled command output; also honored through NO_COLOR

@@ -20,6 +20,7 @@ type completionFlagSpec struct {
 }
 
 var completionCommands = []completionCommandSpec{
+	{Name: "undo", Description: "Undo the last recorded apply", Flags: []completionFlagSpec{{Name: "--enable", Description: "Enable private per-project snapshots"}, {Name: "--disable", Description: "Disable recording and discard snapshot"}, {Name: "--discard", Description: "Discard snapshot without changing target files"}, {Name: "--status", Description: "Show undo recording and snapshot status"}, {Name: "--recover", Description: "Recover an interrupted apply or undo"}, {Name: "--dry-run", Description: "Check restoration without writing target files"}, {Name: "--json", Description: "Write machine-readable metadata"}, {Name: "--config", Description: "Select the recorded project configuration"}, {Name: "--no-color", Description: "Disable styling"}}},
 	{Name: "help", Description: "Show help text"},
 	{Name: "init", Description: "Guided setup for a .switchlet.yaml", Flags: []completionFlagSpec{{Name: "--overwrite", Description: "Replace an existing .switchlet.yaml without prompting"}}},
 	{Name: "config", Description: "Edit .switchlet.yaml in the configuration editor", Flags: []completionFlagSpec{{Name: "--config", Description: "Load a specific .switchlet.yaml"}}},

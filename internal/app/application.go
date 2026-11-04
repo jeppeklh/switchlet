@@ -6,11 +6,14 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/config"
 	"github.com/jeppeklh/switchlet/internal/editor"
+	"github.com/jeppeklh/switchlet/internal/history"
 	"github.com/jeppeklh/switchlet/internal/profile"
 )
 
 // Application coordinates profile resolution and target-file editing.
 type Application struct {
+	undoStore          *history.Store
+	undoConfigPath     string
 	targets            []config.Target
 	profiles           []config.Profile
 	applyTargetChanges func([]editor.TargetChange) error
@@ -183,11 +186,8 @@ func (application Application) applyConfiguredProfile(configuredProfile config.P
 		return Result{}, fmt.Errorf("build target changes for profile %q: %w", configuredProfile.Name, err)
 	}
 
-	if err := application.applyResolvedTargetChanges(targetChanges); err != nil {
-		return Result{}, fmt.Errorf("apply profile %q: %w", configuredProfile.Name, err)
-	}
-	if err := application.verifyAppliedTargetChanges(resolvedProfile.Name, targetChanges, plannedChanges); err != nil {
-		return Result{}, fmt.Errorf("verify applied profile %q: %w", configuredProfile.Name, err)
+	if err := application.applyAndVerify(resolvedProfile.Name, targetChanges, plannedChanges); err != nil {
+		return Result{}, err
 	}
 
 	result := Result{

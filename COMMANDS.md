@@ -143,8 +143,7 @@ remain unchanged. Other files receive a write preflight before replacement.
 If a write fails, Switchlet attempts best-effort restoration of every file
 already replaced from its original same-apply contents. This includes the failing
 file when replacement succeeded but directory syncing failed. Switchlet reports
-whether restoration succeeded or files may still be partially updated. Switchlet does not create persistent backups, undo history,
-or a restore command.
+whether restoration succeeded or files may still be partially updated. Undo recording is optional; see [Undo Last Apply](#undo-last-apply).
 
 YAML applies preserve surrounding formatting for ordinary single-line plain or
 quoted values, including comments and line endings. Complex scalar syntax uses
@@ -153,6 +152,84 @@ edits are re-parsed and checked for semantic correctness before writing.
 
 Use `--` before a positional profile name that starts with `-`. For `apply`, put
 flags before `--`, for example `switchlet apply --dry-run -- -Local`.
+
+## Undo Last Apply
+
+Undo recording is **off by default** and enabled per configuration path:
+
+```bash
+switchlet undo --enable
+switchlet apply Staging
+switchlet undo --dry-run
+switchlet undo
+```
+
+When enabled, changed CLI and TUI applies save one snapshot of the affected files.
+Undo restores their exact previous bytes and file modes, including comments,
+formatting, unmanaged contents, and values that did not match a named profile.
+It works with all supported formats and scalar types. The explicit undo operation
+uses captured files; it does not resolve profiles or environment values again.
+Existing protected-profile approval checks still apply to profile application.
+
+Every affected file must still match the recorded post-apply bytes and modes.
+A changed or missing file, symlink, or permission change refuses restoration
+before any target is written. There is no force flag. Snapshot restore uses the
+same preparation, freshness checks, replacement, verification, and best-effort
+recovery machinery as apply; multiple files are not a filesystem transaction.
+
+Successful undo consumes the snapshot. A second undo cannot toggle or step back
+again. A new successful changed apply replaces the prior snapshot. Dry runs,
+unchanged applies, and failed applies that safely roll back retain the prior
+successful snapshot.
+
+Other actions:
+
+```bash
+switchlet undo --status           # Show opt-in, snapshot state, and affected files
+switchlet undo --discard          # Delete the snapshot; retain opt-in
+switchlet undo --disable          # Delete the snapshot and disable recording
+switchlet undo --dry-run --json   # Read-only validation and value-safe metadata
+switchlet undo --config ../project/.switchlet.yaml
+```
+
+`--enable`, `--disable`, `--discard`, `--status`, and `--recover` are mutually
+exclusive actions. `--dry-run` applies only to ordinary undo or recovery.
+`--config` and `--json` are supported for all actions. Undo can use an explicit
+configuration path even if the configuration contents can no longer parse.
+
+### Interrupted Operations
+
+Snapshots are published as pending before file replacement and marked ready only
+after verification. An interrupted apply/undo or failed post-write verification
+blocks subsequent applies, preserving recovery information:
+
+```bash
+switchlet undo --status
+switchlet undo --recover --dry-run
+switchlet undo --recover
+```
+
+Recovery accepts only each file's exact recorded before/after bytes and modes.
+It restores the original pre-apply state and consumes the record. Unexpected edits
+still cause refusal before writes. `--discard` explicitly abandons the recovery
+record without changing target files. Discarding corrupt metadata resets recording
+to disabled, so it must be explicitly enabled again.
+
+### Storage And Privacy
+
+Whole-file snapshots can contain credentials and other values Switchlet does not
+manage. They are **unencrypted** private local state outside the repository by
+default, with one snapshot per selected configuration path. Unix storage requires
+current-user ownership and private modes; Windows storage uses a current-user and
+SYSTEM ACL. Normal output and JSON expose metadata only, never stored contents.
+
+State lives under `switchlet/undo/<project-key>` in the OS user-state location:
+`XDG_STATE_HOME` or `~/.local/state` on Linux, Application Support on macOS, and
+Local AppData on Windows. `SWITCHLET_STATE_HOME` can select an absolute custom root;
+keep it private and outside version control. `undo --status` reports the location.
+Applying with recording disabled creates only private coordination metadata, not
+file snapshots. Read-only status does not create storage. Process locks serialize
+Switchlet applies and undo/preferences operations for the same configuration.
 
 ## Typed Values (Configuration Version 4)
 

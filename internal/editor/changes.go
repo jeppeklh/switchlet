@@ -342,11 +342,11 @@ func (preparedChanges PreparedChanges) Write() error {
 }
 
 func verifyPreparedFileUnchanged(fileChange preparedFileChange) error {
-	currentContents, _, err := readTargetFileFromDisk(fileChange.targetFile)
+	currentContents, info, err := readTargetFileFromDisk(fileChange.targetFile)
 	if err != nil {
 		return StaleTargetFileError{TargetFile: fileChange.targetFile, Err: err}
 	}
-	if bytes.Equal(currentContents, fileChange.originalContents) {
+	if bytes.Equal(currentContents, fileChange.originalContents) && info.Mode().Perm() == fileChange.originalPermissions {
 		return nil
 	}
 
@@ -373,6 +373,16 @@ func restoreReplacedFiles(failedFile string, writeErr error, replacedFiles []pre
 
 	for index := len(replacedFiles) - 1; index >= 0; index-- {
 		fileChange := replacedFiles[index]
+		if verifyPreparedFileUnchanged(fileChange) == nil {
+			restoredFiles = append(restoredFiles, fileChange.targetFile)
+			continue
+		}
+		current := PreparedChanges{fileChanges: []preparedFileChange{fileChange}}
+		if err := current.VerifyUpdated(); err != nil {
+			unrestoredFiles = append(unrestoredFiles, fileChange.targetFile)
+			restoreErrs = append(restoreErrs, fmt.Errorf("refuse restoration of target file %q changed during failure recovery: %w", fileChange.targetFile, err))
+			continue
+		}
 		if err := writeFileAtomically(fileChange.targetFile, fileChange.originalContents, fileChange.originalPermissions); err != nil {
 			unrestoredFiles = append(unrestoredFiles, fileChange.targetFile)
 			restoreErrs = append(restoreErrs, fmt.Errorf("restore target file %q: %w", fileChange.targetFile, err))

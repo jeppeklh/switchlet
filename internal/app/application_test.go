@@ -11,6 +11,7 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
+	"github.com/jeppeklh/switchlet/internal/history"
 	"github.com/jeppeklh/switchlet/internal/profile"
 )
 
@@ -892,5 +893,50 @@ func TestApplication_NewResolvesTypedSingleTargetCompatibilityValues(t *testing.
 	status, err := application.CompareStatus()
 	if err != nil || status.CurrentProfile != "Local" {
 		t.Fatalf("comparison=%#v error=%v", status, err)
+	}
+}
+
+func TestUndoRestoresTypedValuesAcrossEveryFormat(t *testing.T) {
+	root := t.TempDir()
+	formats := []config.TargetType{config.TargetTypeJSON, config.TargetTypeYAML, config.TargetTypeTOML, config.TargetTypeDotenv}
+	sources := []string{`{"flag":true}`, "flag: true # keep\r\n", "flag = true # keep\r\n", "FLAG=true # keep\r\n"}
+	var targets []config.Target
+	var values []config.ProfileValue
+	for index, format := range formats {
+		path := writeTargetFile(t, root, "settings."+string(format), sources[index])
+		target := config.Target{Name: string(format), File: path, Type: format, ValueType: config.ValueTypeBoolean}
+		switch format {
+		case config.TargetTypeJSON:
+			target.JSONPath = "flag"
+		case config.TargetTypeYAML:
+			target.YAMLPath = "flag"
+		case config.TargetTypeTOML:
+			target.TOMLPath = "flag"
+		case config.TargetTypeDotenv:
+			target.Key = "FLAG"
+		}
+		targets = append(targets, target)
+		values = append(values, config.ProfileValue{Target: target.Name, Value: stringPointer("false")})
+	}
+	store, err := history.NewAt(filepath.Join(root, ".switchlet.yaml"), t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflow := app.NewUndoWorkflow(store)
+	if _, err := workflow.Configure("enable"); err != nil {
+		t.Fatal(err)
+	}
+	application := app.NewWithTargets(targets, []config.Profile{{Name: "Off", Values: values}}).WithUndoStore(store)
+	if _, err := application.ApplyProfileByName("Off"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := workflow.Undo(); err != nil {
+		t.Fatal(err)
+	}
+	for index, target := range targets {
+		contents, err := os.ReadFile(target.File)
+		if err != nil || string(contents) != sources[index] {
+			t.Fatalf("format %s was not restored exactly", target.Type)
+		}
 	}
 }

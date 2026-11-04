@@ -26,8 +26,8 @@ const (
 type terminalProgramRunner func(tea.Model) (tea.Model, error)
 
 var (
-	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "targets", "version", "completion"}
-	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "status", "diff", "doctor", "targets", "version", "completion"}
+	commandNames   = []string{"help", "init", "config", "list", "inspect", "apply", "undo", "status", "diff", "doctor", "targets", "version", "completion"}
+	helpTopicNames = []string{"init", "config", "list", "inspect", "apply", "undo", "status", "diff", "doctor", "targets", "version", "completion"}
 	buildVersion   = ""
 	isTerminalFile = func(file *os.File) bool { return isatty.IsTerminal(file.Fd()) }
 )
@@ -166,6 +166,8 @@ func runCommandWithTerminalRunner(args []string, workingDirectory string, runPro
 		return runInspectCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "apply":
 		return runApplyCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
+	case "undo":
+		return runUndoCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "status":
 		return runStatusCommand(workingDirectory, args[1:], output, outputOptions, loadOptions)
 	case "diff":
@@ -257,6 +259,8 @@ func helpTextForTopic(topic string, outputOptions commandOutputOptions) (string,
 		return listHelpText(), nil
 	case "inspect":
 		return inspectHelpText(), nil
+	case "undo":
+		return undoHelpText(), nil
 	case "apply":
 		return applyHelpText(), nil
 	case "status":
@@ -336,7 +340,7 @@ func loadProject(workingDirectory string, options ...projectLoadOptions) (loaded
 		return loadedProject{}, err
 	}
 
-	application := app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles)
+	application := app.NewWithTargets(loadedConfig.Targets, loadedConfig.Profiles).WithUndoProject(configPath)
 	if err := application.ValidateStartup(); err != nil {
 		return loadedProject{}, err
 	}

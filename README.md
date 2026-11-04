@@ -97,6 +97,21 @@ switchlet config
   `--expect-current` before any writes begin.
 - Normal text and JSON output avoid raw current and replacement values.
 
+## Undo
+
+Enable private, single-level undo recording before applying a profile:
+
+```bash
+switchlet undo --enable
+switchlet apply Staging
+switchlet undo --dry-run
+switchlet undo
+```
+
+Undo restores exact previous file contents and refuses external changes.
+Snapshots can contain secrets and are stored privately without encryption.
+See [undo, recovery, and storage](COMMANDS.md#undo-last-apply) for details.
+
 ## Typed Settings
 
 Use configuration `version: 4` and declare `valueType: boolean`, `integer`, or
