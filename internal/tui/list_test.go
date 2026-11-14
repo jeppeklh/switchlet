@@ -15,6 +15,63 @@ import (
 	"github.com/jeppeklh/switchlet/internal/config"
 )
 
+// BenchmarkPicker measures complete event-and-render work without target I/O.
+// ContentsResolution isolates the application work performed by the wide view.
+func BenchmarkPicker(b *testing.B) {
+	for _, fixture := range []struct{ profiles, targets int }{{1, 1}, {8, 8}, {100, 40}} {
+		b.Run(fmt.Sprintf("profiles=%d/targets=%d", fixture.profiles, fixture.targets), func(b *testing.B) {
+			targets := make([]config.Target, fixture.targets)
+			values := make([]config.ProfileValue, fixture.targets)
+			for i := range targets {
+				name := fmt.Sprintf("setting%d", i)
+				targets[i] = config.Target{Name: name, File: fmt.Sprintf("config/service%d.json", i/4), JSONPath: name}
+				values[i] = config.ProfileValue{Target: name, Value: stringPointer("representative-value")}
+			}
+			profiles := make([]config.Profile, fixture.profiles)
+			for i := range profiles {
+				profiles[i] = config.Profile{Name: fmt.Sprintf("Profile %03d", i), Values: values}
+			}
+			base := New(app.NewWithTargets(targets, profiles))
+			base.width, base.height = 120, 32
+			b.Run("ContentsResolution", func(b *testing.B) {
+				b.ReportAllocs()
+				for b.Loop() {
+					if _, err := base.application.ProfileContentsByName(profiles[0].Name, app.PreviewOptions{}); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			for _, width := range []int{60, 120} {
+				b.Run(fmt.Sprintf("width=%d", width), func(b *testing.B) {
+					for _, operation := range []string{"Render", "Navigate", "Filter", "Resize"} {
+						b.Run(operation, func(b *testing.B) {
+							model := base
+							model.width = width
+							b.ReportAllocs()
+							for b.Loop() {
+								switch operation {
+								case "Navigate":
+									updated, _ := model.Update(runeKey('j'))
+									model = updated.(Model)
+								case "Filter":
+									model.state, model.searchInput, model.searchCursor = searchState, "Profile 0", 9
+									updated, _ := model.Update(runeKey('0'))
+									model = updated.(Model)
+								case "Resize":
+									height := 56 - model.height // alternate 24 and 32 rows
+									updated, _ := model.Update(tea.WindowSizeMsg{Width: width, Height: height})
+									model = updated.(Model)
+								}
+								_ = model.View()
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	application := app.New(
 		config.Target{},
@@ -867,7 +924,7 @@ func TestView_WideMainPickerPanelsUseAvailableHeight(t *testing.T) {
 	}
 }
 
-func TestView_ListViewStacksBeforeLayoutBecomesCramped(t *testing.T) {
+func TestView_ListViewPrioritizesListBeforeLayoutBecomesCramped(t *testing.T) {
 	model := New(app.New(
 		config.Target{File: "config/development.json", JSONPath: "database.primary.url"},
 		[]config.Profile{{Name: "Local", Value: stringPointer("postgres://local")}},
@@ -878,10 +935,10 @@ func TestView_ListViewStacksBeforeLayoutBecomesCramped(t *testing.T) {
 
 	view := model.View()
 	if lineContains(view, "* Profiles", "Profile contents") {
-		t.Fatalf("View() = %q, want stacked layout at minimum supported width", view)
+		t.Fatalf("View() = %q, want no split panels at narrow width", view)
 	}
-	if !strings.Contains(view, "* Profiles") || !strings.Contains(view, "Profile contents") {
-		t.Fatalf("View() = %q, want both stacked main regions", view)
+	if !strings.Contains(view, "* Profiles") || strings.Contains(view, "Profile contents") || !strings.Contains(view, "i Inspect") {
+		t.Fatalf("View() = %q, want full-width list with explicit inspection", view)
 	}
 }
 

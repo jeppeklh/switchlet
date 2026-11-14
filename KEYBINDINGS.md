@@ -7,6 +7,15 @@ priority hints may be hidden before primary, back, cancel, or quit actions.
 
 ## Main Picker
 
+The picker supports terminals from **60 columns × 16 rows**. Below 100 columns,
+the profile list gets the full width with brief selection context. `i` opens
+full-width details; `d` opens the managed patch. Wider terminals show the list
+and profile contents side by side. Selection, paging, and apply keys work the
+same way regardless of profile count or terminal size.
+
+In the compact picker, inspect the profile to see values. `v` keeps the same
+session-local reveal setting, and `v Hide values` indicates when reveal is on.
+
 ### Profile List
 
 | Key | Action |
@@ -74,6 +83,9 @@ field. `q` is literal input instead of quit.
 | Protected confirmation | `Enter` / `y` | Confirm apply. |
 | Protected confirmation | `Esc` / `n` | Cancel and return to the profile list. |
 | Protected confirmation | `q` | Quit without applying changes. |
+| Help | `PgUp` / `PgDn` | Scroll commands that do not fit. |
+| Help | `Home` / `End` | Jump to the top or bottom of contextual help. |
+| Help | `Esc` / `?` | Return to the previous screen and its scroll position. |
 | Any main view | `q` | Quit. |
 | Any main view | `Ctrl+C` | Exit immediately. |
 

@@ -51,8 +51,9 @@ func TestView_LongTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T) {
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
 
-	assertTargetFilenameVisible(t, "list", model.View(), "appsettings.Development.json")
-	assertVisibleWidth(t, model.View(), 80)
+	wideModel := resizedMainModel(t, model, 120, 32)
+	assertTargetFilenameVisible(t, "wide list", wideModel.View(), "appsettings.Development.json")
+	assertVisibleWidth(t, wideModel.View(), 120)
 
 	updatedModel, command := model.Update(runeKey('i'))
 	model = updatedModel.(Model)
@@ -89,8 +90,9 @@ func TestView_LongYAMLTargetPathPreservesFilenameAcrossMainSurfaces(t *testing.T
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
 
-	assertTargetFilenameVisible(t, "list", model.View(), "config.yaml")
-	assertVisibleWidth(t, model.View(), 80)
+	wideModel := resizedMainModel(t, model, 120, 32)
+	assertTargetFilenameVisible(t, "wide list", wideModel.View(), "config.yaml")
+	assertVisibleWidth(t, wideModel.View(), 120)
 
 	updatedModel, command := model.Update(runeKey('i'))
 	model = updatedModel.(Model)
@@ -143,10 +145,11 @@ func TestView_LongTOMLTargetPathAndSelectorStayContainedAcrossMainSurfaces(t *te
 	updatedModel, _ := model.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	model = updatedModel.(Model)
 
-	assertTargetFilenameVisible(t, "list", model.View(), "development.toml")
-	assertVisibleWidth(t, model.View(), 80)
-	if !strings.Contains(model.View(), "Selector") {
-		t.Fatalf("list View() = %q, want TOML selector label", model.View())
+	wideModel := resizedMainModel(t, model, 120, 32)
+	assertTargetFilenameVisible(t, "wide list", wideModel.View(), "development.toml")
+	assertVisibleWidth(t, wideModel.View(), 120)
+	if !strings.Contains(wideModel.View(), "Selector") {
+		t.Fatalf("wide list View() = %q, want TOML selector label", wideModel.View())
 	}
 
 	updatedModel, command := model.Update(runeKey('i'))

@@ -47,6 +47,10 @@ func TestView_ManifestoSurfacesFitHostileDimensions(t *testing.T) {
 		{width: 120, height: 40},
 		{width: 80, height: 24},
 		{width: 60, height: 20},
+		{width: 60, height: 16},
+		{width: 99, height: 16},
+		{width: 100, height: 16},
+		{width: 60, height: 15},
 		{width: 40, height: 15},
 	}
 

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -10,6 +11,163 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/config"
 )
+
+func TestCompactPicker_PreservesSelectionAndActionsAcrossResize(t *testing.T) {
+	for _, count := range []int{1, 8, 100} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			model := New(app.New(config.Target{}, numberedProfiles(count)))
+			model.cursor = count - 1
+			selected := model.profiles[model.cursor].Name
+			model.currentProfiles = map[string]struct{}{selected: {}}
+			for _, size := range [][2]int{{120, 32}, {60, 16}, {60, 20}, {80, 24}, {99, 16}, {100, 16}, {120, 32}, {60, 16}} {
+				model = resizedMainModel(t, model, size[0], size[1])
+				view := model.View()
+				for _, want := range []string{"> " + selected + " [current]", "Enter Apply+Exit", "Space Apply", "q Quit"} {
+					if !strings.Contains(view, want) {
+						t.Fatalf("%dx%d view missing %q:\n%s", size[0], size[1], want, view)
+					}
+				}
+				assertVisibleWidth(t, view, size[0])
+				assertVisibleHeight(t, view, size[1])
+				if model.cursor != count-1 {
+					t.Fatal("resize changed selected profile")
+				}
+				if size[0] == 60 && size[1] == 16 {
+					start, end := model.visibleProfileRange()
+					if end-start != min(count, 7) {
+						t.Fatalf("visible rows = %d, want %d", end-start, min(count, 7))
+					}
+				}
+			}
+			updated, _ := model.Update(tea.KeyMsg{Type: tea.KeyPgUp})
+			model = updated.(Model)
+			if model.cursor != max(0, count-1-7) {
+				t.Fatalf("page-up cursor = %d, want one visible page", model.cursor)
+			}
+			updated, _ = model.Update(runeKey('/'))
+			model = updated.(Model)
+			if !strings.Contains(model.View(), "Enter Apply filter") || strings.Contains(model.View(), "i Inspect") {
+				t.Fatalf("search should show input actions:\n%s", model.View())
+			}
+			updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			model = updated.(Model)
+			model = acceptProfileSearch(t, model, "no match exists")
+			if !strings.Contains(model.View(), "No profiles match") || strings.Contains(model.View(), "Enter Apply") {
+				t.Fatalf("empty filter should not advertise apply:\n%s", model.View())
+			}
+			updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+			model = updated.(Model)
+			if !strings.Contains(model.View(), "Enter Apply+Exit") {
+				t.Fatal("clearing filter did not restore apply")
+			}
+		})
+	}
+}
+
+func TestCompactPicker_ProtectedUnavailableAndUnicodeContext(t *testing.T) {
+	t.Setenv("SWITCHLET_COMPACT_MISSING", "")
+	model := New(app.New(config.Target{File: "設定/サービス.json", JSONPath: "service.url"}, []config.Profile{
+		{Name: "本番 🔒 " + strings.Repeat("長い名前", 20), Protected: true, Value: stringPointer("private-value")},
+		{Name: "Unavailable", ValueFromEnv: stringPointer("SWITCHLET_COMPACT_MISSING")},
+	}))
+	model = resizedMainModel(t, model, 60, 16)
+	view := model.View()
+	for _, want := range []string{"> 本番", "protected", "x Unavailable", "i Inspect", "? Help"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("compact view missing %q:\n%s", want, view)
+		}
+	}
+	assertVisibleWidth(t, view, 60)
+	updated, _ := model.Update(runeKey('j'))
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "Unavailable · 1 target") || !strings.Contains(model.View(), "Enter Details") {
+		t.Fatalf("unavailable selection lost its state:\n%s", model.View())
+	}
+	updated, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(Model)
+	if cmd != nil || model.state != errorState || !strings.Contains(model.View(), "SWITCHLET_COMPACT_MISSING") {
+		t.Fatalf("unavailable profile should show recovery details:\n%s", model.View())
+	}
+}
+
+func TestCompactDetails_RevealHideAndHelpScroll(t *testing.T) {
+	model := New(app.New(config.Target{File: "設定/サービス.json", JSONPath: "service.url"}, []config.Profile{
+		{Name: "Local", Value: stringPointer("private-value")},
+	}))
+	model = resizedMainModel(t, model, 60, 16)
+	updated, _ := model.Update(runeKey('i'))
+	model = updated.(Model)
+	if strings.Contains(model.View(), "Profiles") || strings.Contains(model.View(), "private-value") {
+		t.Fatalf("inspection should focus on hidden detail:\n%s", model.View())
+	}
+	updated, _ = model.Update(runeKey('v'))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "private-value") || !strings.Contains(model.View(), "サービス.json") {
+		t.Fatalf("revealed contents should be reachable by scrolling:\n%s", model.View())
+	}
+	detailOffset := model.scrollOffset
+	updated, _ = model.Update(runeKey('?'))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updated.(Model)
+	if !model.helpOpen || model.scrollOffset != detailOffset {
+		t.Fatal("help changed the detail viewport")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	updated, _ = model.Update(runeKey('v'))
+	model = updated.(Model)
+	if strings.Contains(model.View(), "private-value") || model.valuesVisible {
+		t.Fatal("hiding values left revealed data visible")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	updated, _ = model.Update(runeKey('?'))
+	model = updated.(Model)
+	if model.helpScrollOffset != 0 {
+		t.Fatal("opening help did not reset its viewport")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updated.(Model)
+	if model.helpScrollOffset == 0 || !strings.Contains(model.View(), "Refresh") || !strings.Contains(model.View(), "Quit") {
+		t.Fatalf("help's remaining actions are unreachable:\n%s", model.View())
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyHome})
+	model = updated.(Model)
+	if model.helpScrollOffset != 0 || !strings.Contains(model.View(), "Available actions") {
+		t.Fatal("help did not return to the top")
+	}
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	model = updated.(Model)
+	updated, _ = model.Update(runeKey('v'))
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "v Hide values") || strings.Contains(model.View(), "private-value") {
+		t.Fatalf("compact picker should indicate reveal without displaying values:\n%s", model.View())
+	}
+	updated, _ = model.Update(runeKey('i'))
+	model = updated.(Model)
+	updated, _ = model.Update(tea.KeyMsg{Type: tea.KeyEnd})
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "private-value") {
+		t.Fatal("inspection did not retain the picker's reveal setting")
+	}
+}
+
+func TestCompactPicker_RejectsSizesBelowSupportedBoundary(t *testing.T) {
+	base := New(app.New(config.Target{}, numberedProfiles(1)))
+	for _, size := range [][2]int{{59, 16}, {60, 15}} {
+		model := resizedMainModel(t, base, size[0], size[1])
+		if !strings.Contains(model.View(), "Minimum size: 60x16") {
+			t.Fatalf("%dx%d should request resize:\n%s", size[0], size[1], model.View())
+		}
+		_, cmd := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		if cmd != nil {
+			t.Fatal("undersized terminal accepted apply")
+		}
+	}
+}
 
 func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 	model := New(app.New(
@@ -24,7 +182,7 @@ func TestView_ShowsTooSmallTerminalMessage(t *testing.T) {
 	if !strings.Contains(view, "Terminal too small.") {
 		t.Fatalf("View() = %q, want too-small message", view)
 	}
-	if !strings.Contains(view, "Minimum size: 60x20") {
+	if !strings.Contains(view, "Minimum size: 60x16") {
 		t.Fatalf("View() = %q, want minimum size guidance", view)
 	}
 	if !strings.Contains(view, "Current size: 59x19") {
@@ -48,7 +206,7 @@ func TestView_MainPickerUsesCompactNarrowTerminalLayout(t *testing.T) {
 	if strings.Contains(view, "Terminal too small") {
 		t.Fatalf("View() = %q, want compact main picker instead of too-small state", view)
 	}
-	for _, expected := range []string{"* Profiles", "> Local", "Profile contents", "q Quit"} {
+	for _, expected := range []string{"* Profiles", "> Local", "i Inspect", "? Help", "q Quit"} {
 		if !strings.Contains(view, expected) {
 			t.Fatalf("View() = %q, want compact main picker content %q", view, expected)
 		}
@@ -85,6 +243,7 @@ func TestView_CommandBarUsesReportedTerminalHeight(t *testing.T) {
 		{width: 120, height: 40},
 		{width: 80, height: 24},
 		{width: 60, height: 20},
+		{width: 60, height: 16},
 	} {
 		model := New(app.New(
 			config.Target{},

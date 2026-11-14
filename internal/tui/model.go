@@ -79,6 +79,7 @@ type Model struct {
 	currentDetectionError   error
 	configRequested         bool
 	helpOpen                bool
+	helpScrollOffset        int
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview

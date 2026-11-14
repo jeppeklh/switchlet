@@ -84,6 +84,7 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if model.canOpenHelp() && matchesKey(message, keyHelp) {
 			model.helpOpen = true
+			model.helpScrollOffset = 0
 			return model, nil
 		}
 
@@ -118,6 +119,11 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) handleHelpKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	metrics := PanelScrollMetricsForShell(model.helpShell(), 0)
+	if offset, handled := panelScrollOffset(message, metrics, model.helpScrollOffset); handled {
+		model.helpScrollOffset = offset
+		return model, nil
+	}
 	switch {
 	case matchesKey(message, keyEscape, keyHelp):
 		model.helpOpen = false
@@ -839,24 +845,32 @@ func (model Model) toggleValueVisibility() Model {
 
 func (model Model) handleFocusedPanelScrollKey(message tea.KeyMsg) (Model, bool) {
 	metrics := model.focusedPanelScrollMetrics()
-	if !metrics.CanScroll() {
-		return model, false
+	offset, handled := panelScrollOffset(message, metrics, model.scrollOffset)
+	if handled {
+		model.scrollOffset = offset
 	}
+	return model, handled
+}
+
+func panelScrollOffset(message tea.KeyMsg, metrics PanelScrollMetrics, offset int) (int, bool) {
+	if !metrics.CanScroll() {
+		return offset, false
+	}
+	offset = metrics.ClampOffset(offset)
 	switch {
 	case matchesKey(message, keyPageUp):
-		model.scrollOffset -= metrics.PageStep()
+		offset -= metrics.PageStep()
 	case matchesKey(message, keyPageDn):
-		model.scrollOffset += metrics.PageStep()
+		offset += metrics.PageStep()
 	case matchesKey(message, keyHome):
-		model.scrollOffset = 0
+		offset = 0
 	case matchesKey(message, keyEnd):
-		model.scrollOffset = metrics.MaxOffset
+		offset = metrics.MaxOffset
 	default:
-		return model, false
+		return offset, false
 	}
 
-	model.scrollOffset = metrics.ClampOffset(model.scrollOffset)
-	return model, true
+	return metrics.ClampOffset(offset), true
 }
 
 func (model *Model) resetScrollOffset() {

@@ -9,7 +9,7 @@ import (
 
 const (
 	minimumTerminalWidth  = 60
-	minimumTerminalHeight = 20
+	minimumTerminalHeight = 16
 )
 
 // View renders the current terminal state.
@@ -42,7 +42,17 @@ func (model Model) View() string {
 }
 
 func (model Model) helpView() string {
-	return RenderShell(Shell{
+	shell := model.helpShell()
+	metrics := PanelScrollMetricsForShell(shell, 0)
+	shell.Panels[0].Scroll = &PanelScroll{Offset: metrics.ClampOffset(model.helpScrollOffset)}
+	if metrics.CanScroll() {
+		shell.Actions = append(shell.Actions, PanelScrollActions()...)
+	}
+	return RenderShell(shell)
+}
+
+func (model Model) helpShell() Shell {
+	return Shell{
 		Headerless: true,
 		Panels: []Panel{{
 			Title:   "Help",
@@ -52,7 +62,7 @@ func (model Model) helpView() string {
 		Actions: HelpReturnActions("Quit"),
 		Width:   model.width,
 		Height:  model.height,
-	})
+	}
 }
 
 func (model Model) currentHelpActions() []Action {
@@ -79,17 +89,54 @@ func (model Model) currentHelpActions() []Action {
 }
 
 func (model Model) listView() string {
+	panels := []Panel{model.profilePanel(RowSelected, true)}
+	if model.usesCompactLayout() {
+		panels[0].Lines = append(panels[0].Lines, model.compactProfileContextLines()...)
+	} else {
+		panels = append(panels, Panel{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()})
+	}
 	return RenderShell(Shell{
-		Headerless: true,
-		Panels: []Panel{
-			{Title: model.profilePanelTitle(), Lines: model.profileListLines(RowSelected), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
-			{Title: "Profile contents", Lines: model.profileContentsLines(), FillHeight: model.shouldFillWorkspacePanels()},
-		},
+		Headerless:  true,
+		Panels:      panels,
 		Actions:     model.listActions(),
 		CommandLine: model.profileSearchCommandLine(),
 		Width:       model.width,
 		Height:      model.height,
 	})
+}
+
+func (model Model) usesCompactLayout() bool {
+	return model.width > 0 && model.width < splitShellWidth
+}
+
+// Keep this context bounded so selection and paging have a stable height budget.
+func (model Model) compactProfileContextLines() []string {
+	state := "No profile selected"
+	hints := "/ Search · ? Help"
+	if selected, ok := model.selectedProfile(); ok {
+		hints = "i Inspect · " + hints
+		if model.valuesVisible {
+			hints = "i Inspect · v Hide values · ? Help"
+		}
+		state = model.profileStateLabel(selected)
+		if selected.Protected {
+			state += " · protected"
+		}
+		state += " · " + targetCountLabel(selected.TargetCount)
+	}
+	current := model.currentProfileDetectionMessage()
+	if model.currentDetection == currentProfileDetectionUnavailable {
+		current = "Current check unavailable · s Status · r Retry"
+	}
+	if model.state == searchState {
+		hints = "Enter Apply filter · Esc Back"
+		current = model.currentProfileDetectionMessage()
+	}
+	if model.isApplying() {
+		hints = ""
+		current = ""
+	}
+	return []string{"", state, current, hints}
 }
 
 func (model Model) shouldFillWorkspacePanels() bool {
@@ -166,9 +213,13 @@ func (model Model) profileContentsLines() []string {
 		)
 	}
 
+	lines := model.currentProfileDetectionFeedbackLines([]string{RenderSectionHeading(selectedProfileTitle(selectedProfile))})
+	return model.appendSelectedProfileContents(lines, selectedProfile)
+}
+
+func (model Model) appendSelectedProfileContents(lines []string, selectedProfile app.ProfileItem) []string {
 	contents, err := model.application.ProfileContentsByName(selectedProfile.Name, model.profileContentsPreviewOptions())
 	if err != nil {
-		lines := model.currentProfileDetectionFeedbackLines([]string{RenderSectionHeading(selectedProfileTitle(selectedProfile))})
 		return append(lines,
 			model.profileStateLabel(selectedProfile),
 			"",
@@ -177,8 +228,6 @@ func (model Model) profileContentsLines() []string {
 		)
 	}
 
-	lines := []string{RenderSectionHeading(selectedProfileTitle(selectedProfile))}
-	lines = model.currentProfileDetectionFeedbackLines(lines)
 	if model.isApplyingSelectedProfile(selectedProfile) {
 		lines = append(lines, model.profileStateLabel(selectedProfile))
 	}
@@ -657,7 +706,9 @@ func (model Model) inspectionShell() (Shell, bool) {
 		profileLines = append(profileLines, RenderKeyValue("Reason", selectedProfile.UnavailableReason))
 	}
 
-	if shouldShowTargetCount(selectedProfile) {
+	if model.valuesVisible {
+		profileLines = model.appendSelectedProfileContents(profileLines, selectedProfile)
+	} else if shouldShowTargetCount(selectedProfile) {
 		profileLines = append(profileLines, "", "Planned changes")
 		profileLines = append(profileLines, profileValueDetailLines(selectedProfile.Values, model.projectRoot, secondaryPanelContentWidth(model.width))...)
 	} else {
@@ -787,6 +838,7 @@ func (model Model) errorShell() Shell {
 }
 
 func (model Model) withFocusedPanelScroll(shell Shell, panelIndex int) Shell {
+	shell, panelIndex = model.focusedPanelLayout(shell, panelIndex)
 	if panelIndex < 0 || panelIndex >= len(shell.Panels) {
 		return shell
 	}
@@ -800,12 +852,22 @@ func (model Model) withFocusedPanelScroll(shell Shell, panelIndex int) Shell {
 	return shell
 }
 
+// The picker owns responsive focus; shared setup/editor shells keep their layout.
+func (model Model) focusedPanelLayout(shell Shell, panelIndex int) (Shell, int) {
+	if model.usesCompactLayout() && panelIndex > 0 && panelIndex < len(shell.Panels) {
+		shell.Panels = shell.Panels[panelIndex : panelIndex+1]
+		panelIndex = 0
+	}
+	return shell, panelIndex
+}
+
 func (model Model) focusedPanelScrollMetrics() PanelScrollMetrics {
 	shell, panelIndex, ok := model.focusedScrollablePanelShell()
 	if !ok {
 		return PanelScrollMetrics{}
 	}
 
+	shell, panelIndex = model.focusedPanelLayout(shell, panelIndex)
 	return PanelScrollMetricsForShell(shell, panelIndex)
 }
 

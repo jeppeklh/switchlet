@@ -110,7 +110,9 @@ func (model Model) maxVisibleProfileRows() int {
 	}
 
 	panelHeightBudget := model.height - shellActionLineCount
-	if normalizedWidth(model.width) < splitShellWidth {
+	if model.usesCompactLayout() {
+		panelHeightBudget -= len(model.compactProfileContextLines())
+	} else if normalizedWidth(model.width) < splitShellWidth {
 		panelHeightBudget = (panelHeightBudget - stackedPanelGapLineCount) / 2
 	}
 
