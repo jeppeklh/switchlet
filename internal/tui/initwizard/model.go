@@ -5,6 +5,7 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	ui "github.com/jeppeklh/switchlet/internal/tui"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
 
 const (
@@ -32,6 +33,7 @@ const (
 	initWizardStepProfileValue
 	initWizardStepProfileSummary
 	initWizardStepReview
+	initWizardStepProfileTemplate
 )
 
 type initWizardProfileDraft struct {
@@ -51,6 +53,7 @@ const (
 	initWizardEffectYAMLSelectorValidation
 	initWizardEffectTOMLSelectorValidation
 	initWizardEffectDotenvKeyValidation
+	initWizardEffectProfileCapture
 )
 
 type initWizardPendingEffect struct {
@@ -84,6 +87,9 @@ type Result struct {
 }
 
 type initWizardModel struct {
+	batch                   setup.Batch
+	batchRequestID          int
+	templateProfile         *app.ConfigEditProfileDraft
 	workingDirectory        string
 	workflow                app.InitWorkflow
 	step                    initWizardStep
@@ -222,6 +228,7 @@ func (model *initWizardModel) beginManagedValueCheckpoint() {
 }
 
 func (model *initWizardModel) beginProfileEntry() {
+	model.templateProfile = nil
 	model.step = initWizardStepProfileName
 	model.cursor = 0
 	model.clearError()
@@ -387,6 +394,9 @@ func (model initWizardModel) filteredFileCandidates(filterValue string) []app.In
 }
 
 func (model initWizardModel) selectableStructuredPaths() []string {
+	if model.selectedFile.TargetType == app.InitTargetTypeDotenv {
+		return model.selectedFile.DotenvKeys
+	}
 	return flattenSelectableTargetPaths(targetSelectorNodesForSelection(model.selectedFile))
 }
 

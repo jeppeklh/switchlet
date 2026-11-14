@@ -195,7 +195,7 @@ func runPromptInit(workingDirectory string, input io.Reader, output io.Writer, o
 		return err
 	}
 
-	profiles, err := promptProfiles(prompter, targets)
+	profiles, err := promptProfiles(prompter, workingDirectory, targets)
 	if err != nil {
 		return err
 	}

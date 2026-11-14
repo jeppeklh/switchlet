@@ -98,7 +98,7 @@ func TestInitWizardModel_YAMLFileInspectionRunsThroughCommandWithPendingView(t *
 	if model.step != initWizardStepPathBrowse || model.selectedFile.TargetType != app.InitTargetTypeYAML {
 		t.Fatalf("model after YAML inspection = %#v, want YAML path browse", model)
 	}
-	for _, expected := range []string{"Detected format: YAML", "* YAML strings", "Only existing string values are shown.", "Rows ending in / open nested mappings.", "m Manual yamlPath"} {
+	for _, expected := range []string{"Detected format: YAML", "* YAML values", "Existing scalar values only.", "Rows ending in / open nested mappings.", "m Manual yamlPath"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("YAML path browse View() = %q, want %q", model.View(), expected)
 		}

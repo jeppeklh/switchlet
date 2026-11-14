@@ -9,7 +9,7 @@ import (
 	"github.com/jeppeklh/switchlet/internal/config"
 )
 
-func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Profile, error) {
+func promptProfiles(prompter initPrompter, projectRoot string, targets []config.Target) ([]config.Profile, error) {
 	profiles := make([]config.Profile, 0, 1)
 	seenNames := make(map[string]struct{})
 
@@ -24,14 +24,12 @@ func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Pr
 			return nil, err
 		}
 
-		values, err := promptProfileValues(prompter, name, targets)
+		profile, err := promptProfileCreation(prompter, projectRoot, name, targets, profiles)
 		if err != nil {
 			return nil, err
 		}
 
-		profile := config.Profile{Name: name, Values: values}
-
-		protected, err := prompter.promptYesNo(formatYesNoPrompt("Require confirmation before applying this profile?", false), false)
+		protected, err := prompter.promptYesNo(formatYesNoPrompt("Require confirmation before applying this profile?", profile.Protected), profile.Protected)
 		if err != nil {
 			return nil, err
 		}
@@ -48,6 +46,106 @@ func promptProfiles(prompter initPrompter, targets []config.Target) ([]config.Pr
 			return profiles, nil
 		}
 	}
+}
+
+// promptProfileCreation keeps the one-value literal/environment choices in place.
+// Capture and copy are additional choices, not mandatory steps on that path.
+func promptProfileCreation(prompter initPrompter, projectRoot string, name string, targets []config.Target, profiles []config.Profile) (config.Profile, error) {
+	choices := []string{"Enter profile values"}
+	if len(targets) == 1 {
+		choices = []string{"Use a literal value", "Use an environment variable"}
+	}
+	freshChoices := len(choices)
+	choices = append(choices, "Capture current managed values")
+	for _, profile := range profiles {
+		choices = append(choices, "Copy "+profile.Name)
+	}
+	choice, err := prompter.promptChoiceIndex("Start profile:", choices)
+	if err != nil {
+		return config.Profile{}, err
+	}
+	if choice < freshChoices {
+		var values []config.ProfileValue
+		if len(targets) == 1 {
+			if _, err := fmt.Fprintf(prompter.writer, "Expected value type: %s\n", config.EffectiveValueType(targets[0].ValueType)); err != nil {
+				return config.Profile{}, err
+			}
+			value, err := promptProfileValueSource(prompter, targets[0], choices[choice])
+			if err != nil {
+				return config.Profile{}, err
+			}
+			values = []config.ProfileValue{value}
+		} else {
+			values, err = promptProfileValues(prompter, name, targets)
+			if err != nil {
+				return config.Profile{}, err
+			}
+		}
+		return config.Profile{Name: name, Values: values}, nil
+	}
+	workflow := app.DefaultConfigEditWorkflow()
+	document := app.ConfigEditDocument{ProjectRoot: projectRoot, Targets: targets, Profiles: profiles}
+	var draft app.ConfigEditProfileDraft
+	if choice == freshChoices {
+		draft, err = workflow.CaptureCurrentProfileDraft(document)
+	} else {
+		draft, err = workflow.DuplicateProfileDraft(document, profiles[choice-freshChoices-1].Name, name)
+	}
+	if err != nil {
+		return config.Profile{}, err
+	}
+	draft.Name = name
+	draft, err = promptProfileDraftEdits(prompter, targets, draft)
+	if err != nil {
+		return config.Profile{}, err
+	}
+	updated, err := workflow.AddProfileDraft(document, draft)
+	if err != nil {
+		return config.Profile{}, err
+	}
+	return updated.Profiles[len(updated.Profiles)-1], nil
+}
+
+func promptProfileDraftEdits(prompter initPrompter, targets []config.Target, draft app.ConfigEditProfileDraft) (app.ConfigEditProfileDraft, error) {
+	edit, err := prompter.promptYesNo(formatYesNoPrompt("Edit selected profile values?", false), false)
+	if err != nil {
+		return app.ConfigEditProfileDraft{}, err
+	}
+	if edit {
+		for index := range draft.Values {
+			value := &draft.Values[index]
+			change, err := prompter.promptYesNo(formatYesNoPrompt("Edit "+value.TargetName+"?", false), false)
+			if err != nil {
+				return app.ConfigEditProfileDraft{}, err
+			}
+			if !change {
+				continue
+			}
+			include, err := prompter.promptYesNo(formatYesNoPrompt("Include "+value.TargetName+"?", value.Included), value.Included)
+			if err != nil {
+				return app.ConfigEditProfileDraft{}, err
+			}
+			value.Included = include
+			if !include {
+				continue
+			}
+			entered, err := promptProfileValue(prompter, draft.Name, targets[index])
+			if err != nil {
+				return app.ConfigEditProfileDraft{}, err
+			}
+			value.Source = app.ProfileSourceLiteral
+			value.EnvironmentVariableName = ""
+			value.LiteralValue = ""
+			if entered.Value != nil {
+				value.LiteralValue = *entered.Value
+			}
+			if entered.ValueFromEnv != nil {
+				value.Source = app.ProfileSourceEnvironment
+				value.EnvironmentVariableName = *entered.ValueFromEnv
+			}
+		}
+	}
+	return draft, nil
 }
 
 func promptProfileValues(prompter initPrompter, profileName string, targets []config.Target) ([]config.ProfileValue, error) {
@@ -101,6 +199,10 @@ func promptProfileValue(prompter initPrompter, profileName string, target config
 		return config.ProfileValue{}, err
 	}
 
+	return promptProfileValueSource(prompter, target, sourceChoice)
+}
+
+func promptProfileValueSource(prompter initPrompter, target config.Target, sourceChoice string) (config.ProfileValue, error) {
 	value := config.ProfileValue{Target: target.Name, ValueType: target.ValueType}
 	switch sourceChoice {
 	case "Use a literal value":

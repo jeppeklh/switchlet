@@ -29,6 +29,10 @@ func (model initWizardModel) View() string {
 		return model.pendingView()
 	}
 
+	if model.batch.Review {
+		return model.initWizardShell(3, "Review selected values", model.batch.Panels(), model.batch.Actions())
+	}
+
 	switch model.step {
 	case initWizardStepFileSelect:
 		return model.fileSelectionView()
@@ -82,6 +86,8 @@ func (model initWizardModel) View() string {
 		return model.managedValueNameView()
 	case initWizardStepManagedValueCheckpoint:
 		return model.managedValueCheckpointView()
+	case initWizardStepProfileTemplate:
+		return model.profileTemplateView()
 	case initWizardStepProfileName:
 		return model.profileNameView()
 	case initWizardStepProfileTargetInclude:
@@ -266,7 +272,11 @@ func (model initWizardModel) fileFilterView() string {
 func (model initWizardModel) pathBrowseView() string {
 	choices := make([]string, 0, len(model.browseNodes)+2)
 	for _, node := range model.browseNodes {
-		choices = append(choices, targetNodeChoiceLabel(node))
+		label := targetNodeChoiceLabel(node)
+		if node.selectable {
+			label = model.batch.Label(app.ManagedValueSelection(model.selectedFile, node.selector), label)
+		}
+		choices = append(choices, label)
 	}
 	choices = append(choices, searchStructuredPathsChoiceLabel(model.selectedFile.TargetType), manualStructuredPathChoiceLabel(model.selectedFile.TargetType))
 
@@ -279,20 +289,21 @@ func (model initWizardModel) pathBrowseView() string {
 	workLines = append(workLines, model.choiceLines(choices, model.cursor, jsonPathChoiceWindowSize)...)
 
 	return model.initWizardShell(2, "Choose value", []ui.Panel{
-		{Title: structuredValueFormatName(model.selectedFile.TargetType) + " strings", Lines: workLines, Focused: true},
+		{Title: structuredValueFormatName(model.selectedFile.TargetType) + " values", Lines: workLines, Focused: true},
 		{Title: "Guidance", Lines: model.withErrorLines([]string{
 			ui.RenderKeyValue("Selected file", model.selectedFile.DisplayPath),
 			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
-			"Only existing string values are shown.",
+			"Existing scalar values only.",
 			"Switchlet does not create missing values.",
 			structuredBrowseNestingGuidance(model.selectedFile.TargetType),
 		})},
 	}, []ui.Action{
+		{Key: "Space", Label: "Mark"}, {Key: "Ctrl+R", Label: "Review"},
 		{Key: "Enter", Label: "Open/Select"},
-		{Key: "↑/↓ or j/k", Label: "Move"},
-		{Key: "s or /", Label: "Search"},
+		{Key: "↑/↓", Label: "Move"},
+		{Key: "/", Label: "Search"},
 		{Key: "m", Label: manualStructuredPathActionLabel(model.selectedFile.TargetType)},
 		{Key: "Esc", Label: "Back"},
 		{Key: "q", Label: "Cancel"},
@@ -305,7 +316,12 @@ func (model initWizardModel) pathSearchView() string {
 	formatName := structuredValueFormatName(model.selectedFile.TargetType)
 
 	workLines := make([]string, 0, len(matchingPaths)+2)
-	workLines = append(workLines, model.choiceLines(matchingPaths, model.cursor, jsonPathChoiceWindowSize)...)
+	labels := make([]string, len(matchingPaths))
+	for i, path := range matchingPaths {
+		labels[i] = model.batch.Label(app.ManagedValueSelection(model.selectedFile, path), path)
+	}
+	workLines = append(workLines, model.choiceLines(labels, model.cursor, jsonPathChoiceWindowSize)...)
+	workLines = append(workLines, "Tab Mark • Ctrl+R Review marked")
 	workLines = append(workLines, "", fmt.Sprintf("Showing %d matching path(s).", len(matchingPaths)))
 
 	return model.initWizardShellWithCommandLine(2, "Search "+formatName+" values", []ui.Panel{
@@ -315,14 +331,17 @@ func (model initWizardModel) pathSearchView() string {
 			ui.RenderKeyValue("Detected format", initTargetTypeDisplayName(model.selectedFile.TargetType)),
 			"",
 			"Task",
-			"Search existing string values by path segment or leaf name.",
+			"Search scalar values. Tab marks; Ctrl+R reviews.",
 			"Enter chooses the highlighted " + formatName + " value.",
 		})},
 	}, searchableTextInputActions("Select"), model.commandInputLine())
 }
 
 func (model initWizardModel) dotenvKeySelectView() string {
-	choices := append([]string(nil), model.selectedFile.DotenvKeys...)
+	choices := make([]string, len(model.selectedFile.DotenvKeys))
+	for i, key := range model.selectedFile.DotenvKeys {
+		choices[i] = model.batch.Label(app.ManagedValueSelection(model.selectedFile, key), key)
+	}
 	choices = append(choices, manualDotenvKeyChoiceLabel)
 
 	workLines := model.choiceLines(choices, model.cursor, dotenvKeyChoiceWindowSize)
@@ -339,8 +358,10 @@ func (model initWizardModel) dotenvKeySelectView() string {
 			"Switchlet does not create missing keys.",
 		})},
 	}, []ui.Action{
+		{Key: "Space", Label: "Mark"}, {Key: "Ctrl+R", Label: "Review"},
 		{Key: "Enter", Label: "Select"},
-		{Key: "↑/↓ or j/k", Label: "Move"},
+		{Key: "↑/↓", Label: "Move"},
+		{Key: "/", Label: "Search"},
 		{Key: "m", Label: "Manual key"},
 		{Key: "Esc", Label: "Back"},
 		{Key: "q", Label: "Cancel"},
@@ -361,7 +382,7 @@ func (model initWizardModel) managedValueNameGuidanceLines() []string {
 }
 
 func (model initWizardModel) managedValueCheckpointView() string {
-	choices := []string{"Create profiles", "Add another value", "Remove value"}
+	choices := []string{"Create profiles", "Add another value", "Remove value", "Capture current values"}
 	decisionLines := []string{
 		"Switchlet now manages this value.",
 		"Add another, or create profiles.",
@@ -371,8 +392,9 @@ func (model initWizardModel) managedValueCheckpointView() string {
 
 	return model.initWizardShell(3, "Managed value added", []ui.Panel{
 		{Title: "Next action", Lines: decisionLines, Focused: true},
-		{Title: "Added value", Lines: model.lastTargetLines()},
+		{Title: "Added value", Lines: model.withErrorLines(model.lastTargetLines())},
 	}, []ui.Action{
+		{Key: "C", Label: "Capture"},
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
 		{Key: "Esc", Label: "Profiles"},
@@ -437,11 +459,15 @@ func (model initWizardModel) profileValueSourceView() string {
 
 func (model initWizardModel) profileSummaryView() string {
 	choices := []string{"Review and create", "Add another profile", "Add another managed value", "Remove last profile"}
+	for _, profile := range model.profiles {
+		choices = append(choices, "Copy "+profile.Name)
+	}
 
 	return model.initWizardShell(4, "Profile added", []ui.Panel{
-		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, len(choices)), Focused: true},
+		{Title: "Next action", Lines: model.choiceLines(choices, model.cursor, 7), Focused: true},
 		{Title: "Configured profiles", Lines: model.configuredProfileLines()},
 	}, []ui.Action{
+		{Key: "D", Label: "Copy last"},
 		{Key: "Enter", Label: "Select"},
 		{Key: "↑/↓ or j/k", Label: "Move"},
 		{Key: "Esc", Label: "Profiles"},

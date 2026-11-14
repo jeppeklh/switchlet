@@ -1290,6 +1290,7 @@ VITE_FEATURES=local
 		"frontendApi",
 		"n",
 		"Local Database",
+		"1",
 		"y",
 		"1",
 		"postgres://localhost:5432/app",
@@ -1297,6 +1298,7 @@ VITE_FEATURES=local
 		"n",
 		"y",
 		"Frontend Local",
+		"1",
 		"n",
 		"y",
 		"1",
@@ -1398,5 +1400,44 @@ func TestRunCommand_InitCreatesVersionFourForNumericTarget(t *testing.T) {
 	}
 	if loaded.Version != 4 || loaded.Targets[0].ValueType != config.ValueTypeInteger || *loaded.Profiles[0].Values[0].Value != "0" {
 		t.Fatalf("numeric setup lost type or zero: %#v", loaded)
+	}
+}
+
+func TestLineInitCaptureAndCopyPreserveTypedSourcesAndProtection(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "settings.json", `{"flag":false,"port":0,"exact":1.234567890123456789}`)
+	targets := []config.Target{
+		{Name: "flag", File: filepath.Join(root, "settings.json"), Type: config.TargetTypeJSON, JSONPath: "flag", ValueType: config.ValueTypeBoolean},
+		{Name: "port", File: filepath.Join(root, "settings.json"), Type: config.TargetTypeJSON, JSONPath: "port", ValueType: config.ValueTypeInteger},
+		{Name: "exact", File: filepath.Join(root, "settings.json"), Type: config.TargetTypeJSON, JSONPath: "exact", ValueType: config.ValueTypeNumber},
+	}
+	input := strings.Join([]string{
+		"Local", "2", "n", "y", "y", // capture all, protected, another profile
+		"Staging", "3", "y", // copy Local and edit selected values
+		"n",                           // retain flag
+		"y", "y", "2", "STAGING_PORT", // edit port, include, environment source
+		"y", "n", // omit exact number in copy
+		"", "n", // retain inherited protection, finish
+	}, "\n") + "\n"
+	var output bytes.Buffer
+	profiles, err := promptProfiles(initPrompter{reader: bufio.NewReader(strings.NewReader(input)), writer: &output}, root, targets)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, output.String())
+	}
+	if len(profiles) != 2 || *profiles[0].Values[0].Value != "false" || *profiles[0].Values[1].Value != "0" || *profiles[0].Values[2].Value != "1.234567890123456789" {
+		t.Fatal("capture lost exact typed literals")
+	}
+	if len(profiles[1].Values) != 2 || profiles[1].Values[1].Value != nil || *profiles[1].Values[1].ValueFromEnv != "STAGING_PORT" || !profiles[1].Protected {
+		t.Fatal("copy lost source, partial scope or protection")
+	}
+	if strings.Contains(output.String(), "1.234567890123456789") {
+		t.Fatal("fallback exposed captured value")
+	}
+	contents, err := os.ReadFile(filepath.Join(root, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != `{"flag":false,"port":0,"exact":1.234567890123456789}` {
+		t.Fatal("fallback changed target")
 	}
 }

@@ -100,7 +100,7 @@ func TestInitWizardModel_TOMLFileInspectionRunsThroughCommandWithPendingView(t *
 	if model.step != initWizardStepPathBrowse || model.selectedFile.TargetType != app.InitTargetTypeTOML {
 		t.Fatalf("model after TOML inspection = %#v, want TOML path browse", model)
 	}
-	for _, expected := range []string{"Detected format: TOML", "* TOML strings", "Only existing string values are shown.", "Rows ending in / open nested tables.", "m Manual tomlPath"} {
+	for _, expected := range []string{"Detected format: TOML", "* TOML values", "Existing scalar values only.", "Rows ending in / open nested tables.", "m Manual tomlPath"} {
 		if !strings.Contains(model.View(), expected) {
 			t.Fatalf("TOML path browse View() = %q, want %q", model.View(), expected)
 		}

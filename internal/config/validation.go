@@ -57,36 +57,47 @@ func isSupportedVersion(version int) bool {
 }
 
 func validateNamedTargetConfig(version int, projectRoot string, parsed fileConfig) (Config, error) {
-	for index, target := range parsed.Targets {
-		if version < typedTargetVersion && target.ValueType != "" {
-			return Config{}, fmt.Errorf("targets[%d].valueType requires version 4", index)
-		}
-		if err := validateValueType(target.ValueType); err != nil {
-			return Config{}, fmt.Errorf("targets[%d].valueType is invalid: %w", index, err)
-		}
-	}
-	targets, err := validateVersionThreeTargets(parsed.Targets, projectRoot)
+	targets, err := validateNamedTargets(version, projectRoot, parsed.Targets)
 	if err != nil {
 		return Config{}, err
-	}
-
-	for index := range targets {
-		targets[index].ValueType = parsed.Targets[index].ValueType
 	}
 	if err := bindProfileValueTypes(version, parsed.Profiles, targets); err != nil {
 		return Config{}, err
 	}
-
 	profiles, err := validateVersionThreeProfiles(parsed.Profiles, targets)
 	if err != nil {
 		return Config{}, err
 	}
+	return Config{Version: version, Targets: targets, Profiles: profiles}, nil
+}
 
-	return Config{
-		Version:  version,
-		Targets:  targets,
-		Profiles: profiles,
-	}, nil
+// ValidateTargetDraft validates setup targets before any profiles exist.
+func ValidateTargetDraft(projectRoot string, targets []Target) ([]Target, error) {
+	root, err := resolveProjectRoot(projectRoot)
+	if err != nil {
+		return nil, err
+	}
+	return validateNamedTargets(SchemaVersionForTargets(targets), root, fileTargetsFromTargets(root, targets))
+}
+
+func validateNamedTargets(version int, projectRoot string, parsedTargets []fileTarget) ([]Target, error) {
+	for index, target := range parsedTargets {
+		if version < typedTargetVersion && target.ValueType != "" {
+			return nil, fmt.Errorf("targets[%d].valueType requires version 4", index)
+		}
+		if err := validateValueType(target.ValueType); err != nil {
+			return nil, fmt.Errorf("targets[%d].valueType is invalid: %w", index, err)
+		}
+	}
+	targets, err := validateVersionThreeTargets(parsedTargets, projectRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	for index := range targets {
+		targets[index].ValueType = parsedTargets[index].ValueType
+	}
+	return targets, nil
 }
 
 // ValidateVersionThreeDraft validates target and profile data as a Version 3

@@ -223,6 +223,8 @@ func tomlTargetSelectorNodes(nodes []app.InitTOMLStringTargetNode) []targetSelec
 
 func structuredValueFormatName(targetType app.InitTargetType) string {
 	switch targetType {
+	case app.InitTargetTypeDotenv:
+		return "dotenv"
 	case app.InitTargetTypeYAML:
 		return "YAML"
 	case app.InitTargetTypeTOML:

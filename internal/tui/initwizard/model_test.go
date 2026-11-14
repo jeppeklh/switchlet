@@ -2,6 +2,7 @@ package initwizard
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -275,9 +276,9 @@ func TestInitWizardModel_FileAndValueSelectionUsePhaseThreeCopy(t *testing.T) {
 	jsonValueView := model.View()
 	for _, expected := range []string{
 		"Choose value",
-		"* JSON strings",
+		"* JSON values",
 		"Detected format: JSON",
-		"Only existing string values are shown.",
+		"Existing scalar values only.",
 		"Switchlet does not create missing values.",
 		"m Manual path",
 	} {
@@ -359,7 +360,7 @@ func TestInitWizardModel_YAMLTargetSelectionCreatesYAMLTarget(t *testing.T) {
 		t.Fatalf("step = %d, want YAML path browse", model.step)
 	}
 	pathBrowseView := model.View()
-	for _, expected := range []string{"Detected format: YAML", "* YAML strings", "Search YAML values", "Enter YAML value path manually"} {
+	for _, expected := range []string{"Detected format: YAML", "* YAML values", "Search YAML values", "Enter YAML value path manually"} {
 		if !strings.Contains(pathBrowseView, expected) {
 			t.Fatalf("YAML path browse View() = %q, want %q", pathBrowseView, expected)
 		}
@@ -1232,7 +1233,7 @@ func TestInitWizardModel_PathSearchDoesNotMovePathRowsDown(t *testing.T) {
 	if searchPanelTitleIndex < 0 {
 		t.Fatalf("View() = %q, want search results panel title", searchView)
 	}
-	searchRowIndex := wizardLineIndexContaining(searchView, "> database.url")
+	searchRowIndex := wizardLineIndexContaining(searchView, "> [ ] database.url")
 	if searchRowIndex < 0 {
 		t.Fatalf("View() = %q, want database.url search row", searchView)
 	}
@@ -2251,6 +2252,12 @@ func executeWizardEffectCommand(t *testing.T, model initWizardModel, command tea
 
 	message := command()
 	switch message := message.(type) {
+	case batchValidatedMsg, initProfileCapturedMsg:
+		updated, next := model.Update(message)
+		if next != nil {
+			t.Fatal("unexpected followup")
+		}
+		return updated.(initWizardModel)
 	case fileInspectedMsg:
 		updatedModel, nextCommand := model.Update(message)
 		if nextCommand != nil {
@@ -2374,5 +2381,153 @@ func TestInitWizardModel_DetectsAndValidatesTypedValues(t *testing.T) {
 	model = updated.(initWizardModel)
 	if len(model.profiles) != 1 || model.profiles[0].Values[0].ValueType != app.ManagedValueBoolean || *model.profiles[0].Values[0].Value != "false" {
 		t.Fatal("false was lost during profile setup")
+	}
+}
+
+func TestInitWizardBatchMarksSurviveSearchAndCancelledValidation(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.json")
+	if err := os.WriteFile(path, []byte(`{"a":false,"b":0,"group":{"c":"secret"}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	workflow := app.DefaultInitWorkflow()
+	selection, err := workflow.InspectTargetFile(path, "config.json", app.InitTargetTypeJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := initWizardModel{workingDirectory: root, workflow: workflow, selectedFile: selection, width: 120, height: 32}
+	model.beginPathBrowse()
+	for i, node := range model.browseNodes {
+		if node.selector == "a" {
+			model.cursor = i
+		}
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	model = updateWizardModel(t, model, runeKey('/'))
+	typeWizardText(t, &model, "group.c")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	if len(model.batch.Targets) != 2 {
+		t.Fatalf("filter lost marks: targets=%v nodes=%v filter=%q", model.batch.Targets, model.browseNodes, model.inputValue)
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if !model.batch.Review || strings.Contains(model.View(), "secret") {
+		t.Fatal("missing or unsafe review")
+	}
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = updated.(initWizardModel)
+	if command == nil || len(model.targets) != 0 {
+		t.Fatal("batch must be deferred")
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	model = executeWizardEffectCommand(t, model, command)
+	if len(model.targets) != 0 || model.inputValue != "group.c" || len(model.batch.Targets) != 2 {
+		t.Fatal("late result changed draft or selection context")
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = executeWizardEffectCommand(t, updated.(initWizardModel), command)
+	if len(model.targets) != 2 || model.step != initWizardStepManagedValueCheckpoint {
+		t.Fatalf("batch not added: %#v", model)
+	}
+	// Selecting the same location again fails atomically and retains the marks.
+	model.beginPathBrowse()
+	for i, node := range model.browseNodes {
+		if node.selector == "a" {
+			model.cursor = i
+		}
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	updated, command = model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	model = executeWizardEffectCommand(t, updated.(initWizardModel), command)
+	if len(model.targets) != 2 || len(model.batch.Targets) != 1 || model.batch.Error == "" {
+		t.Fatal("failed batch lost draft or marks")
+	}
+}
+
+func TestInitWizardCaptureCopyEditAndBack(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.json")
+	if err := os.WriteFile(path, []byte(`{"flag":false,"port":0}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	model := initWizardModel{workingDirectory: root, workflow: app.DefaultInitWorkflow(), width: 120, height: 32, step: initWizardStepManagedValueCheckpoint, cursor: 3, targets: []app.InitTarget{
+		{Name: "flag", File: path, Type: app.InitTargetTypeJSON, JSONPath: "flag", ValueType: app.ManagedValueBoolean},
+		{Name: "port", File: path, Type: app.InitTargetTypeJSON, JSONPath: "port", ValueType: app.ManagedValueInteger},
+	}}
+	updated, command := model.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	pending := updated.(initWizardModel)
+	cancelled := updateWizardModel(t, pending, tea.KeyMsg{Type: tea.KeyEsc})
+	cancelled = executeWizardEffectCommand(t, cancelled, command)
+	if cancelled.templateProfile != nil || cancelled.step != initWizardStepManagedValueCheckpoint {
+		t.Fatal("stale capture changed state")
+	}
+	model = executeWizardEffectCommand(t, pending, command)
+	typeWizardText(t, &model, "Local")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if model.templateProfile.Values[0].LiteralValue != "false" || model.templateProfile.Values[1].LiteralValue != "0" {
+		t.Fatal("capture lost false/zero")
+	}
+	model = updateWizardModel(t, model, runeKey('p'))
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEsc})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if !model.templateProfile.Protected {
+		t.Fatal("back lost profile protection")
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(model.profiles) != 1 || !model.shouldIgnoreConfig {
+		t.Fatal("capture not added as literal profile")
+	}
+	model.cursor = 4
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	typeWizardText(t, &model, "Staging")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyDown})
+	model = updateWizardModel(t, model, runeKey('e'))
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyDown}) // environment source
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	typeWizardText(t, &model, "STAGING_PORT")
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(model.profiles) != 2 || *model.profiles[1].Values[1].ValueFromEnv != "STAGING_PORT" || !model.profiles[1].Protected || *model.profiles[0].Values[1].Value != "0" {
+		t.Fatal("copy/edit changed original or lost source/protection")
+	}
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != `{"flag":false,"port":0}` {
+		t.Fatal("setup wrote target")
+	}
+}
+
+func TestInitWizardDotenvSearchKeepsSpacesAndMarks(t *testing.T) {
+	model := initWizardModel{width: 120, height: 32, selectedFile: app.InitTargetFileSelection{Path: ".env", DisplayPath: ".env", TargetType: app.InitTargetTypeDotenv, DotenvKeys: []string{"API_URL", "DB_URL"}}}
+	model.beginDotenvKeySelect()
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeySpace})
+	model = updateWizardModel(t, model, runeKey('/'))
+	typeWizardText(t, &model, "DB URL")
+	if model.inputValue != "DB URL" || len(model.filteredSelectableStructuredPaths(model.inputValue)) != 1 {
+		t.Fatal("search space became mark")
+	}
+	if !strings.Contains(model.View(), "Search dotenv values") {
+		t.Fatal("dotenv search mislabeled")
+	}
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyTab})
+	model = updateWizardModel(t, model, tea.KeyMsg{Type: tea.KeyCtrlR})
+	if len(model.batch.Targets) != 2 || !model.batch.Review {
+		t.Fatal("filtered dotenv marks lost")
+	}
+	model = updateWizardModel(t, model, runeKey('r'))
+	typeWizardText(t, &model, "q")
+	if model.result != nil {
+		t.Fatal("q in batch name cancelled wizard")
+	}
+	for _, size := range [][2]int{{200, 60}, {120, 40}, {80, 24}, {60, 20}, {40, 15}} {
+		model.width, model.height = size[0], size[1]
+		view := model.View()
+		if lipgloss.Width(view) > size[0] || lipgloss.Height(view) > size[1] {
+			t.Fatalf("batch review overflow: %v", size)
+		}
 	}
 }

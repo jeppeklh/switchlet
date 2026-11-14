@@ -120,9 +120,16 @@ func (model Model) managedValueSelectorSelectView() string {
 			if index == model.managedForm.selectorCursor {
 				state = ui.RowSelected
 			}
-			rows = append(rows, ui.ListRow{Label: option.Label, State: state})
+			label := option.Label
+			if model.managedForm.mode == managedValueDraftAdd {
+				label = model.managedForm.batch.Label(app.ManagedValueSelection(model.managedForm.selection, option.Selector), label)
+			}
+			rows = append(rows, ui.ListRow{Label: label, State: state})
 		}
 		lines = append(lines, ui.RenderListRows(rows)...)
+	}
+	if model.managedForm.mode == managedValueDraftAdd {
+		lines = append(lines, "Space Mark • Ctrl+R Review marked")
 	}
 	lines = append(lines, model.managedValueErrorLines()...)
 

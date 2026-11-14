@@ -8,6 +8,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
 
 type managedValueDraftMode int
@@ -34,6 +35,7 @@ type managedValueSelectorOption struct {
 }
 
 type managedValueDraftState struct {
+	batch           setup.Batch
 	selection       app.InitTargetFileSelection
 	mode            managedValueDraftMode
 	originalName    string

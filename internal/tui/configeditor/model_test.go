@@ -1065,3 +1065,50 @@ func TestModel_DotenvValueTypeCanBeSelectedAtReview(t *testing.T) {
 		t.Fatal("review hides selected type")
 	}
 }
+
+func TestModel_BatchAddRetainsFilteredMarksAndIgnoresLateResults(t *testing.T) {
+	model, configPath := newTestModel(t, versionThreeConfig())
+	before := string(readTestFile(t, configPath))
+	path := writeTestFile(t, model.document.ProjectRoot, "batch.json", `{"a":false,"b":0}`)
+	selection, err := model.targetWorkflow.InspectTargetFile(path, "batch.json", app.InitTargetTypeJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.state = editorStateManagedValueSelectorSelect
+	model.managedForm = managedValueDraftState{selection: selection, mode: managedValueDraftAdd, selectorOptions: managedValueSelectorOptions(selection)}
+	model = resizeModel(t, model, 120, 32)
+	model, _ = pressKey(t, model, tea.KeySpace)
+	model, _ = pressRune(t, model, '/')
+	model = enterText(t, model, "b")
+	model, _ = pressKey(t, model, tea.KeyEnter)
+	model, _ = pressKey(t, model, tea.KeySpace)
+	if len(model.managedForm.batch.Targets) != 2 {
+		t.Fatal("filter lost marks")
+	}
+	model, _ = pressKey(t, model, tea.KeyCtrlR)
+	model, cmd := pressKey(t, model, tea.KeyEnter)
+	if cmd == nil || len(model.document.Targets) != 2 {
+		t.Fatal("batch did not defer validation")
+	}
+	model, _ = pressKey(t, model, tea.KeyEsc)
+	model = runCommand(t, model, cmd)
+	if len(model.document.Targets) != 2 || model.managedForm.selectorFilter != "b" {
+		t.Fatal("late result changed draft or filter")
+	}
+	model, _ = pressKey(t, model, tea.KeyCtrlR)
+	model, cmd = pressKey(t, model, tea.KeyEnter)
+	model = runCommand(t, model, cmd)
+	if len(model.document.Targets) != 4 || model.state != editorStateOverview {
+		t.Fatal("batch not added")
+	}
+	if string(readTestFile(t, configPath)) != before {
+		t.Fatal("adding batch saved without review")
+	}
+	// An external configuration edit still prevents saving this batch.
+	if err := os.WriteFile(configPath, []byte(before+"\n# external edit\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := model.workflow.PrepareSave(model.document); err == nil {
+		t.Fatal("batch bypassed stale configuration checks")
+	}
+}

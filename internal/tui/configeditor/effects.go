@@ -6,7 +6,54 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
+
+type managedValuesAddedMsg struct {
+	requestID int
+	document  app.ConfigEditDocument
+	err       error
+}
+
+func (model Model) handleManagedValueBatchKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch model.managedForm.batch.Update(key) {
+	case setup.BatchBack:
+		model.managedForm.batch.Review = false
+		model.managedForm.batch.Pending = false
+		model.clearManagedValueRequest()
+	case setup.BatchQuit:
+		model.managedForm.batch.Review = false
+		model.managedForm.batch.Pending = false
+		model.clearManagedValueRequest()
+		return model.beginQuit()
+	case setup.BatchAdd:
+		model.managedForm.batch.Pending = true
+		requestID := model.nextRequestID()
+		model.managedForm.requestID = requestID
+		document := model.document
+		targets := append([]app.InitTarget(nil), model.managedForm.batch.Targets...)
+		return model, func() tea.Msg {
+			updated, err := model.workflow.AddManagedValues(document, targets)
+			return managedValuesAddedMsg{requestID, updated, err}
+		}
+	}
+	return model, nil
+}
+
+func (model Model) handleManagedValuesAdded(message managedValuesAddedMsg) (tea.Model, tea.Cmd) {
+	if model.result != nil || !model.managedForm.batch.Pending || model.managedForm.requestID != message.requestID {
+		return model, nil
+	}
+	model.managedForm.batch.Pending = false
+	if message.err != nil {
+		model.managedForm.batch.Error = message.err.Error()
+		return model, nil
+	}
+	model.document = message.document
+	model.cancelManagedValueForm()
+	model.selectOverviewTab(overviewTabTargets)
+	return model, nil
+}
 
 type saveCompletedMsg struct {
 	configPath string

@@ -9,6 +9,8 @@ import (
 // Update handles Bubble Tea messages for the config editor.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case managedValuesAddedMsg:
+		return model.handleManagedValuesAdded(message)
 	case saveCompletedMsg:
 		return model.handleSaveCompleted(message)
 	case profileCapturedMsg:
@@ -40,6 +42,9 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, tea.Quit
 			}
 			return model, nil
+		}
+		if model.managedForm.batch.Review {
+			return model.handleManagedValueBatchKey(message)
 		}
 		if model.helpOpen {
 			return model.handleHelpKey(message)
@@ -120,6 +125,9 @@ func (model Model) handleHelpKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) canOpenHelp() bool {
+	if model.managedForm.batch.Review {
+		return false
+	}
 	switch model.state {
 	case editorStateOverview,
 		editorStateProfileIncludeValues,

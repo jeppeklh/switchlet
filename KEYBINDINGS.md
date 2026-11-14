@@ -96,6 +96,10 @@ The init wizard changes its command bar by step.
 | `j` / `k` | Move on choice screens. |
 | `f` / `/` | Filter file lists where shown. |
 | `s` / `/` | Search structured JSON, YAML, or TOML selectors where shown. |
+| `/` | Search dotenv keys from the value list. |
+| `Space` | Mark or unmark a setting in a value list. |
+| `Tab` | Mark or unmark the highlighted setting while typing a value search; spaces remain search text. |
+| `Ctrl+R` | Review all marked settings, including those hidden by the current search. |
 | `m` | Open manual file, selector, or key entry where shown. |
 | `Left` / `Right` | Move the cursor on text-entry screens. |
 | `Home` / `End` | Jump within text-entry fields or choice lists where shown. |
@@ -110,6 +114,35 @@ On text-entry screens, `q` is literal input rather than cancel. Use `Esc` or
 
 When init asks whether to replace an existing current-directory
 `.switchlet.yaml`, `y` chooses replacement and `n` keeps the existing file.
+
+The managed-values checkpoint offers **Capture current values** to start a
+literal profile (`C Capture`). The profile checkpoint offers **Copy <name>** for each existing
+profile, alongside fresh profile creation; `D Copy last` copies the most recently
+added profile. Capture/copy review uses `e` to edit
+the selected value, `Space` to include/omit it, `p` to toggle protection, and
+`Enter` to add the profile draft. `Esc` returns to its name without discarding
+the captured/copied values. Copied environment references remain references.
+
+### Batch Managed-Value Review (Init And Config Editor)
+
+When adding managed values, mark settings from one file, then press `Ctrl+R`.
+Marks survive filtering and navigation within that file. Changing files or
+formats starts a new selection. Single-setting `Enter` and manual entry remain
+available.
+
+| Key | Action |
+|---|---|
+| `Up` / `Down`, `j` / `k` | Select a review row. |
+| `Home` / `End`, `g` / `G` | Select the first/last row. |
+| `r` | Rename the selected managed value; selector paths are initial name suggestions. |
+| `t` | Cycle the selected dotenv value's type. Structured-file types are detected. |
+| `Enter` | Validate and add the whole batch to the draft. |
+| `Esc` | Return to selections, retaining marks, names, types, and filter context. |
+
+A rejected batch changes no draft targets. Correct names/types in review or
+return to selection to unmark settings. Saving configuration remains explicit.
+In config-editor selector lists, `Space` marks settings and `/` opens filtering;
+finish filtering with `Enter` before marking more settings.
 
 ## Configuration Editor
 

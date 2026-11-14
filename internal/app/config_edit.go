@@ -296,6 +296,17 @@ func (workflow ConfigEditWorkflow) AddManagedValue(document ConfigEditDocument, 
 	return workflow.normalizeDraft(draft, fmt.Sprintf("add target %q", target.Name))
 }
 
+// AddManagedValues validates and adds a batch atomically without writing files.
+func (workflow ConfigEditWorkflow) AddManagedValues(document ConfigEditDocument, targets []InitTarget) (ConfigEditDocument, error) {
+	validated, err := DefaultInitWorkflow().ValidateManagedValueBatch(document.ProjectRoot, document.Targets, targets)
+	if err != nil {
+		return ConfigEditDocument{}, err
+	}
+	draft := document.clone()
+	draft.Targets = validated
+	return workflow.normalizeDraft(draft, "add managed values")
+}
+
 // RenameManagedValue renames a managed value and updates every profile reference in the draft.
 func (workflow ConfigEditWorkflow) RenameManagedValue(document ConfigEditDocument, existingName string, newName string) (ConfigEditDocument, ConfigEditRenameManagedValueResult, error) {
 	draft := document.clone()

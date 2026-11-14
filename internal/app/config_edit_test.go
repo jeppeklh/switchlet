@@ -1062,3 +1062,115 @@ profiles:
 		t.Fatalf("conversion failed: %#v %v", loaded, err)
 	}
 }
+
+func TestSetupBatchValidationAndCaptureAcrossFormats(t *testing.T) {
+	for _, fixture := range []struct {
+		file, contents string
+		kind           app.InitTargetType
+		selectors      []string
+		types          []app.ManagedValueType
+		values         []string
+	}{
+		{"settings.json", `{"text":"sentinel-secret","flag":false,"zero":0,"exact":1.234567890123456789}`, app.InitTargetTypeJSON, []string{"text", "flag", "zero", "exact"}, []app.ManagedValueType{app.ManagedValueString, app.ManagedValueBoolean, app.ManagedValueInteger, app.ManagedValueNumber}, []string{"sentinel-secret", "false", "0", "1.234567890123456789"}},
+		{"settings.yaml", "text: sentinel-secret\nflag: false\nzero: 0\nexact: 1.234567890123456789\n", app.InitTargetTypeYAML, []string{"text", "flag", "zero", "exact"}, []app.ManagedValueType{app.ManagedValueString, app.ManagedValueBoolean, app.ManagedValueInteger, app.ManagedValueNumber}, []string{"sentinel-secret", "false", "0", "1.234567890123456789"}},
+		{"settings.toml", "text = \"sentinel-secret\"\nflag = false\nzero = 0\nexact = 1.234567890123456789\n", app.InitTargetTypeTOML, []string{"text", "flag", "zero", "exact"}, []app.ManagedValueType{app.ManagedValueString, app.ManagedValueBoolean, app.ManagedValueInteger, app.ManagedValueNumber}, []string{"sentinel-secret", "false", "0", "1.234567890123456789"}},
+		{".env", "TEXT=sentinel-secret\nFLAG=false\nZERO=0\nEXACT=1.234567890123456789\n", app.InitTargetTypeDotenv, []string{"TEXT", "FLAG", "ZERO", "EXACT"}, []app.ManagedValueType{app.ManagedValueString, app.ManagedValueBoolean, app.ManagedValueInteger, app.ManagedValueNumber}, []string{"sentinel-secret", "false", "0", "1.234567890123456789"}},
+	} {
+		t.Run(fixture.file, func(t *testing.T) {
+			root := t.TempDir()
+			path := writeTargetFile(t, root, fixture.file, fixture.contents)
+			init := app.DefaultInitWorkflow()
+			selection, err := init.InspectTargetFile(path, fixture.file, fixture.kind)
+			if err != nil {
+				t.Fatal(err)
+			}
+			additions := make([]app.InitTarget, len(fixture.selectors))
+			for i, selector := range fixture.selectors {
+				additions[i] = app.ManagedValueSelection(selection, selector)
+				if fixture.kind == app.InitTargetTypeDotenv {
+					additions[i].ValueType = fixture.types[i]
+				}
+			}
+			targets, err := init.ValidateManagedValueBatch(root, nil, additions)
+			if err != nil {
+				t.Fatal(err)
+			}
+			workflow := app.DefaultConfigEditWorkflow()
+			document := app.ConfigEditDocument{ProjectRoot: root, Targets: targets}
+			draft, err := workflow.CaptureCurrentProfileDraft(document)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, value := range draft.Values {
+				if value.LiteralValue != fixture.values[i] || config.EffectiveValueType(value.ValueType) != fixture.types[i] || !value.Included {
+					t.Fatalf("capture %d lost exact value or type: %#v", i, value)
+				}
+			}
+			draft.Name = "Local"
+			draft.Protected = true
+			draft.Values[1].Source = app.ProfileSourceEnvironment
+			draft.Values[1].EnvironmentVariableName = "UNSET_COPY_SOURCE"
+			draft.Values[3].Included = false
+			document, err = workflow.AddProfileDraft(document, draft)
+			if err != nil {
+				t.Fatal(err)
+			}
+			copy, err := workflow.DuplicateProfileDraft(document, "Local", "Staging")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !copy.Protected || copy.Values[1].Source != app.ProfileSourceEnvironment || copy.Values[1].EnvironmentVariableName != "UNSET_COPY_SOURCE" || copy.Values[3].Included {
+				t.Fatalf("copy lost source, protection or partial scope: %#v", copy)
+			}
+			copy.Values[0].LiteralValue = "changed"
+			if *document.Profiles[0].Values[0].Value != "sentinel-secret" {
+				t.Fatal("copy mutated original")
+			}
+			contents, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(contents) != fixture.contents {
+				t.Fatal("setup wrote target file")
+			}
+		})
+	}
+}
+
+func TestConfigEditWorkflow_BatchFailureLeavesDocumentUnchanged(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "config.json", `{"existing":"secret","valid":false,"number":0}`)
+	original := config.Target{Name: "existing", File: path, Type: config.TargetTypeJSON, JSONPath: "existing"}
+	literal := "local"
+	document := app.ConfigEditDocument{ProjectRoot: root, Targets: []config.Target{original}, Profiles: []config.Profile{{Name: "Local", Values: []config.ProfileValue{{Target: "existing", Value: &literal}}}}}
+	valid := config.Target{Name: "valid", File: path, Type: config.TargetTypeJSON, JSONPath: "valid", ValueType: config.ValueTypeBoolean}
+	cases := map[string]config.Target{
+		"duplicate name":         {Name: "existing", File: path, Type: config.TargetTypeJSON, JSONPath: "number", ValueType: config.ValueTypeInteger},
+		"duplicate location":     {Name: "other", File: path, Type: config.TargetTypeJSON, JSONPath: "existing"},
+		"unsupported selector":   {Name: "other", File: path, Type: config.TargetTypeJSON, JSONPath: "array[0]"},
+		"missing":                {Name: "other", File: path, Type: config.TargetTypeJSON, JSONPath: "missing"},
+		"incompatible type":      {Name: "other", File: path, Type: config.TargetTypeJSON, JSONPath: "number", ValueType: config.ValueTypeBoolean},
+		"duplicate within batch": valid,
+	}
+	for name, invalid := range cases {
+		t.Run(name, func(t *testing.T) {
+			_, err := app.DefaultConfigEditWorkflow().AddManagedValues(document, []config.Target{valid, invalid})
+			if err == nil {
+				t.Fatal("invalid batch accepted")
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatal("error leaked value")
+			}
+			if len(document.Targets) != 1 || document.Targets[0] != original || *document.Profiles[0].Values[0].Value != "local" {
+				t.Fatal("failed batch mutated draft")
+			}
+		})
+	}
+	updated, err := app.DefaultConfigEditWorkflow().AddManagedValues(document, []config.Target{valid})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(updated.Targets) != 2 || len(document.Targets) != 1 {
+		t.Fatal("batch did not return independent draft")
+	}
+}

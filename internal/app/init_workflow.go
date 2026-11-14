@@ -82,6 +82,41 @@ func DefaultInitWorkflow() InitWorkflow {
 	return NewInitWorkflow(InitWorkflowDependencies{})
 }
 
+// ManagedValueSelection creates a target draft from an inspected selector.
+// The selector is a suggested name; callers review it before batch validation.
+func ManagedValueSelection(selection InitTargetFileSelection, selector string) InitTarget {
+	target := InitTarget{Name: selector, File: selection.Path, Type: selection.TargetType,
+		ValueType: InitSelectionValueType(selection, selector)}
+	switch selection.TargetType {
+	case InitTargetTypeJSON:
+		target.JSONPath = selector
+	case InitTargetTypeYAML:
+		target.YAMLPath = selector
+	case InitTargetTypeTOML:
+		target.TOMLPath = selector
+	case InitTargetTypeDotenv:
+		target.Key = selector
+	}
+	return target
+}
+
+// ValidateManagedValueBatch returns all targets only when every addition is valid.
+// No input slice or target file is modified, including on failure.
+func (workflow InitWorkflow) ValidateManagedValueBatch(projectRoot string, existing, additions []InitTarget) ([]InitTarget, error) {
+	if len(additions) == 0 {
+		return nil, fmt.Errorf("select at least one managed value")
+	}
+	targets := append(append([]InitTarget(nil), existing...), additions...)
+	normalized, err := config.ValidateTargetDraft(projectRoot, targets)
+	if err != nil {
+		return nil, err
+	}
+	if err := editor.ValidateTargets(normalized[len(existing):]); err != nil {
+		return nil, fmt.Errorf("validate selected managed values: %w", err)
+	}
+	return normalized, nil
+}
+
 // DiscoverTargetFileCandidates returns files that can provide an init target.
 func (workflow InitWorkflow) DiscoverTargetFileCandidates(projectRoot string) ([]InitTargetFileCandidate, error) {
 	if workflow.dependencies.DiscoverTargetFileCandidates != nil {

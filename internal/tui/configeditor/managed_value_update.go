@@ -4,6 +4,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
 
 func (model Model) handleManagedValueFilesDiscovered(message managedValueFilesDiscoveredMsg) (tea.Model, tea.Cmd) {
@@ -34,6 +35,9 @@ func (model Model) handleManagedValueFileInspected(message managedValueFileInspe
 		return model, nil
 	}
 
+	if model.managedForm.selection.Path != message.selection.Path || model.managedForm.selection.TargetType != message.selection.TargetType {
+		model.managedForm.batch = setup.Batch{}
+	}
 	model.managedForm.selection = message.selection
 	model.managedForm.target.File = message.selection.Path
 	model.managedForm.target.Type = message.selection.TargetType
@@ -205,6 +209,12 @@ func (model Model) handleManagedValueSelectorSelectKey(message tea.KeyMsg) (tea.
 	model.clampManagedValueSelectorCursor(len(options))
 
 	switch {
+	case message.Type == tea.KeyCtrlR && model.managedForm.mode == managedValueDraftAdd:
+		model.managedForm.batch.BeginReview()
+	case message.Type == tea.KeySpace && model.managedForm.mode == managedValueDraftAdd:
+		if len(options) > 0 {
+			model.managedForm.batch.Toggle(app.ManagedValueSelection(model.managedForm.selection, options[model.managedForm.selectorCursor].Selector))
+		}
 	case isMoveUpKey(message):
 		if len(options) > 0 {
 			model.managedForm.selectorCursor--

@@ -25,6 +25,9 @@ func (model Model) View() string {
 		})
 	}
 
+	if model.managedForm.batch.Review {
+		return model.configEditorShell("Review selected values", model.managedForm.batch.Panels(), model.managedForm.batch.Actions())
+	}
 	switch model.state {
 	case editorStateProfileCaptureLoading:
 		return model.profileCaptureLoadingView()

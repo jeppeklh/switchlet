@@ -4,7 +4,52 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
+
+type batchValidatedMsg struct {
+	requestID int
+	targets   []app.InitTarget
+	err       error
+}
+
+func (model initWizardModel) handleBatchKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch model.batch.Update(key) {
+	case setup.BatchBack:
+		model.batch.Review = false
+		model.batch.Pending = false
+		model.batchRequestID = 0
+	case setup.BatchQuit:
+		model.cancel()
+		return model, tea.Quit
+	case setup.BatchAdd:
+		model.batch.Pending = true
+		model.batchRequestID = model.nextEffectRequestID()
+		requestID := model.batchRequestID
+		existing := append([]app.InitTarget(nil), model.targets...)
+		additions := append([]app.InitTarget(nil), model.batch.Targets...)
+		return model, func() tea.Msg {
+			targets, err := model.workflow.ValidateManagedValueBatch(model.workingDirectory, existing, additions)
+			return batchValidatedMsg{requestID, targets, err}
+		}
+	}
+	return model, nil
+}
+
+func (model initWizardModel) handleBatchValidated(message batchValidatedMsg) (tea.Model, tea.Cmd) {
+	if model.result != nil || !model.batch.Pending || model.batchRequestID != message.requestID {
+		return model, nil
+	}
+	model.batch.Pending = false
+	if message.err != nil {
+		model.batch.Error = message.err.Error()
+		return model, nil
+	}
+	model.targets = message.targets
+	model.batch = setup.Batch{}
+	model.beginManagedValueCheckpoint()
+	return model, nil
+}
 
 type fileInspectedMsg struct {
 	requestID   int

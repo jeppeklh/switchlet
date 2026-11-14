@@ -8,11 +8,16 @@ import (
 
 	"github.com/jeppeklh/switchlet/internal/app"
 	ui "github.com/jeppeklh/switchlet/internal/tui"
+	"github.com/jeppeklh/switchlet/internal/tui/setup"
 )
 
 // Update handles Bubble Tea messages for the init wizard.
 func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case initProfileCapturedMsg:
+		return model.handleProfileCaptured(message)
+	case batchValidatedMsg:
+		return model.handleBatchValidated(message)
 	case fileInspectedMsg:
 		return model.handleFileInspected(message)
 	case jsonSelectorValidatedMsg:
@@ -38,6 +43,9 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 				return model, tea.Quit
 			}
 			return model, nil
+		}
+		if model.batch.Review {
+			return model.handleBatchKey(message)
 		}
 		if model.helpOpen {
 			return model.handleHelpKey(message)
@@ -77,6 +85,8 @@ func (model initWizardModel) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 			return model.handleManagedValueNameKey(message)
 		case initWizardStepManagedValueCheckpoint:
 			return model.handleManagedValueCheckpointKey(message)
+		case initWizardStepProfileTemplate:
+			return model.handleProfileTemplateKey(message)
 		case initWizardStepProfileName:
 			return model.handleProfileNameKey(message)
 		case initWizardStepProfileTargetInclude:
@@ -143,6 +153,9 @@ func (model initWizardModel) handleFileInspected(message fileInspectedMsg) (tea.
 
 	if pendingEffect.ReturnStep == initWizardStepFileFilter {
 		model.fileFilter = pendingEffect.FileFilter
+	}
+	if model.selectedFile.Path != message.selection.Path || model.selectedFile.TargetType != message.selection.TargetType {
+		model.batch = setup.Batch{}
 	}
 	model.selectedFile = message.selection
 	model.beginSelectorForSelectedFile()
@@ -317,6 +330,8 @@ func (model initWizardModel) startTOMLSelectorValidation(tomlPath string) (tea.M
 
 func (model initWizardModel) startStructuredSelectorValidation(selector string) (tea.Model, tea.Cmd) {
 	switch model.selectedFile.TargetType {
+	case app.InitTargetTypeDotenv:
+		return model.startDotenvKeyValidation(selector)
 	case app.InitTargetTypeYAML:
 		return model.startYAMLSelectorValidation(selector)
 	case app.InitTargetTypeTOML:
@@ -507,11 +522,23 @@ func (model initWizardModel) handleTypeSelectKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model initWizardModel) handleDotenvKeySelectKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if message.Type == tea.KeyCtrlR {
+		model.batch.BeginReview()
+		return model, nil
+	}
 	keys := model.selectedFile.DotenvKeys
 	choiceCount := len(keys) + 1
 	model.clampCursor(choiceCount)
 
 	switch {
+	case message.Type == tea.KeySpace:
+		if model.cursor < len(keys) {
+			model.batch.Toggle(app.ManagedValueSelection(model.selectedFile, keys[model.cursor]))
+		}
+	case isRuneKey(message, '/'):
+		model.step = initWizardStepPathSearch
+		model.cursor = 0
+		model.clearInputValue()
 	case isMoveUpKey(message):
 		model.cursor--
 		if model.cursor < 0 {
@@ -589,10 +616,12 @@ func (model initWizardModel) handleManagedValueNameKey(message tea.KeyMsg) (tea.
 }
 
 func (model initWizardModel) handleManagedValueCheckpointKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	choiceCount := 3
+	choiceCount := 4
 	model.clampCursor(choiceCount)
 
 	switch {
+	case isRuneKey(message, 'C'):
+		return model.startProfileCapture()
 	case isMoveUpKey(message):
 		model.cursor--
 		if model.cursor < 0 {
@@ -615,6 +644,8 @@ func (model initWizardModel) handleManagedValueCheckpointKey(message tea.KeyMsg)
 			model.clearError()
 		case 2:
 			model.removeLastTarget()
+		case 3:
+			return model.startProfileCapture()
 		}
 	}
 
@@ -622,10 +653,18 @@ func (model initWizardModel) handleManagedValueCheckpointKey(message tea.KeyMsg)
 }
 
 func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if message.Type == tea.KeyCtrlR {
+		model.batch.BeginReview()
+		return model, nil
+	}
 	choices := len(model.browseNodes) + 2
 	model.clampCursor(choices)
 
 	switch {
+	case message.Type == tea.KeySpace:
+		if model.cursor < len(model.browseNodes) && model.browseNodes[model.cursor].selectable {
+			model.batch.Toggle(app.ManagedValueSelection(model.selectedFile, model.browseNodes[model.cursor].selector))
+		}
 	case isMoveUpKey(message):
 		model.cursor--
 		if model.cursor < 0 {
@@ -696,12 +735,24 @@ func (model initWizardModel) handlePathBrowseKey(message tea.KeyMsg) (tea.Model,
 }
 
 func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if message.Type == tea.KeyCtrlR {
+		model.batch.BeginReview()
+		return model, nil
+	}
 	matchingPaths := model.filteredSelectableStructuredPaths(model.inputValue)
 	model.clampCursor(len(matchingPaths))
 
 	switch message.Type {
+	case tea.KeyTab:
+		if len(matchingPaths) > 0 {
+			model.batch.Toggle(app.ManagedValueSelection(model.selectedFile, matchingPaths[model.cursor]))
+		}
+		return model, nil
 	case tea.KeyEsc:
 		model.step = initWizardStepPathBrowse
+		if model.selectedFile.TargetType == app.InitTargetTypeDotenv {
+			model.step = initWizardStepDotenvKeySelect
+		}
 		model.cursor = 0
 		model.clearError()
 		model.clearInputValue()
@@ -744,6 +795,9 @@ func (model initWizardModel) handlePathSearchKey(message tea.KeyMsg) (tea.Model,
 
 func (model *initWizardModel) selectStructuredPath(selector string) {
 	switch model.selectedFile.TargetType {
+	case app.InitTargetTypeDotenv:
+		model.selectedDotenvKey = selector
+		return
 	case app.InitTargetTypeYAML:
 		model.selectedYAMLPath = selector
 		model.selectedJSONPath = ""
@@ -803,6 +857,15 @@ func (model initWizardModel) handleProfileNameKey(message tea.KeyMsg) (tea.Model
 			return model, nil
 		}
 
+		if model.templateProfile != nil {
+			draft := *model.templateProfile
+			draft.Name = enteredValue
+			model.templateProfile = &draft
+			model.step = initWizardStepProfileTemplate
+			model.cursor = 0
+			model.clearInputValue()
+			return model, nil
+		}
 		model.draftProfile = initWizardProfileDraft{Name: enteredValue, Values: make([]app.InitProfileValue, 0, len(model.targets))}
 		if len(model.targets) == 1 {
 			model.draftProfile.TargetIndex = 0
@@ -865,6 +928,11 @@ func (model initWizardModel) handleProfileValueSourceKey(message tea.KeyMsg) (te
 			model.cursor = 0
 		}
 	case message.Type == tea.KeyEsc:
+		if model.templateProfile != nil {
+			model.step = initWizardStepProfileTemplate
+			model.cursor = model.draftProfile.TargetIndex
+			return model, nil
+		}
 		if len(model.targets) == 1 {
 			model.step = initWizardStepProfileName
 			model.cursor = 0
@@ -885,6 +953,11 @@ func (model initWizardModel) handleProfileValueSourceKey(message tea.KeyMsg) (te
 			model.beginProfileValue()
 		case 2:
 			model.draftProfile.Protected = !model.draftProfile.Protected
+			if model.templateProfile != nil {
+				draft := *model.templateProfile
+				draft.Protected = model.draftProfile.Protected
+				model.templateProfile = &draft
+			}
 		}
 	}
 
@@ -913,6 +986,10 @@ func (model initWizardModel) handleProfileValueKey(message tea.KeyMsg) (tea.Mode
 			enteredValue = normalized
 		}
 		model.draftProfile.Value = enteredValue
+		if model.templateProfile != nil {
+			model.saveTemplateValue()
+			return model, nil
+		}
 		model.appendDraftProfileValue()
 		return model, nil
 	default:
@@ -925,10 +1002,12 @@ func (model initWizardModel) handleProfileValueKey(message tea.KeyMsg) (tea.Mode
 }
 
 func (model initWizardModel) handleProfileSummaryKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
-	choiceCount := 4
+	choiceCount := 4 + len(model.profiles)
 	model.clampCursor(choiceCount)
 
 	switch {
+	case isRuneKey(message, 'D') && len(model.profiles) > 0:
+		model.beginProfileCopy(model.profiles[len(model.profiles)-1].Name)
 	case isMoveUpKey(message):
 		model.cursor--
 		if model.cursor < 0 {
@@ -954,6 +1033,8 @@ func (model initWizardModel) handleProfileSummaryKey(message tea.KeyMsg) (tea.Mo
 			model.clearInputValue()
 		case 3:
 			model.removeLastProfile()
+		default:
+			model.beginProfileCopy(model.profiles[model.cursor-4].Name)
 		}
 	}
 
