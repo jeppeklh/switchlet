@@ -126,6 +126,16 @@ func (model Model) handleProfileValueInputKey(message tea.KeyMsg) (tea.Model, te
 }
 
 func (model Model) handleProfileReviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if model.profileForm.mode == profileDraftImport {
+		if updated, handled := model.handleScrollablePanelKey(message); handled {
+			return updated, nil
+		}
+		if isBackKey(message) {
+			model.state = editorStateProfileImportSelection
+			model.resetScrollOffset()
+			return model, nil
+		}
+	}
 	switch {
 	case message.Type == tea.KeySpace || isRuneKey(message, 'p'):
 		model.profileForm.draft.Protected = !model.profileForm.draft.Protected

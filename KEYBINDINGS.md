@@ -198,6 +198,7 @@ finish filtering with `Enter` before marking more settings.
 | `C` | Capture current managed values into a new profile from the `Profiles` tab. |
 | `e` | Edit the selected profile or managed-value location. |
 | `D` | Duplicate the selected profile. |
+| `I` | Import values from mapped source files into a new profile based on the selected profile. |
 | `r` | Rename the selected profile or managed value. |
 | `d` | Delete the selected profile or managed value. |
 | `Space` | Toggle protection for the selected profile. |
@@ -208,6 +209,31 @@ finish filtering with `Enter` before marking more settings.
 | `?` | Open contextual help on non-text-entry editor screens. |
 | `q` | Quit, with dirty-draft confirmation when needed. |
 | `Ctrl+C` | Exit immediately. |
+
+### Import Profile
+
+| Screen | Key | Action |
+|---|---|---|
+| Source mapping | `e` / `x` | Edit or clear the selected destination's source path. |
+| Source mapping | `Enter` | Read mapped sources. Unmapped files keep base values. |
+| Mapping and selection | `j/k`, `Up/Down`, `g/G` | Navigate rows or jump to the first/last row. |
+| Value selection | `Space` | Select a successful read; failed reads cannot be selected. |
+| Value selection | `r` | Refresh sources, discarding previous results and selections. |
+| Value selection | `m` / `Esc` / `h` | Return to mapping and discard the current review. |
+| Value selection | `Enter` / `l` | Review the new profile using selected captured values. |
+| Profile review | `Space` / `p` | Toggle inherited protection. |
+| Profile review | `Esc` / `h` | Return to selection, preserving the snapshot. |
+| Profile review | `Enter` / `l` | Add the profile to pending config changes. |
+| Long import reviews | `PgUp/PgDn`, `Home/End` | Scroll or reach the top/bottom of details. |
+| Mapping, selection, review | `?` | Show contextual help. |
+| Mapping | `Esc` / `h` | Cancel the import. |
+| Reading sources | `Esc` / `h` | Cancel the read and return to mapping. |
+
+Enter a unique profile name first. Relative source paths use the configuration
+directory. Ordinary characters, including `q`, are text during source/name entry.
+Selected values are captured literals; all other entries keep their base source.
+Values stay hidden. Save the pending draft from the usual configuration Review
+tab. Import does not write source or destination target files.
 
 ### Text Entry
 

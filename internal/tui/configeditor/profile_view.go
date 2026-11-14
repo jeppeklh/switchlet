@@ -141,6 +141,9 @@ func (model Model) profileValueInputView() string {
 }
 
 func (model Model) profileReviewView() string {
+	if model.profileForm.mode == profileDraftImport {
+		return model.profileImportView()
+	}
 	lines := model.profileDraftSummaryLines()
 	reviewLine := "Review this profile draft before adding it to the pending config changes."
 	if model.profileForm.mode == profileDraftCapture {
@@ -184,6 +187,9 @@ func (model Model) profileRemoveConfirmView() string {
 }
 
 func (model Model) profileFormTitle() string {
+	if model.profileForm.mode == profileDraftImport {
+		return "Import profile"
+	}
 	if model.profileForm.mode == profileDraftDuplicate {
 		return "Duplicate profile"
 	}

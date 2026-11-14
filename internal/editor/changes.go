@@ -202,6 +202,44 @@ func ReadTargetValue(target config.Target) (string, error) {
 	return "", fmt.Errorf("current value for target %q was not read", target.Name)
 }
 
+// TargetValueResult contains one typed read result. A failed selector does not
+// discard successful reads of other selectors in the same file.
+type TargetValueResult struct {
+	Value string
+	Err   error
+}
+
+// ReadTargetValueResults reads each source file once and evaluates each selector
+// independently against those bytes. Results preserve the input order. Multiple
+// target names may read the same selector; this operation never writes files.
+func ReadTargetValueResults(targets []config.Target) []TargetValueResult {
+	type sourceSnapshot struct {
+		contents []byte
+		err      error
+	}
+	snapshots := make(map[string]sourceSnapshot)
+	results := make([]TargetValueResult, len(targets))
+	for index, target := range targets {
+		normalized, _, err := normalizeTarget(target)
+		if err != nil {
+			results[index].Err = err
+			continue
+		}
+		snapshot, ok := snapshots[normalized.File]
+		if !ok {
+			snapshot.contents, _, snapshot.err = readTargetFile(normalized.File)
+			snapshots[normalized.File] = snapshot
+		}
+		if snapshot.err != nil {
+			results[index].Err = targetError(normalized, snapshot.err)
+			continue
+		}
+		values, err := readTargetValuesFromContents(snapshot.contents, normalized.Type, []config.Target{normalized})
+		results[index] = TargetValueResult{Value: values[normalized.Name], Err: err}
+	}
+	return results
+}
+
 // ReadTargetValues reads current string values for configured targets, grouping
 // reads by target file without preparing or writing file changes.
 func ReadTargetValues(targets []config.Target) (map[string]string, error) {

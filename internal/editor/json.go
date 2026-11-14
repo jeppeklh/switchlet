@@ -103,6 +103,9 @@ func readJSONTargetValues(contents []byte, targets []config.Target) (map[string]
 	}
 
 	for _, target := range targets {
+		if err := validateUniqueJSONTargetPath(contents, target.JSONPath); err != nil {
+			return nil, targetError(target, err)
+		}
 		targetObject, targetKey, err := findScalarTarget(rootObject, target.JSONPath, target.ValueType)
 		if err != nil {
 			return nil, targetError(target, err)
@@ -116,6 +119,49 @@ func readJSONTargetValues(contents []byte, targets []config.Target) (map[string]
 	}
 
 	return values, nil
+}
+
+// Validate only keys along the configured selector. Decoding into a map alone
+// silently chooses the last duplicate, including duplicate ancestor objects.
+func validateUniqueJSONTargetPath(contents []byte, path string) error {
+	segments, err := config.ParseJSONPath(path)
+	if err != nil {
+		return err
+	}
+	for _, segment := range segments {
+		decoder := json.NewDecoder(bytes.NewReader(contents))
+		token, err := decoder.Token()
+		if err != nil {
+			return err
+		}
+		if token != json.Delim('{') {
+			return nil
+		} // The normal target lookup reports type errors.
+		var matched json.RawMessage
+		found := false
+		for decoder.More() {
+			key, err := decoder.Token()
+			if err != nil {
+				return err
+			}
+			var value json.RawMessage
+			if err := decoder.Decode(&value); err != nil {
+				return err
+			}
+			if key != segment {
+				continue
+			}
+			if found {
+				return fmt.Errorf("JSON path is ambiguous because an object key is repeated")
+			}
+			found, matched = true, value
+		}
+		if !found {
+			return nil
+		} // The normal target lookup reports missing keys.
+		contents = matched
+	}
+	return nil
 }
 
 func replaceJSONStringTokens(contents []byte, updates []jsonStringValueUpdate) ([]byte, bool) {

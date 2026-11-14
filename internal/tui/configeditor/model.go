@@ -20,6 +20,10 @@ const (
 	editorStateOverview editorState = iota
 	editorStateFilter
 	editorStateProfileCaptureLoading
+	editorStateProfileImportMapping
+	editorStateProfileImportSourceInput
+	editorStateProfileImportLoading
+	editorStateProfileImportSelection
 	editorStateProfileNameInput
 	editorStateProfileIncludeValues
 	editorStateProfileValueSource

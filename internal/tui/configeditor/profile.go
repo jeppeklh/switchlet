@@ -15,6 +15,7 @@ const (
 	profileDraftUpdate
 	profileDraftDuplicate
 	profileDraftCapture
+	profileDraftImport
 )
 
 type profileNameNextState int
@@ -22,9 +23,11 @@ type profileNameNextState int
 const (
 	profileNameNextIncludeValues profileNameNextState = iota
 	profileNameNextReview
+	profileNameNextImport
 )
 
 type profileDraftState struct {
+	importForm    profileImportState
 	mode          profileDraftMode
 	originalName  string
 	draft         app.ConfigEditProfileDraft
@@ -188,7 +191,7 @@ func (model *Model) applyProfileNameInput() {
 		return
 	}
 
-	if model.profileForm.mode == profileDraftDuplicate {
+	if model.profileForm.mode == profileDraftDuplicate || model.profileForm.mode == profileDraftImport {
 		draft, err := model.workflow.DuplicateProfileDraft(model.document, model.profileForm.originalName, profileName)
 		if err != nil {
 			model.profileForm.errorMessage = err.Error()
@@ -201,6 +204,10 @@ func (model *Model) applyProfileNameInput() {
 	model.profileForm.errorMessage = ""
 	model.inputValue = ""
 	model.inputCursor = 0
+	if model.profileForm.nameNext == profileNameNextImport {
+		model.state = editorStateProfileImportMapping
+		return
+	}
 	if model.profileForm.nameNext == profileNameNextReview {
 		model.state = editorStateProfileReview
 		return

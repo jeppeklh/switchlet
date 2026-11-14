@@ -13,6 +13,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		return model.handleManagedValuesAdded(message)
 	case saveCompletedMsg:
 		return model.handleSaveCompleted(message)
+	case profileImportedMsg:
+		return model.handleProfileImported(message)
 	case profileCapturedMsg:
 		return model.handleProfileCaptured(message)
 	case managedValueFilesDiscoveredMsg:
@@ -57,6 +59,8 @@ func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 		switch model.state {
 		case editorStateFilter:
 			return model.handleFilterKey(message)
+		case editorStateProfileImportMapping, editorStateProfileImportSourceInput, editorStateProfileImportLoading, editorStateProfileImportSelection:
+			return model.handleProfileImportKey(message)
 		case editorStateProfileCaptureLoading:
 			return model.handleProfileCaptureLoadingKey(message)
 		case editorStateProfileNameInput:
@@ -130,6 +134,8 @@ func (model Model) canOpenHelp() bool {
 	}
 	switch model.state {
 	case editorStateOverview,
+		editorStateProfileImportMapping,
+		editorStateProfileImportSelection,
 		editorStateProfileIncludeValues,
 		editorStateProfileValueSource,
 		editorStateProfileReview,
@@ -209,6 +215,10 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 			model.beginAddProfile()
 		} else if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
 			return model, model.beginAddManagedValue()
+		}
+	case isRuneKey(message, 'I'):
+		if row := model.selectedRow(rows); row.Kind == navigationRowProfile {
+			model.beginImportProfile(row.Label)
 		}
 	case isRuneKey(message, 'C'):
 		selectedRow := model.selectedRow(rows)

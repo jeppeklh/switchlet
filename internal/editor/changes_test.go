@@ -2,6 +2,7 @@ package editor
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -1380,4 +1381,116 @@ func TestApplyTargetChanges_FailureRecoveryPreservesExternalEdits(t *testing.T) 
 	if string(readFile(t, first)) != `{"value":"external"}` {
 		t.Fatal("failure recovery overwrote an external edit")
 	}
+}
+
+func TestReadTargetValueResults_PartialReadsShareOneSnapshot(t *testing.T) {
+	root := t.TempDir()
+	path := writeTargetFile(t, root, "source.json", `{"good":"source-secret","wrong":true}`)
+	originalRead := readTargetFile
+	count := 0
+	readTargetFile = func(path string) ([]byte, fs.FileInfo, error) {
+		count++
+		contents, info, err := originalRead(path)
+		if err == nil {
+			err = os.WriteFile(path, []byte(`{"good":"changed"}`), 0600)
+		}
+		return contents, info, err
+	}
+	t.Cleanup(func() { readTargetFile = originalRead })
+	results := ReadTargetValueResults([]config.Target{
+		{Name: "good", File: path, Type: config.TargetTypeJSON, JSONPath: "good"},
+		{Name: "missing", File: path, Type: config.TargetTypeJSON, JSONPath: "missing"},
+		{Name: "wrong", File: path, Type: config.TargetTypeJSON, JSONPath: "wrong"},
+		{Name: "alias", File: path, Type: config.TargetTypeJSON, JSONPath: "good"},
+	})
+	if count != 1 {
+		t.Fatalf("reads = %d, want 1", count)
+	}
+	for _, index := range []int{0, 3} {
+		if results[index].Err != nil || results[index].Value != "source-secret" {
+			t.Fatalf("result %d = %#v", index, results[index])
+		}
+	}
+	for _, index := range []int{1, 2} {
+		if results[index].Err == nil || strings.Contains(results[index].Err.Error(), "source-secret") {
+			t.Fatalf("unsafe or missing error: %#v", results[index])
+		}
+	}
+}
+
+func TestReadTargetValueResults_RejectsUnsafeSourcesAndUnsupportedSelectors(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name, file, contents, selector string
+		kind                           config.TargetType
+	}{
+		{"ambiguous JSON", "duplicate.json", `{"v":"secret-one","v":"secret-two"}`, "v", config.TargetTypeJSON},
+		{"ambiguous dotenv", ".env.duplicate", "V=secret-one\nV=secret-two\n", "V", config.TargetTypeDotenv},
+		{"YAML alias", "alias.yaml", "original: &value secret-value\nv: *value\n", "v", config.TargetTypeYAML},
+		{"TOML array", "array.toml", "v = [\"secret-value\"]\n", "v", config.TargetTypeTOML},
+		{"malformed", "bad.json", `{"v": "secret-value"`, "v", config.TargetTypeJSON},
+		{"directory", ".", "", "v", config.TargetTypeJSON},
+		{"missing", "missing.json", "", "v", config.TargetTypeJSON},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(root, tc.file)
+			if tc.contents != "" {
+				writeTargetFile(t, root, tc.file, tc.contents)
+			}
+			target := config.Target{Name: "value", File: path, Type: tc.kind, JSONPath: tc.selector, Key: tc.selector, YAMLPath: tc.selector, TOMLPath: tc.selector}
+			result := ReadTargetValueResults([]config.Target{target})[0]
+			if result.Err == nil {
+				t.Fatal("expected read failure")
+			}
+			if result.Value != "" || strings.Contains(result.Err.Error(), "secret-") {
+				t.Fatalf("read error leaks source: %#v", result)
+			}
+		})
+	}
+	t.Run("symlink", func(t *testing.T) {
+		source := writeTargetFile(t, root, "real.json", `{"v":"secret-value"}`)
+		link := filepath.Join(root, "link.json")
+		if err := os.Symlink(source, link); err != nil {
+			t.Skipf("symlink unavailable: %v", err)
+		}
+		result := ReadTargetValueResults([]config.Target{{Name: "v", File: link, Type: config.TargetTypeJSON, JSONPath: "v"}})[0]
+		if result.Err == nil || !strings.Contains(result.Err.Error(), "symlink") {
+			t.Fatalf("expected symlink rejection: %#v", result)
+		}
+	})
+}
+
+func TestReadTargetValueResults_JSONAmbiguityIsPerTarget(t *testing.T) {
+	path := writeTargetFile(t, t.TempDir(), "source.json", `{"branch":{"v":"secret-one"},"branch":{"v":"secret-two"},"good":"public","leaf":{"v":1,"v":2}}`)
+	results := ReadTargetValueResults([]config.Target{
+		{Name: "ancestor", File: path, Type: config.TargetTypeJSON, JSONPath: "branch.v"},
+		{Name: "good", File: path, Type: config.TargetTypeJSON, JSONPath: "good"},
+		{Name: "leaf", File: path, Type: config.TargetTypeJSON, JSONPath: "leaf.v", ValueType: config.ValueTypeInteger},
+	})
+	if results[0].Err == nil || results[2].Err == nil || results[1].Err != nil || results[1].Value != "public" {
+		t.Fatalf("results = %#v", results)
+	}
+}
+
+func FuzzJSONImportRejectsDuplicateSelector(f *testing.F) {
+	for _, value := range []string{"synthetic", "quote\" and slash\\", "\n", "", "æøå"} {
+		f.Add(value)
+	}
+	f.Fuzz(func(t *testing.T, value string) {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		contents := []byte(fmt.Sprintf(`{"branch":{"value":%s},"branch":{"value":"other"},"safe":"unchanged"}`, encoded))
+		target := config.Target{Name: "value", Type: config.TargetTypeJSON, JSONPath: "branch.value"}
+		if _, err := readJSONTargetValues(contents, []config.Target{target}); err == nil {
+			t.Fatal("accepted duplicate ancestor")
+		}
+		target.JSONPath = "safe"
+		values, err := readJSONTargetValues(contents, []config.Target{target})
+		if err != nil || values["value"] != "unchanged" {
+			t.Fatal("unrelated selector affected by duplicate")
+		}
+	})
 }

@@ -29,6 +29,8 @@ func (model Model) View() string {
 		return model.configEditorShell("Review selected values", model.managedForm.batch.Panels(), model.managedForm.batch.Actions())
 	}
 	switch model.state {
+	case editorStateProfileImportMapping, editorStateProfileImportSourceInput, editorStateProfileImportLoading, editorStateProfileImportSelection:
+		return model.profileImportView()
 	case editorStateProfileCaptureLoading:
 		return model.profileCaptureLoadingView()
 	case editorStateProfileNameInput:
@@ -202,6 +204,9 @@ func (model Model) overviewScrollablePanelIndex(selectedRow navigationRow) int {
 }
 
 func (model Model) scrollablePanelMetrics() ui.PanelScrollMetrics {
+	if model.isProfileImportReview() {
+		return ui.PanelScrollMetricsForShell(model.profileImportShell(), 0)
+	}
 	if model.state != editorStateOverview || model.activeTab != overviewTabReview {
 		return ui.PanelScrollMetrics{}
 	}
@@ -485,6 +490,7 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 		actions = append(actions,
 			ui.Action{Key: "e", Label: "Edit"},
 			ui.Action{Key: "D", Label: "Duplicate"},
+			ui.Action{Key: "I", Label: "Import"},
 			ui.Action{Key: "r", Label: "Rename"},
 			ui.Action{Key: "d", Label: "Delete"},
 		)
