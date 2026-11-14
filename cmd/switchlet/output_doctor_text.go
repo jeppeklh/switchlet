@@ -54,6 +54,11 @@ func writeDoctorCheckText(output io.Writer, styles commandOutputStyles, check ap
 			return err
 		}
 	}
+	if len(check.Environment) > 0 {
+		if err := writeEnvironmentReadiness(output, styles, check.Environment); err != nil {
+			return err
+		}
+	}
 	if len(check.UnavailableProfiles) > 0 {
 		return writeUnavailableProfileSection(output, styles, check.UnavailableProfiles, projectRoot)
 	}
@@ -109,5 +114,36 @@ func styledDoctorCheckStatus(styles commandOutputStyles, status app.HealthCheckS
 		return styles.error.Render(label)
 	default:
 		return styles.muted.Render(label)
+	}
+}
+
+func writeEnvironmentReadiness(output io.Writer, styles commandOutputStyles, requirements []app.EnvironmentRequirement) error {
+	if _, err := fmt.Fprintln(output, styles.heading.Render("Environment readiness")); err != nil {
+		return err
+	}
+	for _, requirement := range requirements {
+		if err := writeCommandDetail(output, styles, requirement.Name, environmentStateLabel(requirement.State)); err != nil {
+			return err
+		}
+		for _, use := range requirement.Uses {
+			detail := fmt.Sprintf("%s / %s (%s): %s", use.ProfileName, use.TargetName, use.ValueType, environmentStateLabel(use.State))
+			if err := writeCommandDetail(output, styles, "used by", detail); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func environmentStateLabel(state app.EnvironmentState) string {
+	switch state {
+	case app.EnvironmentReady:
+		return "Ready"
+	case app.EnvironmentMissing:
+		return "Missing"
+	case app.EnvironmentEmpty:
+		return "Empty"
+	default:
+		return "Invalid type"
 	}
 }

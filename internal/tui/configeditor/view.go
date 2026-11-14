@@ -10,6 +10,9 @@ import (
 
 // View renders the current config editor state.
 func (model Model) View() string {
+	if model.exampleExport != nil {
+		return model.exampleExport.View()
+	}
 	if model.isTerminalTooSmall() {
 		return ui.RenderShell(ui.Shell{
 			Title:    "Switchlet config",
@@ -467,6 +470,7 @@ func (model Model) overviewActions(overview app.ConfigEditOverview, selectedRow 
 	}
 
 	actions := []ui.Action{
+		{Key: "E", Label: "Export example"},
 		{Key: "h/l", Label: "Tabs"},
 		{Key: "j/k", Label: "Move"},
 		{Key: "g/G", Label: "First/Last"},

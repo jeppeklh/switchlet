@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/configexport"
 )
 
 const (
@@ -89,6 +90,7 @@ type Result struct {
 
 // Model is the Bubble Tea model for the interactive config editor.
 type Model struct {
+	exampleExport  *configexport.Model
 	workflow       app.ConfigEditWorkflow
 	targetWorkflow app.InitWorkflow
 	document       app.ConfigEditDocument

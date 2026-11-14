@@ -1112,3 +1112,37 @@ func TestModel_BatchAddRetainsFilteredMarksAndIgnoresLateResults(t *testing.T) {
 		t.Fatal("batch bypassed stale configuration checks")
 	}
 }
+
+func TestModel_ExportReturnsToUnchangedPendingDraft(t *testing.T) {
+	model, path := newTestModel(t, versionThreeConfig())
+	model = resizeModel(t, model, 80, 24)
+	draft, err := model.workflow.DuplicateProfileDraft(model.document, "Local", "Pending")
+	if err != nil {
+		t.Fatal(err)
+	}
+	model.document, err = model.workflow.AddProfileDraft(model.document, draft)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := model.workflow.SummarizeChanges(model.document)
+	original, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, _ = pressRune(t, model, 'E')
+	if model.exampleExport == nil || !strings.Contains(model.View(), "Export example") {
+		t.Fatal("export action unavailable")
+	}
+	model, _ = pressKey(t, model, tea.KeyEsc)
+	if model.exampleExport != nil {
+		t.Fatal("export did not return")
+	}
+	after := model.workflow.SummarizeChanges(model.document)
+	if fmt.Sprint(before) != fmt.Sprint(after) || !model.overview().Dirty {
+		t.Fatal("export changed pending draft")
+	}
+	current, err := os.ReadFile(path)
+	if err != nil || string(current) != string(original) {
+		t.Fatal("export persisted active draft")
+	}
+}

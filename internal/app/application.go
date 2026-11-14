@@ -365,6 +365,7 @@ func (application Application) profileItem(configuredProfile config.Profile, tar
 
 func (application Application) profileAvailabilityHealthCheck() HealthCheck {
 	profileItems := application.Profiles()
+	environment := environmentRequirements(profileItems)
 	profiles := make([]HealthProfile, 0, len(profileItems))
 	unavailableProfiles := make([]UnavailableProfile, 0)
 
@@ -387,14 +388,16 @@ func (application Application) profileAvailabilityHealthCheck() HealthCheck {
 
 	if len(unavailableProfiles) == 0 {
 		return HealthCheck{
-			Name:     "profile_availability",
-			Status:   HealthCheckOK,
-			Message:  fmt.Sprintf("all %d configured profile(s) are available", len(profileItems)),
-			Profiles: profiles,
+			Environment: environment,
+			Name:        "profile_availability",
+			Status:      HealthCheckOK,
+			Message:     fmt.Sprintf("all %d configured profile(s) are available", len(profileItems)),
+			Profiles:    profiles,
 		}
 	}
 
 	return HealthCheck{
+		Environment:         environment,
 		Name:                "profile_availability",
 		Status:              HealthCheckWarning,
 		Message:             fmt.Sprintf("%d configured profile(s) are unavailable in the current environment", len(unavailableProfiles)),
@@ -477,6 +480,7 @@ func (application Application) profileValueItems(resolvedValues []profile.Resolv
 	items := make([]ProfileValueItem, 0, len(resolvedValues))
 	for _, resolvedValue := range resolvedValues {
 		item := ProfileValueItem{
+			environmentState:        environmentState(resolvedValue.ResolutionError),
 			TargetName:              resolvedValue.Target,
 			Source:                  profileSource(resolvedValue.Source),
 			EnvironmentVariableName: resolvedValue.EnvironmentVariableName,

@@ -4,10 +4,28 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jeppeklh/switchlet/internal/app"
+	"github.com/jeppeklh/switchlet/internal/tui/configexport"
 )
 
 // Update handles Bubble Tea messages for the config editor.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
+	if model.exampleExport != nil {
+		if size, ok := message.(tea.WindowSizeMsg); ok {
+			model.width, model.height = size.Width, size.Height
+		}
+		updated, cmd := model.exampleExport.Update(message)
+		component := updated.(configexport.Model)
+		model.exampleExport = &component
+		if result, finished := component.Result(); finished {
+			model.exampleExport = nil
+			if result.Quit {
+				model.cancel()
+				return model, tea.Quit
+			}
+		}
+		return model, cmd
+	}
+
 	switch message := message.(type) {
 	case managedValuesAddedMsg:
 		return model.handleManagedValuesAdded(message)
@@ -216,6 +234,11 @@ func (model Model) handleOverviewKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 		} else if selectedRow.Kind == navigationRowManagedValuesSection || selectedRow.Kind == navigationRowManagedValue {
 			return model, model.beginAddManagedValue()
 		}
+	case isRuneKey(message, 'E'):
+		component := configexport.New(model.document, model.workflow)
+		updated, _ := component.Update(tea.WindowSizeMsg{Width: model.width, Height: model.height})
+		component = updated.(configexport.Model)
+		model.exampleExport = &component
 	case isRuneKey(message, 'I'):
 		if row := model.selectedRow(rows); row.Kind == navigationRowProfile {
 			model.beginImportProfile(row.Label)

@@ -429,6 +429,36 @@ Use `--strict` when warnings should fail CI or shell automation. It preserves
 the same doctor report data and statuses, but changes the exit code to non-zero
 when warnings are present.
 
+Doctor includes an environment readiness checklist under profile availability.
+It groups each required variable with its affected profiles, targets, expected
+scalar types, and `Ready`, `Missing`, `Empty`, or `Invalid type` states. A shared
+variable can satisfy one type and fail another. No environment values are shown,
+stored, set, or synchronized. Supply values using your normal shell or secret
+tooling, then rerun doctor. The checklist is optional and does not gate the
+ordinary switching workflow.
+
+With `--json`, the `profile_availability` check has an additive `environment`
+array when environment references exist:
+
+```json
+{
+  "name": "APP_ENABLED",
+  "state": "invalid_type",
+  "uses": [
+    {"profileName": "Local", "targetName": "enabled", "valueType": "boolean", "state": "invalid_type"}
+  ]
+}
+```
+
+Each array entry has `name`, `state`, and `uses`; each use identifies its profile,
+target, expected type, and state. State values are `ready`, `missing`, `empty`,
+and `invalid_type`. The grouped state is ready only when every use is ready.
+The command JSON schema remains version `2`; existing checks, warning/failure
+statuses, and default/strict exit semantics remain unchanged.
+
+Create a shareable starting point through `switchlet config` → `E Export example`.
+See [example setup](docs/configuration/CONFIGURATION.md#example-setup).
+
 ### `switchlet targets`
 
 Lists configured target names, files, target types, and selectors without

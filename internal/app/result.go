@@ -56,6 +56,7 @@ type ProfileItem struct {
 
 // ProfileValueItem describes one target value included by a profile.
 type ProfileValueItem struct {
+	environmentState        EnvironmentState
 	ValueType               config.ValueType
 	TargetName              string
 	TargetFile              string
@@ -331,6 +332,7 @@ const (
 
 // HealthCheck describes one value-safe project health check.
 type HealthCheck struct {
+	Environment         []EnvironmentRequirement
 	Name                string
 	Status              HealthCheckStatus
 	Message             string

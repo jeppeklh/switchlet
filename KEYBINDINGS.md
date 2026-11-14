@@ -198,6 +198,7 @@ finish filtering with `Enter` before marking more settings.
 | `C` | Capture current managed values into a new profile from the `Profiles` tab. |
 | `e` | Edit the selected profile or managed-value location. |
 | `D` | Duplicate the selected profile. |
+| `E` | Export the current draft as a reviewed environment-only `.switchlet.example.yaml`. |
 | `I` | Import values from mapped source files into a new profile based on the selected profile. |
 | `r` | Rename the selected profile or managed value. |
 | `d` | Delete the selected profile or managed value. |
@@ -234,6 +235,32 @@ directory. Ordinary characters, including `q`, are text during source/name entry
 Selected values are captured literals; all other entries keep their base source.
 Values stay hidden. Save the pending draft from the usual configuration Review
 tab. Import does not write source or destination target files.
+
+### Example Export
+
+Press `E` from any config-editor overview tab. Export includes current pending
+changes but never saves them to the active configuration.
+
+| Screen | Key | Action |
+|---|---|---|
+| Entry list | `j/k`, `Up/Down`, `g/G` | Navigate profile entries. |
+| Entry list | `e` | Assign an environment name to a literal entry. Existing references stay unchanged. |
+| Name entry | `Enter` / `Esc` | Accept a valid name or cancel editing. |
+| Name entry | `Left/Right`, `Home/End`, `Ctrl+A/B/E/F`, `Backspace/Delete`, `Ctrl+U/K` | Edit the name using the normal text controls. |
+| Entry list | `Enter` / `l` | Prepare a sanitized export and review the destination. |
+| Export review | `Space` | Explicitly approve or revoke newly shared environment sources. |
+| Export review | `Enter` | Create the example or explicitly replace the reviewed existing example. |
+| Export review or preparation | `Esc` / `h` | Return to names and discard the prepared export. |
+| Lists and review | `PgUp/PgDn`, `Home/End` | Scroll long metadata and review details. |
+| Non-text screens | `?` | Show contextual help. |
+| Export screens before writing | `q` | Cancel export and return to the editor. |
+| Entry list | `Esc` / `h` | Cancel export and return to the editor. |
+| Completion | `Enter/Esc/q` | Return to the unchanged editor draft. |
+
+In name entry, `q` is literal text. Enter variable names, never their values.
+Export uses the existing editor minimum of 80x24. Once writing begins, wait for
+its result. After copying the example to `.switchlet.yaml` in another checkout,
+run `switchlet doctor` for the environment readiness checklist.
 
 ### Text Entry
 

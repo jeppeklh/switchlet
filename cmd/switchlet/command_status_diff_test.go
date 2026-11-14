@@ -1897,3 +1897,85 @@ func assertTargetDescriptor(t *testing.T, descriptor targetDescriptorTestJSON, t
 		t.Fatalf("descriptor = %#v, want %s/%s/%s/%s/%s", descriptor, targetName, targetFile, targetType, selectorName, selector)
 	}
 }
+
+func TestRunCommand_DoctorReadinessIsAdditiveAndPreservesExitSemantics(t *testing.T) {
+	root := t.TempDir()
+	target := writeFile(t, root, "settings.json", `{"text":"target-secret","flag":true}`)
+	writeFile(t, root, ".switchlet.yaml", `version: 4
+targets:
+  - name: text
+    file: settings.json
+    type: json
+    jsonPath: text
+  - name: flag
+    file: settings.json
+    type: json
+    jsonPath: flag
+    valueType: boolean
+profiles:
+  - name: Local
+    values:
+      - target: text
+        valueFromEnv: SWITCHLET_DOCTOR_SHARED
+      - target: flag
+        valueFromEnv: SWITCHLET_DOCTOR_SHARED
+`)
+	t.Setenv("SWITCHLET_DOCTOR_SHARED", "environment-secret-sentinel")
+	original := readFileBytes(t, target)
+	for _, strict := range []bool{false, true} {
+		args := []string{"doctor", "--json"}
+		if strict {
+			args = append(args, "--strict")
+		}
+		result := runCommandForTest(t, args, root)
+		expected := 0
+		if strict {
+			expected = runtimeExitCode
+		}
+		if result.exitCode != expected {
+			t.Fatalf("exit=%d want %d: %s", result.exitCode, expected, result.stderr)
+		}
+		var payload struct {
+			SchemaVersion int
+			Result        doctorResultJSON
+		}
+		if err := json.Unmarshal([]byte(result.stdout), &payload); err != nil {
+			t.Fatal(err)
+		}
+		if payload.SchemaVersion != commandJSONSchemaVersion || payload.Result.Status != "warning" {
+			t.Fatal("JSON contract changed")
+		}
+		found := false
+		for _, check := range payload.Result.Checks {
+			if check.Name == "profile_availability" {
+				found = true
+				if len(check.Environment) != 1 || len(check.Environment[0].Uses) != 2 || check.Environment[0].State != "invalid_type" {
+					t.Fatalf("readiness missing: %#v", check)
+				}
+				if check.Environment[0].Uses[0].State != "ready" || check.Environment[0].Uses[1].State != "invalid_type" {
+					t.Fatal("type-specific states lost")
+				}
+			}
+		}
+		if !found {
+			t.Fatal("availability check lost")
+		}
+		if strings.Contains(result.stdout, "environment-secret-sentinel") || strings.Contains(result.stdout, "target-secret") {
+			t.Fatal("doctor leaked values")
+		}
+	}
+	text := runCommandForTest(t, []string{"doctor"}, root)
+	for _, expected := range []string{"Environment readiness", "SWITCHLET_DOCTOR_SHARED", "Invalid type", "Local / text (string): Ready", "Local / flag (boolean): Invalid type"} {
+		if !strings.Contains(text.stdout, expected) {
+			t.Fatalf("text missing %q: %s", expected, text.stdout)
+		}
+	}
+	t.Setenv("SWITCHLET_DOCTOR_SHARED", "false")
+	ready := runCommandForTest(t, []string{"doctor", "--strict", "--json"}, root)
+	if ready.exitCode != 0 {
+		t.Fatalf("ready doctor failed: %s %s", ready.stdout, ready.stderr)
+	}
+	if !bytes.Equal(original, readFileBytes(t, target)) {
+		t.Fatal("doctor changed managed file")
+	}
+}

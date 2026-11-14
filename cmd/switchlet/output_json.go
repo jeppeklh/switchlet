@@ -277,15 +277,41 @@ type targetsResultJSON struct {
 	Targets []targetDescriptorJSON `json:"targets"`
 }
 
+type environmentUseJSON struct {
+	ProfileName string `json:"profileName"`
+	TargetName  string `json:"targetName"`
+	ValueType   string `json:"valueType"`
+	State       string `json:"state"`
+}
+
+type environmentRequirementJSON struct {
+	Name  string               `json:"name"`
+	State string               `json:"state"`
+	Uses  []environmentUseJSON `json:"uses"`
+}
+
+func environmentJSON(requirements []app.EnvironmentRequirement) []environmentRequirementJSON {
+	var result []environmentRequirementJSON
+	for _, requirement := range requirements {
+		entry := environmentRequirementJSON{Name: requirement.Name, State: string(requirement.State)}
+		for _, use := range requirement.Uses {
+			entry.Uses = append(entry.Uses, environmentUseJSON{ProfileName: use.ProfileName, TargetName: use.TargetName, ValueType: string(use.ValueType), State: string(use.State)})
+		}
+		result = append(result, entry)
+	}
+	return result
+}
+
 type healthCheckJSON struct {
-	Name                string                   `json:"name"`
-	Status              string                   `json:"status"`
-	Message             string                   `json:"message"`
-	Hint                string                   `json:"hint,omitempty"`
-	Targets             []targetDescriptorJSON   `json:"targets,omitempty"`
-	Profiles            []healthProfileJSON      `json:"profiles,omitempty"`
-	UnavailableProfiles []unavailableProfileJSON `json:"unavailableProfiles,omitempty"`
-	TargetFailure       *targetFailureJSON       `json:"targetFailure,omitempty"`
+	Environment         []environmentRequirementJSON `json:"environment,omitempty"`
+	Name                string                       `json:"name"`
+	Status              string                       `json:"status"`
+	Message             string                       `json:"message"`
+	Hint                string                       `json:"hint,omitempty"`
+	Targets             []targetDescriptorJSON       `json:"targets,omitempty"`
+	Profiles            []healthProfileJSON          `json:"profiles,omitempty"`
+	UnavailableProfiles []unavailableProfileJSON     `json:"unavailableProfiles,omitempty"`
+	TargetFailure       *targetFailureJSON           `json:"targetFailure,omitempty"`
 }
 
 type healthProfileJSON struct {
@@ -502,6 +528,7 @@ func healthCheckJSONFromChecks(checks []app.HealthCheck) []healthCheckJSON {
 	encodedChecks := make([]healthCheckJSON, 0, len(checks))
 	for _, check := range checks {
 		encodedCheck := healthCheckJSON{
+			Environment:         environmentJSON(check.Environment),
 			Name:                check.Name,
 			Status:              string(check.Status),
 			Message:             check.Message,
