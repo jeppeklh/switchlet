@@ -128,6 +128,12 @@ func (model Model) compactProfileContextLines() []string {
 	if model.currentDetection == currentProfileDetectionUnavailable {
 		current = "Current check unavailable · s Status · r Retry"
 	}
+	if model.undoWorkflow != nil {
+		hints = strings.Replace(hints, "? Help", "u Undo · ? Help", 1)
+		if attention := model.undoAttentionLine(); attention != "" {
+			current = attention
+		}
+	}
 	if model.state == searchState {
 		hints = "Enter Apply filter · Esc Back"
 		current = model.currentProfileDetectionMessage()
@@ -167,7 +173,7 @@ func (model Model) listActions() []Action {
 		if model.profileFilter != "" {
 			actions = append(actions, Action{Key: "Esc", Label: "Clear filter", Priority: ActionPriorityPrimary})
 		}
-		return AppendHelpAction(append(actions, Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal}, Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical}))
+		return AppendHelpAction(model.withUndoAction(append(actions, Action{Key: "c", Label: "Config", Priority: ActionPriorityNormal}, Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical})))
 	}
 
 	actions := []Action{
@@ -200,7 +206,27 @@ func (model Model) listActions() []Action {
 		Action{Key: "q", Label: "Quit", Priority: ActionPriorityCritical},
 	)
 
-	return AppendHelpAction(actions)
+	return AppendHelpAction(model.withUndoAction(actions))
+}
+
+func (model Model) withUndoAction(actions []Action) []Action {
+	if model.undoWorkflow == nil {
+		return actions
+	}
+	return append(actions, Action{Key: "u", Label: "Undo", Priority: ActionPriorityNormal})
+}
+
+func (model Model) undoAttentionLine() string {
+	if model.isApplying() || model.state == searchState {
+		return ""
+	}
+	if model.undoStatusError != nil {
+		return "Undo status unavailable · u Review"
+	}
+	if model.undoStatus != nil && (model.undoStatus.Status == "pending" || model.undoStatus.Status == "undoing") {
+		return "Interrupted operation · u Review recovery"
+	}
+	return ""
 }
 
 func (model Model) profileContentsLines() []string {
@@ -239,6 +265,9 @@ func (model Model) appendSelectedProfileContents(lines []string, selectedProfile
 }
 
 func (model Model) currentProfileDetectionFeedbackLines(lines []string) []string {
+	if attention := model.undoAttentionLine(); attention != "" {
+		lines = append(lines, attention)
+	}
 	message := model.currentProfileDetectionMessage()
 	if message == "" {
 		return lines
@@ -831,7 +860,7 @@ func (model Model) errorShell() Shell {
 			model.profilePanel(RowInactiveSelected, false),
 			{Title: "Error", Lines: RecoverableErrorLines(model.recoverableError, secondaryPanelContentWidth(model.width)), Focused: true, FillHeight: model.shouldFillWorkspacePanels()},
 		},
-		Actions: AppendHelpAction([]Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}}),
+		Actions: AppendHelpAction(model.withUndoAction([]Action{{Key: "Any key", Label: "Return"}, {Key: "q", Label: "Quit"}})),
 		Width:   model.width,
 		Height:  model.height,
 	}

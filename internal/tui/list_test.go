@@ -72,6 +72,31 @@ func BenchmarkPicker(b *testing.B) {
 	}
 }
 
+func TestUndoStatus_RejectsStaleRequestsAndPreviousPickerInstances(t *testing.T) {
+	application := app.New(config.Target{}, numberedProfiles(1))
+	model := New(application).WithUndoWorkflow(application.UndoWorkflow())
+	old := undoStatusMsg{requestID: model.undoRequestID, scope: model.undoScope, result: app.UndoResult{Status: "pending"}}
+	model.refreshUndoStatus()
+	updated, _ := model.Update(old)
+	model = updated.(Model)
+	if model.undoStatus != nil {
+		t.Fatal("old status replaced a requested refresh")
+	}
+	model = model.WithUndoWorkflow(application.UndoWorkflow())
+	updated, _ = model.Update(old)
+	model = updated.(Model)
+	if model.undoStatus != nil {
+		t.Fatal("previous picker's status was accepted")
+	}
+	current := old
+	current.scope, current.requestID = model.undoScope, model.undoRequestID
+	updated, _ = model.Update(current)
+	model = updated.(Model)
+	if !strings.Contains(model.View(), "Interrupted operation") || model.state != listState {
+		t.Fatal("current status did not remain optional picker feedback")
+	}
+}
+
 func TestNew_InitializesProfilesAndSelection(t *testing.T) {
 	application := app.New(
 		config.Target{},

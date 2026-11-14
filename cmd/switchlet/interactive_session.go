@@ -6,6 +6,7 @@ import (
 	"github.com/jeppeklh/switchlet/internal/app"
 	"github.com/jeppeklh/switchlet/internal/tui"
 	"github.com/jeppeklh/switchlet/internal/tui/configeditor"
+	"github.com/jeppeklh/switchlet/internal/tui/undoreview"
 )
 
 type interactiveSessionMode int
@@ -13,6 +14,7 @@ type interactiveSessionMode int
 const (
 	interactiveSessionMain interactiveSessionMode = iota
 	interactiveSessionConfig
+	interactiveSessionUndo
 )
 
 type interactiveSessionModel struct {
@@ -22,6 +24,7 @@ type interactiveSessionModel struct {
 	application      app.Application
 	mainModel        tui.Model
 	configModel      configeditor.Model
+	undoModel        undoreview.Model
 	mode             interactiveSessionMode
 	width            int
 	height           int
@@ -43,7 +46,7 @@ func newInteractiveSessionModel(workingDirectory string, application app.Applica
 		projectRoot:      projectRoot,
 		loadOptions:      loadOptions,
 		application:      application,
-		mainModel:        tui.NewWithProjectRoot(application, projectRoot),
+		mainModel:        tui.NewWithProjectRoot(application, projectRoot).WithUndoWorkflow(application.UndoWorkflow()),
 		mode:             interactiveSessionMain,
 	}
 }
@@ -61,11 +64,17 @@ func (model interactiveSessionModel) Update(message tea.Msg) (tea.Model, tea.Cmd
 	if model.mode == interactiveSessionConfig {
 		return model.updateConfig(message)
 	}
+	if model.mode == interactiveSessionUndo {
+		return model.updateUndo(message)
+	}
 
 	return model.updateMain(message)
 }
 
 func (model interactiveSessionModel) View() string {
+	if model.mode == interactiveSessionUndo {
+		return model.undoModel.View()
+	}
 	if model.mode == interactiveSessionConfig {
 		return model.configModel.View()
 	}
@@ -88,6 +97,13 @@ func (model interactiveSessionModel) updateMain(message tea.Msg) (tea.Model, tea
 		return model, command
 	}
 	model.mainModel = mainModel
+	if model.mainModel.UndoRequested() {
+		model.undoModel = undoreview.New(model.application.UndoWorkflow(), model.projectRoot)
+		updated, _ := model.undoModel.Update(tea.WindowSizeMsg{Width: model.width, Height: model.height})
+		model.undoModel = updated.(undoreview.Model)
+		model.mode = interactiveSessionUndo
+		return model, model.undoModel.Init()
+	}
 
 	if !model.mainModel.ConfigRequested() {
 		return model, command
@@ -103,6 +119,22 @@ func (model interactiveSessionModel) updateMain(message tea.Msg) (tea.Model, tea
 	model.configModel = model.resizeConfigModel(configModel)
 	model.mode = interactiveSessionConfig
 	return model, model.configModel.Init()
+}
+
+func (model interactiveSessionModel) updateUndo(message tea.Msg) (tea.Model, tea.Cmd) {
+	updated, command := model.undoModel.Update(message)
+	model.undoModel = updated.(undoreview.Model)
+	result, done := model.undoModel.Result()
+	if !done {
+		return model, command
+	}
+	if result.Quit {
+		return model, tea.Quit
+	}
+	model.mainModel = model.resizeMainModel(model.mainModel)
+	model.mainModel, command = model.mainModel.ResumeAfterUndo()
+	model.mode = interactiveSessionMain
+	return model, command
 }
 
 func (model interactiveSessionModel) updateConfig(message tea.Msg) (tea.Model, tea.Cmd) {
@@ -137,7 +169,7 @@ func (model interactiveSessionModel) handleConfigResult(result configeditor.Resu
 		model.projectRoot = project.ProjectRoot
 	}
 
-	model.mainModel = model.resizeMainModel(tui.NewWithSelectedProfileAndProjectRoot(model.application, model.selectedProfile, model.projectRoot))
+	model.mainModel = model.resizeMainModel(tui.NewWithSelectedProfileAndProjectRoot(model.application, model.selectedProfile, model.projectRoot).WithUndoWorkflow(model.application.UndoWorkflow()))
 	model.selectedProfile = ""
 	model.mode = interactiveSessionMain
 	return model, model.mainModel.Init()

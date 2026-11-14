@@ -9,7 +9,158 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
+
+// runSessionEffect executes the same independent batch commands as Bubble Tea.
+func runSessionEffect(t *testing.T, session interactiveSessionModel, command tea.Cmd) interactiveSessionModel {
+	t.Helper()
+	if command == nil {
+		return session
+	}
+	message := command()
+	if _, quitting := message.(tea.QuitMsg); quitting {
+		return session
+	}
+	if batch, ok := message.(tea.BatchMsg); ok {
+		for _, effect := range batch {
+			session = runSessionEffect(t, session, effect)
+		}
+		return session
+	}
+	updated, next := session.Update(message)
+	return runSessionEffect(t, updated.(interactiveSessionModel), next)
+}
+
+func sessionKey(t *testing.T, session interactiveSessionModel, key tea.KeyMsg) interactiveSessionModel {
+	t.Helper()
+	updated, command := session.Update(key)
+	return runSessionEffect(t, updated.(interactiveSessionModel), command)
+}
+
+func sessionRune(t *testing.T, session interactiveSessionModel, key rune) interactiveSessionModel {
+	t.Helper()
+	return sessionKey(t, session, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{key}})
+}
+
+func TestInteractiveUndoPreservesSelectionFilterAndRefreshesCurrentProfile(t *testing.T) {
+	root, paths := undoProject(t)
+	undoCommand(t, root, "undo", "--enable")
+	undoCommand(t, root, "apply", "One")
+	before := readCommandFile(t, paths[0])
+	application, err := loadApplication(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := newInteractiveSessionModel(root, application)
+	session = runSessionEffect(t, session, session.Init())
+	updated, _ := session.Update(tea.WindowSizeMsg{Width: 60, Height: 16})
+	session = updated.(interactiveSessionModel)
+	session = sessionRune(t, session, '/')
+	for _, key := range "Two" {
+		session = sessionRune(t, session, key)
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEnter})
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeySpace})
+	if bytes.Equal(before, readCommandFile(t, paths[0])) {
+		t.Fatal("apply-and-stay did not change target")
+	}
+	session = sessionRune(t, session, 'u')
+	if session.mode != interactiveSessionUndo || !strings.Contains(session.View(), "Review undo") {
+		t.Fatal(session.View())
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(session.View(), "Confirm undo") {
+		t.Fatal(session.View())
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEnter})
+	if !strings.Contains(session.View(), "Recorded files restored") {
+		t.Fatal(session.View())
+	}
+	updated, _ = session.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	session = updated.(interactiveSessionModel)
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEnter})
+	if len(strings.Split(session.View(), "\n")) != 24 {
+		t.Fatal("picker did not receive resize during undo")
+	}
+	if session.mode != interactiveSessionMain || !strings.Contains(session.View(), "> Two") || strings.Contains(session.View(), "One [current]") {
+		t.Fatal("return changed filtered selection")
+	}
+	if !bytes.Equal(before, readCommandFile(t, paths[0])) {
+		t.Fatal("interactive undo did not restore exact state")
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEsc})
+	if !strings.Contains(session.View(), "One [current]") || !strings.Contains(session.View(), "> Two") {
+		t.Fatalf("current comparison or selection not refreshed:\n%s", session.View())
+	}
+}
+
+func TestInteractiveUndoOpeningAndCancellingNeverCreatesStorage(t *testing.T) {
+	root, _ := undoProject(t)
+	application, err := loadApplication(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := newInteractiveSessionModel(root, application)
+	session = runSessionEffect(t, session, session.Init())
+	session = sessionRune(t, session, 'u')
+	if session.mode != interactiveSessionUndo {
+		t.Fatal("undo did not open")
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeyEsc})
+	if session.mode != interactiveSessionMain {
+		t.Fatal("cancel did not resume picker")
+	}
+	if _, err := os.Stat(undoStore(t, root).Directory()); !os.IsNotExist(err) {
+		t.Fatal("opening or cancelling created undo storage")
+	}
+}
+
+func TestInteractivePickerToleratesUnavailableStorageAndReportsPendingRecovery(t *testing.T) {
+	root, _ := undoProject(t)
+	application, err := loadApplication(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SWITCHLET_STATE_HOME", "invalid-relative-location")
+	session := newInteractiveSessionModel(root, application)
+	session = runSessionEffect(t, session, session.Init())
+	if session.mode != interactiveSessionMain || !strings.Contains(session.View(), "Undo status unavailable") || !strings.Contains(session.View(), "> One") {
+		t.Fatal("optional storage failure blocked the picker")
+	}
+	t.Setenv("SWITCHLET_STATE_HOME", t.TempDir())
+	undoCommand(t, root, "undo", "--enable")
+	undoCommand(t, root, "apply", "One")
+	store := undoStore(t, root)
+	lock, err := store.Acquire()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := lock.Read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Record.Status = "pending"
+	if err := lock.Save(state); err != nil {
+		t.Fatal(err)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	session = sessionRune(t, session, 'r')
+	if !strings.Contains(session.View(), "Interrupted operation") {
+		t.Fatal(session.View())
+	}
+	session = sessionKey(t, session, tea.KeyMsg{Type: tea.KeySpace})
+	if !strings.Contains(session.View(), "interrupted operation requires attention") {
+		t.Fatal("pending recovery did not refuse apply")
+	}
+	session = sessionRune(t, session, 'u')
+	if !strings.Contains(session.View(), "Review recovery") {
+		t.Fatal(session.View())
+	}
+}
 
 func TestMain(m *testing.M) {
 	root, err := os.MkdirTemp("", "switchlet-test-state-")

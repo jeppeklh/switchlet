@@ -42,6 +42,9 @@ const (
 	currentProfileDetectionUnavailable
 )
 
+// A non-zero-sized identity distinguishes callbacks from earlier picker instances.
+type undoStatusScope byte
+
 const (
 	profileFilterRankNameSubstring = iota
 	profileFilterRankNameTerm
@@ -80,6 +83,12 @@ type Model struct {
 	configRequested         bool
 	helpOpen                bool
 	helpScrollOffset        int
+	undoWorkflow            *app.UndoWorkflow
+	undoRequested           bool
+	undoStatus              *app.UndoResult
+	undoStatusError         error
+	undoRequestID           int
+	undoScope               *undoStatusScope
 
 	statusComparison      *app.StatusComparison
 	diffPreview           *app.ManagedPatchPreview
@@ -92,6 +101,30 @@ type Model struct {
 // New creates the terminal model.
 func New(application app.Application) Model {
 	return NewWithProjectRoot(application, "")
+}
+
+// WithUndoWorkflow enables optional undo status and the session-hosted review action.
+// Storage is accessed only by commands, never by construction or rendering.
+func (model Model) WithUndoWorkflow(workflow app.UndoWorkflow) Model {
+	model.undoWorkflow = &workflow
+	model.undoStatus, model.undoStatusError, model.undoRequested = nil, nil, false
+	model.undoScope = new(undoStatusScope)
+	model.undoRequestID = 1
+	return model
+}
+
+// UndoRequested reports a request to open the focused undo/recovery workflow.
+func (model Model) UndoRequested() bool { return model.undoRequested }
+
+// ResumeAfterUndo preserves picker selection/filter and refreshes observed state.
+func (model Model) ResumeAfterUndo() (Model, tea.Cmd) {
+	model.undoRequested, model.helpOpen = false, false
+	model.state = listState
+	model.recoverableError = RecoverableError{}
+	model.clearConfirmationState()
+	model.clearComparisonState()
+	updated, command := model.startProfileListRefresh()
+	return updated.(Model), command
 }
 
 // NewWithProjectRoot creates the terminal model with project-relative display context.
@@ -162,7 +195,11 @@ func (model Model) Init() tea.Cmd {
 		return nil
 	}
 
-	return detectCurrentProfile(model.application, model.currentRequestID)
+	current := detectCurrentProfile(model.application, model.currentRequestID)
+	if model.undoWorkflow == nil {
+		return current
+	}
+	return tea.Batch(current, readUndoStatus(*model.undoWorkflow, model.undoScope, model.undoRequestID))
 }
 
 func (model *Model) refreshProfiles() {

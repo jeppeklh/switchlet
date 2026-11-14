@@ -164,6 +164,34 @@ switchlet undo --dry-run
 switchlet undo
 ```
 
+### Interactive Review
+
+In the picker, press `u` to open **Undo and recovery**. This shows recording
+status, the recorded apply, and affected files. `Enter` prepares an available
+undo or interrupted-operation recovery; `Enter`/`y` on the resulting confirmation
+executes it. Opening or cancelling the screen does not enable recording or write
+target files. Ordinary apply keeps its existing Enter/Space behavior.
+
+When recording is disabled, `e` opens an opt-in confirmation explaining that
+whole-file snapshots can contain secrets and are private but unencrypted.
+`x` separately reviews discarding a saved record. Discard confirmation explicitly
+states that it removes the record without restoring or changing target files.
+`n`/`Esc` cancels a confirmation; `Esc` from the overview or result returns to the
+picker. `r` refreshes status, and `PgUp`/`PgDn` or `Home`/`End` scroll long reviews.
+
+Confirmation checks the reviewed record and recording settings under the project
+lock, then repeats all file guards. A replaced record or external edit invalidates
+the review and requires a fresh review. A completed restoration refreshes the
+picker's current-profile comparison while preserving its selection and filter.
+
+Unavailable optional storage does not prevent browsing the picker. Unreadable or
+corrupt records cannot be approved in the UI: inspect `switchlet undo --status`,
+then use the existing CLI discard action only after inspecting affected files.
+CLI recovery remains available when configuration or target validation prevents
+the picker from starting; use `--config` to select that configuration explicitly.
+
+### Restoration Guarantees
+
 When enabled, changed CLI and TUI applies save one snapshot of the affected files.
 Undo restores their exact previous bytes and file modes, including comments,
 formatting, unmanaged contents, and values that did not match a named profile.

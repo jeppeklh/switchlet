@@ -367,8 +367,7 @@ profiles:
 	if command == nil {
 		t.Fatal("command is nil, want main picker init command after returning")
 	}
-	updatedModel, _ = session.Update(command())
-	session = updatedModel.(interactiveSessionModel)
+	session = runSessionEffect(t, session, command)
 
 	view := session.View()
 	if !strings.Contains(view, "> Staging") {

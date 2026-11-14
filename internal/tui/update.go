@@ -46,9 +46,37 @@ type currentProfileDetectedMsg struct {
 	err       error
 }
 
+type undoStatusMsg struct {
+	requestID int
+	scope     *undoStatusScope
+	result    app.UndoResult
+	err       error
+}
+
+func readUndoStatus(workflow app.UndoWorkflow, scope *undoStatusScope, requestID int) tea.Cmd {
+	return func() tea.Msg {
+		result, err := workflow.Status()
+		return undoStatusMsg{requestID: requestID, scope: scope, result: result, err: err}
+	}
+}
+
+func (model *Model) refreshUndoStatus() tea.Cmd {
+	if model.undoWorkflow == nil {
+		return nil
+	}
+	model.undoRequestID++
+	model.undoStatus, model.undoStatusError = nil, nil
+	return readUndoStatus(*model.undoWorkflow, model.undoScope, model.undoRequestID)
+}
+
 // Update handles user input and application results.
 func (model Model) Update(message tea.Msg) (tea.Model, tea.Cmd) {
 	switch message := message.(type) {
+	case undoStatusMsg:
+		if message.scope == model.undoScope && message.requestID == model.undoRequestID && model.undoWorkflow != nil {
+			model.undoStatus, model.undoStatusError = &message.result, message.err
+		}
+		return model, nil
 	case applyCompletedMsg:
 		return model.handleApplyCompleted(message)
 	case confirmationPreviewCompletedMsg:
@@ -270,7 +298,8 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.currentProfiles = nil
 		model.currentDetection = currentProfileDetectionUnknown
 		model.currentDetectionError = nil
-		return model, nil
+		command := model.refreshUndoStatus()
+		return model, command
 	}
 
 	model.recoverableError = RecoverableError{}
@@ -282,7 +311,8 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 		model.currentDetection = currentProfileDetectionChecking
 		model.currentDetectionError = nil
 		model.currentRequestID++
-		return model, detectCurrentProfile(model.application, model.currentRequestID)
+		command := tea.Batch(detectCurrentProfile(model.application, model.currentRequestID), model.refreshUndoStatus())
+		return model, command
 	}
 
 	model.state = successState
@@ -291,6 +321,10 @@ func (model Model) handleApplyCompleted(message applyCompletedMsg) (tea.Model, t
 }
 
 func (model Model) handleListKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if matchesKey(message, keyUndo) && model.undoWorkflow != nil {
+		model.undoRequested = true
+		return model, nil
+	}
 	if matchesKey(message, keyQuit) {
 		return model, tea.Quit
 	}
@@ -712,6 +746,10 @@ func (model Model) handleConfirmKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (model Model) handleErrorKey(message tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if matchesKey(message, keyUndo) && model.undoWorkflow != nil {
+		model.undoRequested = true
+		return model, nil
+	}
 	if updatedModel, handled := model.handleFocusedPanelScrollKey(message); handled {
 		return updatedModel, nil
 	}
@@ -814,7 +852,8 @@ func (model Model) startProfileListRefresh() (tea.Model, tea.Cmd) {
 	model.currentDetection = currentProfileDetectionChecking
 	model.currentDetectionError = nil
 
-	return model, detectCurrentProfile(model.application, model.currentRequestID)
+	command := tea.Batch(detectCurrentProfile(model.application, model.currentRequestID), model.refreshUndoStatus())
+	return model, command
 }
 
 func (model Model) startDiffComparison(profileName string) (tea.Model, tea.Cmd) {

@@ -31,6 +31,7 @@ session-local reveal setting, and `v Hide values` indicates when reveal is on.
 | `Space` | Apply the selected profile and return to the list, or open protected confirmation. |
 | `i` | Inspect the selected profile. |
 | `c` | Open the configuration editor. |
+| `u` | Review undo recording, the saved apply, or interrupted-operation recovery. |
 | `s` | Open current status for managed configuration. |
 | `d` | Open managed patch preview for the selected profile. |
 | `r` | Refresh profile availability and current managed state. |
@@ -80,6 +81,7 @@ field. `q` is literal input instead of quit.
 | Recoverable error | Other non-quit key | Return to the profile list. |
 | Recoverable error | `PgUp` / `PgDn` | Scroll long error details when available. |
 | Recoverable error | `Home` / `End` | Jump to the top or bottom of long error details when available. |
+| Recoverable error | `u` | Open undo/recovery review when available. |
 | Protected confirmation | `Enter` / `y` | Confirm apply. |
 | Protected confirmation | `Esc` / `n` | Cancel and return to the profile list. |
 | Protected confirmation | `q` | Quit without applying changes. |
@@ -96,6 +98,27 @@ comparison errors, success screens, or final terminal summaries.
 Status screens are read-only. The diff screen remains read-only until `Enter` or
 `Space` is pressed. Opening status or diff never applies a profile, writes target
 files, creates target-file temporary files, or edits `.switchlet.yaml`.
+
+### Undo And Recovery
+
+| Screen | Key | Action |
+|---|---|---|
+| Overview | `Enter` | Check and review the available undo or recovery. |
+| Overview, recording disabled | `e` | Review recording opt-in and its privacy disclosure. |
+| Overview, saved record | `x` | Review discarding the record without changing target files. |
+| Confirmation | `Enter` / `y` | Execute the reviewed action after rechecking the record and file guards. |
+| Confirmation | `n` / `Esc` | Cancel and refresh the overview. |
+| Overview, failure, result | `r` | Refresh recording and recovery status. |
+| Overview, failure, result | `Esc` | Return to the picker. |
+| Result | `Enter` | Return to the picker. |
+| Long review | `PgUp` / `PgDn`, `Home` / `End` | Scroll affected files and details. |
+| Undo/recovery | `q` / `Ctrl+C` | Quit. |
+
+Undo and recovery never reveal stored values. Recording is opt-in; confirmation
+discloses that private snapshots can contain secrets and are not encrypted.
+Discard is a separate confirmation that removes the record, not a restoration.
+Once confirmed, cancellation does not stop an in-flight operation. Returning
+refreshes the current-profile comparison and preserves the picker selection/filter.
 
 ## Init Wizard
 
